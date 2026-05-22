@@ -1,0 +1,21 @@
+# Downloaded clips and output videos
+lifts/
+*.mp4
+*.mkv
+*.webm
+*.m4a
+*.part
+
+# yt-dlp cache
+.cache/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# Editor
+.idea/
+.vscode/
+*.swp
