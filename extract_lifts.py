@@ -125,34 +125,72 @@ def prompt_timestamps_manual() -> list[int]:
 
 # ── Core download / assembly logic ─────────────────────────────────────────────
 
+def get_clip_duration(path: Path) -> float:
+    """Return the real duration of a video file in seconds via ffprobe."""
+    result = subprocess.run(
+        ["ffprobe", "-v", "quiet",
+         "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1",
+         str(path)],
+        capture_output=True, text=True, check=True,
+    )
+    return float(result.stdout.strip())
+
+
 def download_clip(url: str, start: int, duration: int, output: Path, label: str) -> None:
     """Download a single timed section from YouTube using yt-dlp."""
     end = start + duration
     section = f"*{seconds_to_hms(start)}-{seconds_to_hms(end)}"
     print(f"\n  [{label}]  {seconds_to_hms(start)} → {seconds_to_hms(end)}")
 
+    tmp = output.with_suffix(".tmp.mp4")
     cmd = [
         "yt-dlp",
         "--download-sections", section,
         "--force-keyframes-at-cuts",           # accurate cut at exact timestamps (slow but precise)
         "-f", "bestvideo[vcodec^=avc1]+bestaudio[ext=m4a]",  # H.264 + AAC → Instagram compatible
         "--merge-output-format", "mp4",
-        "--postprocessor-args", "ffmpeg:-movflags +faststart",  # web-optimised MP4
         "-N", "4",                             # parallel fragment downloads
-        "-o", str(output),
+        "-o", str(tmp),
         "--no-playlist",
         url,
     ]
     subprocess.run(cmd, check=True)
 
+    # yt-dlp's --postprocessor-args doesn't reach the download-sections ffmpeg call,
+    # so we apply faststart explicitly as a separate stream-copy pass (fast, lossless)
+    faststart_cmd = [
+        "ffmpeg", "-i", str(tmp),
+        "-c", "copy", "-movflags", "+faststart",
+        "-y", str(output),
+    ]
+    subprocess.run(faststart_cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    tmp.unlink()
 
-def make_combined(clips: list[Path], output: Path) -> None:
-    """Stack three clips vertically with ffmpeg vstack (no audio)."""
+
+def make_combined(clips: list[Path], output: Path, preview_width: int = 0) -> None:
+    """Stack three clips vertically with ffmpeg vstack (no audio).
+
+    Shorter clips are frozen on their last frame until the longest one ends.
+    If preview_width > 0, each clip is scaled to that width before stacking.
+    """
+    real_durations = [get_clip_duration(c) for c in clips]
+    max_dur = max(real_durations)
+
     inputs: list[str] = []
     for c in clips:
         inputs += ["-i", str(c)]
 
-    filter_complex = "[0:v][1:v][2:v]vstack=inputs=3[v]"
+    # Build per-stream filter: optional scale + tpad freeze to match longest clip
+    labels = ["a", "b", "c"]
+    parts = []
+    for i, (dur, lbl) in enumerate(zip(real_durations, labels)):
+        pad = max_dur - dur
+        scale = f"scale={preview_width}:-2," if preview_width else ""
+        parts.append(f"[{i}:v]{scale}tpad=stop_mode=clone:stop_duration={pad:.3f}[{lbl}]")
+
+    filter_complex = ";".join(parts) + ";[a][b][c]vstack=inputs=3[v]"
+
     cmd = [
         "ffmpeg",
         *inputs,
@@ -170,17 +208,36 @@ def make_combined(clips: list[Path], output: Path) -> None:
     subprocess.run(cmd, check=True)
 
 
+def make_preview(source: Path, dest: Path, width: int) -> None:
+    """Generate a low-resolution copy of a clip for local preview."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        "ffmpeg", "-i", str(source),
+        "-vf", f"scale={width}:-2",
+        "-c:v", "libx264", "-crf", "28", "-preset", "fast",
+        "-c:a", "aac", "-b:a", "96k",
+        "-movflags", "+faststart",
+        "-y", str(dest),
+    ]
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def run(
     url: str,
     timestamps: list[int],
-    duration: int,
+    durations: dict[str, int],   # keys: "squat", "bench", "deadlift"
     squat_attempt: int,
     bench_attempt: int,
     deadlift_attempt: int,
     output_dir: Path,
     skip_individual: bool,
     skip_combined: bool,
+    preview_width: int,   # 0 = no preview
+    no_replay: bool = False,
 ) -> None:
+    if no_replay:
+        # Without a slow-motion replay, lifts are roughly half as long
+        durations = {k: max(10, v // 2) for k, v in durations.items()}
     output_dir.mkdir(parents=True, exist_ok=True)
 
     clip_paths: list[Path] = []
@@ -193,12 +250,23 @@ def run(
         for i, (ts, path) in enumerate(zip(timestamps, clip_paths), 1):
             movement = MOVEMENTS[i - 1]
             attempt = ((i - 1) % 3) + 1
+            duration = durations[movement]
             download_clip(url, ts, duration, path, f"lift {i:02d} — {movement} attempt {attempt}")
+            if preview_width:
+                prev = output_dir / "preview" / path.name
+                print(f"    → preview {prev.name}")
+                make_preview(path, prev, preview_width)
     else:
         missing = [p for p in clip_paths if not p.exists()]
         if missing:
             sys.exit("Missing clips (run without --skip-individual first):\n" +
                      "\n".join(f"  {p}" for p in missing))
+        if preview_width:
+            print(f"\nGenerating previews from existing clips...")
+            for path in clip_paths:
+                prev = output_dir / "preview" / path.name
+                print(f"  {path.name} → preview/{path.name}")
+                make_preview(path, prev, preview_width)
 
     if skip_combined:
         print(f"\nDone. Clips saved to: {output_dir}/")
@@ -209,11 +277,19 @@ def run(
         clip_paths[3 + bench_attempt - 1],       # bench:    index 3–5
         clip_paths[6 + deadlift_attempt - 1],    # deadlift: index 6–8
     ]
-    combined_path = output_dir / f"combined_s{squat_attempt}_b{bench_attempt}_d{deadlift_attempt}.mp4"
+    suffix = f"combined_s{squat_attempt}_b{bench_attempt}_d{deadlift_attempt}"
+    combined_path = output_dir / f"{suffix}.mp4"
     make_combined(selected, combined_path)
+
+    if preview_width:
+        prev_combined = output_dir / "preview" / f"{suffix}.mp4"
+        print(f"  → combined preview {prev_combined.name}")
+        make_combined(selected, prev_combined, preview_width=preview_width)
 
     print(f"\n{'='*52}")
     print(f"  Individual clips : {output_dir}/")
+    if preview_width:
+        print(f"  Previews (low-res): {output_dir}/preview/")
     print(f"  Combined video   : {combined_path}")
     print(f"{'='*52}")
 
@@ -248,9 +324,13 @@ def interactive_mode() -> None:
     else:
         timestamps = prompt_timestamps_manual()
 
-    duration = prompt_int(
-        "\nClip duration in seconds", DEFAULT_DURATION, min_val=10, max_val=300
-    )
+    print("\nClip duration in seconds (one per movement, Enter to keep same value):")
+    dur_default = prompt_int("  Default for all", DEFAULT_DURATION, min_val=10, max_val=300)
+    dur_squat    = prompt_int("  Squat",    dur_default, min_val=10, max_val=300)
+    dur_bench    = prompt_int("  Bench",    dur_default, min_val=10, max_val=300)
+    dur_deadlift = prompt_int("  Deadlift", dur_default, min_val=10, max_val=300)
+    durations = {"squat": dur_squat, "bench": dur_bench, "deadlift": dur_deadlift}
+
     output_dir = Path(prompt("Output directory", DEFAULT_OUTPUT_DIR))
 
     print("\nWhich attempt to include in the combined video?")
@@ -261,9 +341,11 @@ def interactive_mode() -> None:
 
     skip_ind  = not prompt_bool("\nDownload individual clips?", default=True)
     skip_comb = not prompt_bool("Create combined video?",      default=True)
+    want_prev = prompt_bool("Generate low-res previews? (useful for slow devices)", default=False)
+    prev_width = 640 if want_prev else 0
 
     print()
-    run(url, timestamps, duration, squat, bench, deadlift, output_dir, skip_ind, skip_comb)
+    run(url, timestamps, durations, squat, bench, deadlift, output_dir, skip_ind, skip_comb, prev_width)
 
 
 def cli_mode(args: argparse.Namespace) -> None:
@@ -278,16 +360,23 @@ def cli_mode(args: argparse.Namespace) -> None:
                      f"Use --times PATH or --timestamps t1..t9")
         timestamps = load_timestamps_file(times_path)
 
+    durations = {
+        "squat":    args.duration_squat    or args.duration,
+        "bench":    args.duration_bench    or args.duration,
+        "deadlift": args.duration_deadlift or args.duration,
+    }
     run(
         url=args.url,
         timestamps=timestamps,
-        duration=args.duration,
+        durations=durations,
         squat_attempt=args.squat,
         bench_attempt=args.bench,
         deadlift_attempt=args.deadlift,
         output_dir=Path(args.output_dir),
         skip_individual=args.skip_individual,
         skip_combined=args.skip_combined,
+        preview_width=args.preview_width,
+        no_replay=args.no_replay,
     )
 
 
@@ -322,7 +411,13 @@ examples:
     parser.add_argument("--timestamps", nargs=9, metavar="TS",
                         help="9 timestamps inline, e.g. 0:21:27 1h23:30 ... (overrides --times)")
     parser.add_argument("--duration", type=int, default=DEFAULT_DURATION, metavar="SECS",
-                        help=f"Clip duration in seconds (default: {DEFAULT_DURATION})")
+                        help=f"Clip duration in seconds for all movements (default: {DEFAULT_DURATION})")
+    parser.add_argument("--duration-squat", type=int, default=0, metavar="SECS",
+                        help="Clip duration for squats (overrides --duration)")
+    parser.add_argument("--duration-bench", type=int, default=0, metavar="SECS",
+                        help="Clip duration for bench press (overrides --duration)")
+    parser.add_argument("--duration-deadlift", type=int, default=0, metavar="SECS",
+                        help="Clip duration for deadlifts (overrides --duration)")
     parser.add_argument("--squat",    type=int, default=3, choices=[1, 2, 3], metavar="{1,2,3}",
                         help="Squat attempt for combined video (default: 3)")
     parser.add_argument("--bench",    type=int, default=3, choices=[1, 2, 3], metavar="{1,2,3}",
@@ -335,6 +430,18 @@ examples:
                         help="Skip downloads, use existing clips in --output-dir")
     parser.add_argument("--skip-combined", action="store_true",
                         help="Download individual clips only, skip combined video")
+    parser.add_argument("--preview", dest="preview_width", nargs="?", const=640,
+                        type=int, default=0, metavar="WIDTH",
+                        help="Generate low-res previews in <output-dir>/preview/ (default width: 640px)")
+    parser.add_argument(
+        "--no-replay", action="store_true", default=False,
+        help=(
+            "Use this ONLY if the competition video has no slow-motion replays after each lift. "
+            "Most federation broadcasts (AEP, IPF…) include a replay, so the default is replay=on. "
+            "When set, all clip durations are halved automatically. "
+            "Recommended: leave this unset unless you are sure there are no replays."
+        ),
+    )
     return parser
 
 
