@@ -9,10 +9,12 @@
     pre { white-space: pre-wrap; word-break: break-word; }
     [data-lang-btn] { opacity: 0.4; transition: opacity .15s; }
     [data-lang-btn].active { opacity: 1; }
+    .navbar { transition: transform .3s ease; }
+    .navbar-hidden { transform: translateY(-100%); }
   </style>
 </head>
 <body class="bg-light">
-  <nav class="navbar navbar-dark bg-dark mb-4">
+  <nav class="navbar navbar-dark bg-dark fixed-top">
     <div class="container">
       <a class="navbar-brand fw-bold" href="/">Powerlifting Clip Extractor</a>
       <div class="d-flex gap-1">
@@ -21,7 +23,7 @@
                 title="Español">🇪🇸</button>
         <button data-lang-btn="en" onclick="applyLang('en')"
                 class="btn btn-sm btn-dark border-0 p-1 lh-1" style="font-size:1.4rem"
-                title="English">🇬🇧</button>
+                title="English"><span style="display:inline-block;width:1em;height:1em;overflow:hidden;position:relative;vertical-align:-.15em"><span style="position:absolute;inset:0;clip-path:polygon(0 0,100% 0,0 100%);line-height:1">🇬🇧</span><span style="position:absolute;inset:0;clip-path:polygon(100% 0,100% 100%,0 100%);line-height:1">🇺🇸</span></span></button>
       </div>
     </div>
   </nav>
@@ -202,6 +204,26 @@
 
   <script>
   applyLang(localStorage.getItem('lang') || 'en');
+
+  const _nav = document.querySelector('.navbar');
+  document.body.style.paddingTop = _nav.offsetHeight + 'px';
+
+  let _lastY = window.scrollY, _hideTimer = null;
+  window.addEventListener('scroll', () => {
+    const y = window.scrollY;
+    if (y <= 0) {
+      _nav.classList.remove('navbar-hidden');
+      clearTimeout(_hideTimer);
+    } else if (y > _lastY) {
+      _nav.classList.add('navbar-hidden');
+      clearTimeout(_hideTimer);
+    } else {
+      _nav.classList.remove('navbar-hidden');
+      clearTimeout(_hideTimer);
+      _hideTimer = setTimeout(() => _nav.classList.add('navbar-hidden'), 2000);
+    }
+    _lastY = y;
+  }, { passive: true });
   </script>
 </body>
 </html>

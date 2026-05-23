@@ -94,7 +94,7 @@
         {% endfor %}
       </div>
 
-      <div class="row g-3">
+      <div id="combined-attempts" class="row g-3{% if form_data and 'skip_combined' in form_data %} d-none{% endif %}">
         {% for movement, i18n_key in [
             ("squat",    "attempt.squat"),
             ("bench",    "attempt.bench"),
@@ -132,7 +132,8 @@
         <div class="col-auto">
           <div class="form-check">
             <input class="form-check-input" type="checkbox" id="{{ name }}" name="{{ name }}"
-                   {% if form_data and name in form_data %}checked{% endif %}>
+                   {% if form_data and name in form_data %}checked{% endif %}
+                   {% if name == 'skip_combined' %}onchange="toggleSkipCombined()"{% endif %}>
             <label class="form-check-label" for="{{ name }}">
               <span data-i18n="{{ label_key }}">{{ label_key }}</span>
               {% if hint_key %}
@@ -161,7 +162,7 @@
   </div>
 
   {# ── 5. Music ── #}
-  <div class="card mb-4">
+  <div id="combined-music" class="card mb-4{% if form_data and 'skip_combined' in form_data %} d-none{% endif %}">
     <div class="card-header fw-semibold">
       <span data-i18n="card.music">Music</span>
       <span class="text-muted fw-normal" data-i18n="music.optional">(optional)</span>
@@ -199,6 +200,12 @@
 
 {% block scripts %}
 <script>
+function toggleSkipCombined() {
+  const skip = document.getElementById('skip_combined').checked;
+  document.getElementById('combined-attempts').classList.toggle('d-none', skip);
+  document.getElementById('combined-music').classList.toggle('d-none', skip);
+}
+
 function toggleTimestamps() {
   const mode = document.querySelector('input[name="timestamps_mode"]:checked').value;
   document.getElementById('ts_paste_area').classList.toggle('d-none', mode !== 'paste');
