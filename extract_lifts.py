@@ -12,9 +12,11 @@ Requirements: yt-dlp, ffmpeg
 """
 
 import argparse
+import json
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 MOVEMENTS = [
@@ -222,6 +224,132 @@ def make_preview(source: Path, dest: Path, width: int) -> None:
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+# ── Music helpers ──────────────────────────────────────────────────────────────
+
+def search_youtube(query: str, n: int = 5) -> list[dict]:
+    """Search YouTube and return up to n results as dicts with title/channel/duration/url."""
+    print(f"  Searching YouTube for: {query!r} ...")
+    result = subprocess.run(
+        ["yt-dlp", f"ytsearch{n}:{query}", "--flat-playlist", "-j", "--quiet"],
+        capture_output=True, text=True, check=True,
+    )
+    entries = []
+    for line in result.stdout.strip().splitlines():
+        if not line:
+            continue
+        d = json.loads(line)
+        vid_id = d.get("id", "")
+        entries.append({
+            "title":    d.get("title", "Unknown"),
+            "channel":  d.get("channel") or d.get("uploader", "Unknown"),
+            "duration": d.get("duration_string") or d.get("duration", "?"),
+            "url":      f"https://www.youtube.com/watch?v={vid_id}",
+        })
+    return entries
+
+
+def download_audio(url: str, dest: Path) -> None:
+    """Download the best available audio from a YouTube URL as m4a."""
+    print(f"  Downloading audio from: {url}")
+    cmd = [
+        "yt-dlp",
+        "-f", "bestaudio[ext=m4a]/bestaudio",
+        "-x", "--audio-format", "m4a",
+        "--no-playlist",
+        "-o", str(dest),
+        url,
+    ]
+    subprocess.run(cmd, check=True)
+
+
+def add_music(
+    video: Path,
+    audio: Path,
+    output: Path,
+    music_start: float = 0.0,
+    fade_secs: float = 2.0,
+) -> None:
+    """Mix an audio track into a silent video file.
+
+    music_start: seconds into the song to begin playback (adjusted automatically
+                 if the remaining song length is shorter than the video).
+    The audio is looped if shorter than the video, trimmed if longer, and
+    faded out over the last fade_secs seconds. The video stream is copied
+    without re-encoding.
+    """
+    video_dur = get_clip_duration(video)
+    song_dur  = get_clip_duration(audio)
+
+    # Clamp start so there is always enough song to cover the video
+    max_start = max(0.0, song_dur - video_dur)
+    if music_start > max_start:
+        print(f"  ℹ  Music start adjusted: {music_start:.1f}s → {max_start:.1f}s "
+              f"(song ends at {song_dur:.1f}s, video needs {video_dur:.1f}s)")
+        music_start = max_start
+
+    end_trim  = music_start + video_dur
+    fade_start = max(0.0, video_dur - fade_secs)
+
+    audio_filter = (
+        f"[1:a]aloop=loop=-1:size=2147483647,"             # loop in case song < video
+        f"atrim=start={music_start:.3f}:end={end_trim:.3f},"  # pick the chosen window
+        f"asetpts=PTS-STARTPTS,"                            # reset timestamps after trim
+        f"volume=0.85,"
+        f"afade=t=out:st={fade_start:.3f}:d={fade_secs}[aout]"
+    )
+    cmd = [
+        "ffmpeg",
+        "-i", str(video),
+        "-i", str(audio),
+        "-filter_complex", audio_filter,
+        "-map", "0:v",
+        "-map", "[aout]",
+        "-c:v", "copy",                            # lossless: no video re-encode
+        "-c:a", "aac", "-b:a", "192k",
+        "-movflags", "+faststart",
+        "-y", str(output),
+    ]
+    print(f"\n  [music]  Creating {output.name} ...")
+    subprocess.run(cmd, check=True)
+
+
+def resolve_music(source: str, interactive: bool = True) -> str:
+    """Return a YouTube URL from either a direct URL or a search query.
+
+    In interactive mode the user picks from a list of results.
+    In CLI mode the first result is auto-selected (use a URL for full control).
+    """
+    if source.startswith("http://") or source.startswith("https://"):
+        return source
+
+    # Search mode
+    results = search_youtube(source)
+    if not results:
+        sys.exit("Error: no YouTube results found for that search query.")
+
+    print()
+    for i, r in enumerate(results, 1):
+        print(f"  {i}. {r['title']}")
+        print(f"     {r['channel']}  —  {r['duration']}  —  {r['url']}")
+    print()
+
+    if not interactive:
+        print(f"  → Auto-selecting result 1 (pass a URL with --music for full control)")
+        return results[0]["url"]
+
+    while True:
+        raw = input(f"Choose a result (1–{len(results)}), or paste a different URL: ").strip()
+        if raw.startswith("http"):
+            return raw
+        try:
+            idx = int(raw)
+            if 1 <= idx <= len(results):
+                return results[idx - 1]["url"]
+        except ValueError:
+            pass
+        print(f"  (enter a number between 1 and {len(results)}, or a URL)")
+
+
 def run(
     url: str,
     timestamps: list[int],
@@ -234,6 +362,9 @@ def run(
     skip_combined: bool,
     preview_width: int,   # 0 = no preview
     no_replay: bool = False,
+    music_source: str = "",   # YouTube URL or search query; empty = no music
+    music_start: float = 0.0,
+    interactive: bool = False,
 ) -> None:
     if no_replay:
         # Without a slow-motion replay, lifts are roughly half as long
@@ -277,20 +408,46 @@ def run(
         clip_paths[3 + bench_attempt - 1],       # bench:    index 3–5
         clip_paths[6 + deadlift_attempt - 1],    # deadlift: index 6–8
     ]
-    suffix = f"combined_s{squat_attempt}_b{bench_attempt}_d{deadlift_attempt}"
-    combined_path = output_dir / f"{suffix}.mp4"
+    base = f"combined_s{squat_attempt}_b{bench_attempt}_d{deadlift_attempt}"
+
+    # When music will be added we label the silent version explicitly for Instagram
+    if music_source:
+        combined_path = output_dir / f"{base}_for-instagram.mp4"
+    else:
+        combined_path = output_dir / f"{base}.mp4"
+
     make_combined(selected, combined_path)
 
     if preview_width:
-        prev_combined = output_dir / "preview" / f"{suffix}.mp4"
+        prev_combined = output_dir / "preview" / combined_path.name
         print(f"  → combined preview {prev_combined.name}")
         make_combined(selected, prev_combined, preview_width=preview_width)
 
+    # Music: resolve source → download audio → mix into a second combined file
+    music_path: Path | None = None
+    if music_source:
+        music_url = resolve_music(music_source, interactive=interactive)
+        with tempfile.TemporaryDirectory() as tmp:
+            audio_file = Path(tmp) / "music.m4a"
+            download_audio(music_url, audio_file)
+            music_path = output_dir / f"{base}_with-music.mp4"
+            add_music(combined_path, audio_file, music_path, music_start=music_start)
+            if preview_width:
+                prev_music = output_dir / "preview" / music_path.name
+                print(f"  → music preview {prev_music.name}")
+                make_preview(music_path, prev_music, preview_width)
+
     print(f"\n{'='*52}")
-    print(f"  Individual clips : {output_dir}/")
+    print(f"  Individual clips   : {output_dir}/")
     if preview_width:
-        print(f"  Previews (low-res): {output_dir}/preview/")
-    print(f"  Combined video   : {combined_path}")
+        print(f"  Previews (low-res) : {output_dir}/preview/")
+    print(f"  Combined (Instagram): {combined_path}")
+    if music_path:
+        print(f"  Combined (with music): {music_path}")
+        print()
+        print("  ⚠  Do NOT upload the music version to Instagram (posts, reels or")
+        print("     stories — all are scanned). Use the for-instagram file instead")
+        print("     and add music directly in the Instagram app.")
     print(f"{'='*52}")
 
 
@@ -344,8 +501,34 @@ def interactive_mode() -> None:
     want_prev = prompt_bool("Generate low-res previews? (useful for slow devices)", default=False)
     prev_width = 640 if want_prev else 0
 
+    music_source = ""
+    music_start  = 0.0
+    if not skip_comb:
+        print()
+        if prompt_bool("Add music to the combined video?", default=False):
+            print()
+            print("  Recommended: paste a YouTube URL (you choose the exact track).")
+            print("  Alternative: type a search query and we'll show you 5 results.")
+            print("  Note: the Instagram-safe version (no music) will always be generated too.")
+            print()
+            music_source = input("  YouTube URL or search query: ").strip()
+            print()
+            print("  From which point in the song should it start?")
+            print("  Format: MM:SS or H:MM:SS — leave blank to start from the beginning.")
+            print("  If the remaining song is too short, the start will be adjusted automatically.")
+            raw_start = input("  Music start [0:00]: ").strip()
+            try:
+                music_start = float(parse_timestamp(raw_start)) if raw_start else 0.0
+            except ValueError:
+                print("  (invalid time, defaulting to beginning)")
+                music_start = 0.0
+        else:
+            music_start = 0.0
+
     print()
-    run(url, timestamps, durations, squat, bench, deadlift, output_dir, skip_ind, skip_comb, prev_width)
+    run(url, timestamps, durations, squat, bench, deadlift, output_dir,
+        skip_ind, skip_comb, prev_width, music_source=music_source,
+        music_start=music_start, interactive=True)
 
 
 def cli_mode(args: argparse.Namespace) -> None:
@@ -365,6 +548,8 @@ def cli_mode(args: argparse.Namespace) -> None:
         "bench":    args.duration_bench    or args.duration,
         "deadlift": args.duration_deadlift or args.duration,
     }
+    music_start = parse_timestamp(args.music_start) if args.music_start != "0" else 0
+
     run(
         url=args.url,
         timestamps=timestamps,
@@ -377,6 +562,8 @@ def cli_mode(args: argparse.Namespace) -> None:
         skip_combined=args.skip_combined,
         preview_width=args.preview_width,
         no_replay=args.no_replay,
+        music_source=args.music or "",
+        music_start=float(music_start),
     )
 
 
@@ -433,6 +620,25 @@ examples:
     parser.add_argument("--preview", dest="preview_width", nargs="?", const=640,
                         type=int, default=0, metavar="WIDTH",
                         help="Generate low-res previews in <output-dir>/preview/ (default width: 640px)")
+    parser.add_argument(
+        "--music-start", metavar="TIME", default="0",
+        help=(
+            "Start the music from this point in the song (e.g. '1:30' or '0:45'). "
+            "Default: beginning of the song. "
+            "If the remaining song length from this point is shorter than the video, "
+            "the start is automatically shifted earlier so the song covers the full video."
+        ),
+    )
+    parser.add_argument(
+        "--music", metavar="URL_OR_QUERY", default=None,
+        help=(
+            "Add music to the combined video. Provide a YouTube URL (recommended) "
+            "or a search query (we'll show 5 results to choose from). "
+            "When used, two files are generated: one labelled 'for-instagram' (no music) "
+            "and one 'with-music' for personal use. "
+            "WARNING: uploading the music version to Instagram may trigger copyright detection."
+        ),
+    )
     parser.add_argument(
         "--no-replay", action="store_true", default=False,
         help=(
