@@ -18,7 +18,11 @@
 </div>
 
 <div id="downloads-section" class="d-none">
-  <h4 class="mb-3">Output files</h4>
+  <div class="d-flex align-items-center gap-3 mb-3">
+    <h4 class="mb-0">Output files</h4>
+    <a id="zip-btn" href="/download/{{ job_id }}/zip"
+       class="btn btn-success btn-sm">Download all (ZIP)</a>
+  </div>
   <div class="row g-2" id="downloads-list"></div>
   <p class="text-muted small mt-2">
     Upload <strong>for-instagram</strong> files to Instagram and add music inside the app.<br>

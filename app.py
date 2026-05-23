@@ -12,11 +12,12 @@ import contextlib
 import io
 import threading
 import uuid
+import zipfile
 from pathlib import Path
 
 from flask import Flask, jsonify, redirect, render_template, request, send_file, url_for
 
-from extract_lifts import load_timestamps_file, parse_timestamp, run
+from extract_lifts import parse_timestamp, run
 
 app = Flask(__name__)
 
@@ -24,20 +25,30 @@ app = Flask(__name__)
 jobs: dict[str, dict] = {}
 
 
-def _build_run_kwargs(form: dict, output_dir: Path) -> dict:
-    url = form["url"].strip()
+class FormError(ValueError):
+    def __init__(self, message: str, field: str = ""):
+        super().__init__(message)
+        self.field = field
+
+
+def _build_run_kwargs(form, files, output_dir: Path) -> dict:
+    url = form.get("url", "").strip()
     if not url:
-        raise ValueError("YouTube URL is required.")
+        raise FormError("YouTube URL is required.", field="url")
 
     if form.get("timestamps_mode") == "file":
-        path = Path(form["timestamps_file"].strip())
-        if not path.exists():
-            raise FileNotFoundError(f"Timestamps file not found: {path}")
-        timestamps = load_timestamps_file(path)
+        uploaded = files.get("timestamps_file")
+        if not uploaded or uploaded.filename == "":
+            raise FormError("Please select a timestamps file.", field="timestamps_file")
+        content = uploaded.read().decode("utf-8")
+        lines = [l.strip() for l in content.splitlines() if l.strip()]
+        if len(lines) != 9:
+            raise FormError(f"Expected 9 timestamps, got {len(lines)}.", field="timestamps_file")
+        timestamps = [parse_timestamp(l) for l in lines]
     else:
         lines = [l.strip() for l in form.get("timestamps_text", "").splitlines() if l.strip()]
         if len(lines) != 9:
-            raise ValueError(f"Expected 9 timestamps, got {len(lines)}.")
+            raise FormError(f"Expected 9 timestamps, got {len(lines)}.", field="timestamps_text")
         timestamps = [parse_timestamp(l) for l in lines]
 
     duration = int(form.get("duration") or 60)
@@ -98,11 +109,14 @@ def index():
 @app.route("/run", methods=["POST"])
 def start_job():
     job_id = uuid.uuid4().hex
-    output_dir = Path(request.form.get("output_dir") or "lifts")
+    output_dir = Path("lifts") / job_id[:8]
     try:
-        run_kwargs = _build_run_kwargs(request.form, output_dir)
-    except (ValueError, FileNotFoundError) as e:
-        return render_template("index.html", error=str(e)), 400
+        run_kwargs = _build_run_kwargs(request.form, request.files, output_dir)
+    except FormError as e:
+        return render_template("index.html",
+                               error=str(e),
+                               error_field=e.field,
+                               form_data=request.form), 400
 
     jobs[job_id] = {"status": "running", "log": "", "output_dir": str(output_dir)}
     threading.Thread(target=_worker, args=(job_id, run_kwargs), daemon=True).start()
@@ -132,6 +146,21 @@ def status_json(job_id: str):
             )
 
     return jsonify({"status": job["status"], "log": job["log"], "output_files": output_files})
+
+
+@app.route("/download/<job_id>/zip")
+def download_zip(job_id: str):
+    job = jobs.get(job_id)
+    if not job or job["status"] != "done":
+        return "Not ready", 404
+    out_dir = Path(job["output_dir"])
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in sorted(out_dir.rglob("*.mp4")):
+            zf.write(f, f.relative_to(out_dir))
+    buf.seek(0)
+    return send_file(buf, mimetype="application/zip", as_attachment=True,
+                     download_name="powerlifting_clips.zip")
 
 
 @app.route("/download/<job_id>/<path:filename>")
