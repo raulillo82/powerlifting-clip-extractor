@@ -2,11 +2,14 @@
 import io
 import json
 import time
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from werkzeug.security import generate_password_hash
 
 import app as flask_app
+import db
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -37,9 +40,23 @@ def clear_jobs():
 
 
 @pytest.fixture
-def client():
+def client(tmp_path, monkeypatch):
+    # Redirect DB to a temp file so tests never touch users.db
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+    db.init_db()
+
+    # Create a test admin user and log in
+    with db.get_db() as conn:
+        conn.execute(
+            "INSERT INTO users (username, display_name, password_hash, is_admin)"
+            " VALUES (?, ?, ?, 1)",
+            ("testadmin", "Test Admin", generate_password_hash("testpass")),
+        )
+        conn.commit()
+
     flask_app.app.config["TESTING"] = True
     with flask_app.app.test_client() as c:
+        c.post("/login", data={"username": "testadmin", "password": "testpass"})
         yield c
 
 
