@@ -32,18 +32,19 @@
   </div>
 </div>
 
-{# ── Downloads ── #}
-<div id="downloads-section" class="d-none">
-  <div class="d-flex align-items-center gap-3 mb-3">
-    <h4 class="mb-0">Output files</h4>
-    <a id="zip-btn" href="/download/{{ job_id }}/zip"
-       class="btn btn-success btn-sm">Download all (ZIP)</a>
-  </div>
-  <div class="row g-2" id="downloads-list"></div>
-  <p class="text-muted small mt-2">
+{# ── Download ── #}
+<div id="download-section" class="d-none">
+  <a id="zip-btn" href="/download/{{ job_id }}/zip"
+     class="btn btn-success btn-lg px-5">Download ZIP</a>
+  <p id="expiry-notice" class="text-muted small mt-2 mb-0"></p>
+  <p class="text-muted small mt-1">
     Upload <strong>for-instagram</strong> files to Instagram and add music inside the app.<br>
     Send <strong>with-music</strong> files via WhatsApp or Telegram.
   </p>
+</div>
+
+<div id="error-section" class="d-none">
+  <div class="alert alert-danger">Extraction failed — see the log for details.</div>
 </div>
 
 <a href="/" class="btn btn-outline-secondary mt-3">New extraction</a>
@@ -58,23 +59,21 @@ const badgeEl    = document.getElementById('status-badge');
 const progressEl = document.getElementById('progress-bar');
 const stepEl     = document.getElementById('step-label');
 const counterEl  = document.getElementById('clip-counter');
-const dlSection  = document.getElementById('downloads-section');
-const dlList     = document.getElementById('downloads-list');
+const dlSection  = document.getElementById('download-section');
+const errSection = document.getElementById('error-section');
+const expiryEl   = document.getElementById('expiry-notice');
 
-// Total steps: 9 clips + combined video + optional music
-// We don't know upfront if music is included, so we treat 9+1 = 10 as the baseline.
 const TOTAL_CLIPS = 9;
 
 function updateProgress(log) {
-  const clips     = (log.match(/\[lift \d+/g) || []).length;
-  const combined  = log.includes('[combined]');
-  const music     = log.includes('[music]');
-  const done      = log.includes('====');
+  const clips    = (log.match(/\[lift \d+/g) || []).length;
+  const combined = log.includes('[combined]');
+  const music    = log.includes('[music]');
+  const done     = log.includes('====');
 
-  // Each clip is worth 1 step; combined = 1; music = 1
   const totalSteps = TOTAL_CLIPS + 1 + (music ? 1 : 0);
-  let step = clips + (combined ? 1 : 0) + (music ? 1 : 0);
-  const pct = done ? 100 : Math.round((step / totalSteps) * 100);
+  const step = clips + (combined ? 1 : 0) + (music ? 1 : 0);
+  const pct  = done ? 100 : Math.round((step / totalSteps) * 100);
 
   progressEl.style.width = pct + '%';
 
@@ -97,28 +96,10 @@ function updateProgress(log) {
   }
 }
 
-function fileLabel(filename) {
-  if (filename.includes('with-music'))    return { text: 'with music',    cls: 'success'   };
-  if (filename.includes('for-instagram')) return { text: 'for Instagram', cls: 'primary'   };
-  if (filename.includes('combined'))      return { text: 'combined',      cls: 'info'      };
-  if (filename.startsWith('preview/'))    return { text: 'preview',       cls: 'secondary' };
-  return { text: 'clip', cls: 'light' };
-}
-
-function renderDownloads(files) {
-  dlList.innerHTML = '';
-  files.forEach(f => {
-    const { text, cls } = fileLabel(f);
-    const short = f.split('/').pop();
-    dlList.innerHTML += `
-      <div class="col-md-6">
-        <a href="/download/${jobId}/${f}"
-           class="btn btn-outline-${cls} w-100 text-start text-truncate" download>
-          <span class="badge bg-${cls} text-${cls === 'light' ? 'dark' : 'white'} me-2">${text}</span>${short}
-        </a>
-      </div>`;
-  });
-  dlSection.classList.remove('d-none');
+function formatExpiry(ts) {
+  const d = new Date(ts * 1000);
+  const pad = n => String(n).padStart(2, '0');
+  return `${pad(d.getDate())}/${pad(d.getMonth()+1)} at ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function poll() {
@@ -135,7 +116,12 @@ function poll() {
         badgeEl.className = 'badge bg-success fs-6';
         progressEl.classList.remove('progress-bar-animated', 'progress-bar-striped');
         clearInterval(timer);
-        if (data.output_files && data.output_files.length > 0) renderDownloads(data.output_files);
+        dlSection.classList.remove('d-none');
+        if (data.expires_at) {
+          expiryEl.textContent =
+            `You can re-download from this URL until ${formatExpiry(data.expires_at)}. `
+            + `After that, the files will be deleted from the server.`;
+        }
       } else if (data.status === 'error') {
         badgeEl.textContent = 'Error';
         badgeEl.className = 'badge bg-danger fs-6';
@@ -143,6 +129,7 @@ function poll() {
         progressEl.classList.remove('progress-bar-animated', 'progress-bar-striped');
         stepEl.textContent = 'Failed — see log for details';
         clearInterval(timer);
+        errSection.classList.remove('d-none');
       }
     });
 }

@@ -11,6 +11,7 @@ From another machine on the same network: http://mordor:5000
 import contextlib
 import io
 import json
+import shutil
 import threading
 import time
 import uuid
@@ -22,6 +23,8 @@ from flask import Flask, jsonify, redirect, render_template, request, send_file,
 from extract_lifts import parse_timestamp, run
 
 app = Flask(__name__)
+
+EXPIRY_SECONDS = 24 * 3600  # files are kept for 24 hours after the job finishes
 
 # In-memory cache — populated from disk on cache miss so server restarts are safe
 jobs: dict[str, dict] = {}
@@ -40,6 +43,7 @@ def _save_job(job_id: str, job: dict) -> None:
         "status":     job["status"],
         "log":        job["log"],
         "output_dir": job["output_dir"],
+        "expires_at": job.get("expires_at"),
     }))
 
 
@@ -48,6 +52,38 @@ def _load_job(job_id: str) -> dict | None:
     if not path.exists():
         return None
     return json.loads(path.read_text())
+
+
+# ── Expiry / cleanup ───────────────────────────────────────────────────────────
+
+def _cleanup_loop() -> None:
+    """Background thread: delete job directories whose expiry has passed."""
+    while True:
+        time.sleep(3600)
+        now = time.time()
+        lifts_root = Path("lifts")
+        if not lifts_root.exists():
+            continue
+        for job_dir in lifts_root.iterdir():
+            if not job_dir.is_dir():
+                continue
+            status_file = job_dir / "status.json"
+            if not status_file.exists():
+                continue  # CLI-generated directory — never auto-delete
+            try:
+                data = json.loads(status_file.read_text())
+                expires_at = data.get("expires_at")
+                if expires_at and now > expires_at:
+                    shutil.rmtree(job_dir, ignore_errors=True)
+                    # Evict from memory cache
+                    for jid, job in list(jobs.items()):
+                        if job.get("output_dir") == str(job_dir):
+                            jobs.pop(jid, None)
+            except Exception:
+                pass
+
+
+threading.Thread(target=_cleanup_loop, daemon=True).start()
 
 
 # ── Live log buffer ────────────────────────────────────────────────────────────
@@ -79,6 +115,7 @@ def _worker(job_id: str, run_kwargs: dict) -> None:
         with contextlib.redirect_stdout(buf):
             run(**run_kwargs)
         job["status"] = "done"
+        job["expires_at"] = time.time() + EXPIRY_SECONDS
     except SystemExit as e:
         job["status"] = "error"
         buf.write(f"\nFailed: {e}\n")
@@ -87,7 +124,7 @@ def _worker(job_id: str, run_kwargs: dict) -> None:
         buf.write(f"\nUnexpected error: {e}\n")
     finally:
         job["log"] = buf.getvalue()
-        _save_job(job_id, job)  # final authoritative write
+        _save_job(job_id, job)
 
 
 # ── Form parsing ───────────────────────────────────────────────────────────────
@@ -170,16 +207,15 @@ def start_job():
                                error_field=e.field,
                                form_data=request.form), 400
 
-    job = {"status": "running", "log": "", "output_dir": str(output_dir)}
+    job = {"status": "running", "log": "", "output_dir": str(output_dir), "expires_at": None}
     jobs[job_id] = job
-    _save_job(job_id, job)  # persist immediately so the page survives a restart
+    _save_job(job_id, job)
     threading.Thread(target=_worker, args=(job_id, run_kwargs), daemon=True).start()
     return redirect(url_for("status", job_id=job_id))
 
 
 @app.route("/status/<job_id>")
 def status(job_id: str):
-    # Accept the page even if the job isn't in memory — disk recovery happens in status_json
     return render_template("status.html", job_id=job_id)
 
 
@@ -188,18 +224,13 @@ def status_json(job_id: str):
     job = jobs.get(job_id) or _load_job(job_id)
     if not job:
         return jsonify({"error": "not found"}), 404
-    jobs[job_id] = job  # restore to memory cache if it came from disk
+    jobs[job_id] = job
 
-    output_files: list[str] = []
-    if job["status"] == "done":
-        out_dir = Path(job["output_dir"])
-        if out_dir.exists():
-            output_files = sorted(
-                str(f.relative_to(out_dir))
-                for f in out_dir.rglob("*.mp4")
-            )
-
-    return jsonify({"status": job["status"], "log": job["log"], "output_files": output_files})
+    return jsonify({
+        "status":     job["status"],
+        "log":        job["log"],
+        "expires_at": job.get("expires_at"),
+    })
 
 
 @app.route("/download/<job_id>/zip")
@@ -207,6 +238,11 @@ def download_zip(job_id: str):
     job = jobs.get(job_id) or _load_job(job_id)
     if not job or job["status"] != "done":
         return "Not ready", 404
+
+    expires_at = job.get("expires_at")
+    if expires_at and time.time() > expires_at:
+        return render_template("expired.html"), 410
+
     out_dir = Path(job["output_dir"])
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -215,18 +251,6 @@ def download_zip(job_id: str):
     buf.seek(0)
     return send_file(buf, mimetype="application/zip", as_attachment=True,
                      download_name="powerlifting_clips.zip")
-
-
-@app.route("/download/<job_id>/<path:filename>")
-def download_file(job_id: str, filename: str):
-    job = jobs.get(job_id) or _load_job(job_id)
-    if not job:
-        return "Job not found", 404
-    file_path = (Path(job["output_dir"]) / filename).resolve()
-    out_dir = Path(job["output_dir"]).resolve()
-    if not file_path.is_relative_to(out_dir) or not file_path.is_file():
-        return "File not found", 404
-    return send_file(file_path, as_attachment=True)
 
 
 if __name__ == "__main__":
