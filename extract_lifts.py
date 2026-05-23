@@ -201,6 +201,9 @@ def make_combined(clips: list[Path], output: Path, preview_width: int = 0) -> No
         "-c:v", "libx264",
         "-crf", "23",
         "-preset", "fast",
+        "-color_primaries", "bt709",           # preserve colour metadata through vstack re-encode
+        "-color_trc", "bt709",
+        "-colorspace", "bt709",
         "-an",                                 # no audio in combined video
         "-movflags", "+faststart",
         "-y",
