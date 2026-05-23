@@ -1,5 +1,7 @@
 # Powerlifting Clip Extractor
 
+> 🖥️ **¿Quieres montar tu propia instancia?** → [Guía de despliegue](#despliegue-en-producción) &nbsp;·&nbsp; **Want to self-host?** → [Deployment guide](#production-deployment)
+
 ---
 
 > 🇬🇧 [Read in English ↓](#english)
@@ -7,6 +9,17 @@
 ---
 
 ## Español
+
+### Índice
+
+- [Hoja de ruta](#hoja-de-ruta)
+- [Requisitos](#requisitos)
+- [Uso](#uso)
+- [Opciones principales](#opciones-principales)
+- [Archivos generados](#archivos-generados)
+- [Despliegue en producción](#despliegue-en-producción)
+
+---
 
 ### Hoja de ruta
 
@@ -38,11 +51,15 @@
 
 Extrae levantamientos individuales de un vídeo de competición de powerlifting en YouTube y genera un vídeo combinado compatible con Instagram con sentadilla, press de banca y peso muerto apilados verticalmente.
 
+---
+
 ### Requisitos
 
 - Python 3.10+
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`sudo zypper install yt-dlp` en openSUSE)
 - ffmpeg (`sudo zypper install ffmpeg`)
+
+---
 
 ### Uso
 
@@ -68,6 +85,8 @@ Lee los tiempos de `times.txt` por defecto (usa `--times otro.txt` para cambiarl
 python extract_lifts.py https://youtube.com/live/VIDEO_ID \
     --timestamps 0:21:27 0:29:55 0:38:15 1h23:30 1h32:21 1h41:30 2h26:15 2h33:4 2h41:35
 ```
+
+---
 
 ### Opciones principales
 
@@ -106,6 +125,8 @@ Un tiempo por línea, 9 en total (sentadillas 1–3, banca 1–3, peso muerto 1�
 2h41:35
 ```
 
+---
+
 ### Archivos generados
 
 ```
@@ -126,9 +147,198 @@ Todos los archivos son MP4 / H.264 / AAC con `-movflags +faststart`, compatibles
 
 ---
 
+### Despliegue en producción
+
+<details>
+<summary>🖥️ Guía de despliegue — para administradores del sistema (haz clic para expandir)</summary>
+
+> Esta sección está dirigida a quien quiera montar su propia instancia del servidor.
+> Los usuarios habituales no necesitan leer esto.
+
+#### Software necesario en el servidor
+
+- Linux con systemd (probado en openSUSE Tumbleweed aarch64 / RPi5)
+- Python 3.10+
+- `gunicorn`, `flask`, `flask-login` y el resto de dependencias de `requirements.txt`
+- `ffmpeg` y `yt-dlp`
+- `nginx`
+- `acme.sh` (para el certificado TLS)
+- `firewalld` o equivalente
+
+En openSUSE:
+
+```bash
+sudo zypper install python3 python3-pip ffmpeg yt-dlp nginx firewalld
+pip install -r requirements.txt
+```
+
+#### 1. Clonar el repositorio
+
+```bash
+git clone https://github.com/raulillo82/powerlifting-clip-extractor.git ~/powerlifting-clip-extractor
+cd ~/powerlifting-clip-extractor
+```
+
+#### 2. Primera ejecución
+
+`secret.key` y `users.db` se generan automáticamente al arrancar la app por primera vez. **No los subas al repositorio** (ya están en `.gitignore`).
+
+#### 3. Servicio gunicorn (systemd user service)
+
+Crea `~/.config/systemd/user/powerlifting.service`:
+
+```ini
+[Unit]
+Description=Powerlifting Clip Extractor (gunicorn)
+After=network.target
+
+[Service]
+WorkingDirectory=/home/TU_USUARIO/powerlifting-clip-extractor
+ExecStart=/usr/bin/gunicorn --workers 1 --threads 4 --bind 127.0.0.1:5000 --timeout 600 app:app
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user enable --now powerlifting.service
+loginctl enable-linger TU_USUARIO   # arranque automático sin sesión activa
+```
+
+#### 4. nginx como proxy inverso con HTTPS
+
+Crea `/etc/nginx/conf.d/powerlifting.conf`:
+
+```nginx
+server {
+    listen 80;
+    server_name TU_DOMINIO;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name TU_DOMINIO;
+
+    ssl_certificate     /etc/nginx/ssl/TU_DOMINIO.crt;
+    ssl_certificate_key /etc/nginx/ssl/TU_DOMINIO.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+
+    client_max_body_size 20M;
+
+    location / {
+        proxy_pass         http://127.0.0.1:5000;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_read_timeout 600;
+        proxy_send_timeout 600;
+    }
+}
+```
+
+```bash
+sudo systemctl enable --now nginx
+```
+
+#### 5. Certificado TLS gratuito con acme.sh
+
+Se recomienda usar un proveedor DNS con API (DuckDNS, Cloudflare…) para el challenge DNS-01, ya que no requiere abrir el puerto 80.
+
+Ejemplo con DuckDNS:
+
+```bash
+git clone --depth 1 https://github.com/acmesh-official/acme.sh.git /tmp/acme_src
+cd /tmp/acme_src && ./acme.sh --install --home ~/.acme.sh --accountemail TU_EMAIL --no-cron
+
+export DuckDNS_Token="TU_TOKEN"
+~/.acme.sh/acme.sh --issue --dns dns_duckdns -d TU_DOMINIO --server zerossl
+
+sudo mkdir -p /etc/nginx/ssl
+~/.acme.sh/acme.sh --install-cert -d TU_DOMINIO \
+  --key-file /etc/nginx/ssl/TU_DOMINIO.key \
+  --fullchain-file /etc/nginx/ssl/TU_DOMINIO.crt \
+  --reloadcmd "sudo systemctl reload nginx"
+```
+
+La renovación se gestiona automáticamente mediante el cron que instala acme.sh.
+
+#### 6. Ajustes de seguridad
+
+**SELinux** (si está en modo enforcing):
+
+```bash
+sudo setsebool -P httpd_can_network_connect 1
+```
+
+**firewalld**:
+
+```bash
+sudo firewall-cmd --zone=public --add-service=https --permanent
+sudo firewall-cmd --zone=trusted --add-interface=lo --permanent
+sudo firewall-cmd --reload
+```
+
+#### 7. IP dinámica (opcional)
+
+Si el servidor está en una red con IP residencial dinámica, puedes actualizar el DNS automáticamente con un timer systemd cada 5 minutos.
+
+Guarda el token en `~/.config/duckdns.env`:
+```
+DUCKDNS_TOKEN=tu_token_aqui
+```
+
+Crea `~/.config/systemd/user/duckdns.service`:
+```ini
+[Unit]
+Description=DuckDNS IP update
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/duckdns.env
+ExecStart=/usr/bin/curl -s "https://www.duckdns.org/update?domains=TU_SUBDOMINIO&token=${DUCKDNS_TOKEN}&ip=" -o /tmp/duckdns.log
+```
+
+Crea `~/.config/systemd/user/duckdns.timer`:
+```ini
+[Unit]
+Description=Actualiza IP en DuckDNS cada 5 minutos
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
+```
+
+```bash
+systemctl --user enable --now duckdns.timer
+```
+
+</details>
+
+---
+
 ## English <a name="english"></a>
 
 > 🇪🇸 [Leer en español ↑](#español)
+
+---
+
+### Table of contents
+
+- [Roadmap](#roadmap)
+- [Requirements](#requirements)
+- [Usage](#usage)
+- [Options](#options)
+- [Output](#output)
+- [Production deployment](#production-deployment)
 
 ---
 
@@ -151,7 +361,6 @@ Todos los archivos son MP4 / H.264 / AAC con `-movflags +faststart`, compatibles
 | ✅ | Job queue with pool of 2 parallel workers | — |
 | ✅ | Dry-run mode for testing without real downloads | — |
 | ✅ | Web route tests (77 tests, CI) | — |
-| 🔲 | Production deployment (RPi5, nginx, gunicorn, HTTPS) | Claude |
 | ✅ | Production deployment (RPi5, nginx, gunicorn, HTTPS) | — |
 | 🔲 | **Statistics** (panel at `/admin/stats`) | Claude |
 |    | ↳ City heatmap — Spain + Canary Islands by default, world map option | |
@@ -163,11 +372,15 @@ Todos los archivos son MP4 / H.264 / AAC con `-movflags +faststart`, compatibles
 
 Extracts individual lifts from a YouTube powerlifting competition and creates an Instagram-compatible combined video with squat, bench and deadlift stacked vertically.
 
+---
+
 ### Requirements
 
 - Python 3.10+
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`sudo zypper install yt-dlp` on openSUSE)
 - ffmpeg (`sudo zypper install ffmpeg`)
+
+---
 
 ### Usage
 
@@ -193,6 +406,8 @@ Reads timestamps from `times.txt` by default (use `--times other.txt` to overrid
 python extract_lifts.py https://youtube.com/live/VIDEO_ID \
     --timestamps 0:21:27 0:29:55 0:38:15 1h23:30 1h32:21 1h41:30 2h26:15 2h33:4 2h41:35
 ```
+
+---
 
 ### Options
 
@@ -231,6 +446,8 @@ One timestamp per line, 9 total (squats 1–3, bench 1–3, deadlift 1–3). Mix
 2h41:35
 ```
 
+---
+
 ### Output
 
 ```
@@ -248,3 +465,181 @@ lifts/
 > ⚠️ **Do not upload the `with-music` file to Instagram** (posts, reels or stories — all are scanned). Use the `for-instagram` file and add music directly inside the Instagram app.
 
 All files are MP4 / H.264 / AAC with `-movflags +faststart`, compatible with Instagram, WhatsApp and Telegram.
+
+---
+
+### Production deployment
+
+<details>
+<summary>🖥️ Deployment guide — for system administrators (click to expand)</summary>
+
+> This section is intended for anyone who wants to run their own instance of the server.
+> Regular users do not need to read this.
+
+#### Server requirements
+
+- Linux with systemd (tested on openSUSE Tumbleweed aarch64 / RPi5)
+- Python 3.10+
+- `gunicorn`, `flask`, `flask-login` and the rest of `requirements.txt`
+- `ffmpeg` and `yt-dlp`
+- `nginx`
+- `acme.sh` (for the TLS certificate)
+- `firewalld` or equivalent
+
+On openSUSE:
+
+```bash
+sudo zypper install python3 python3-pip ffmpeg yt-dlp nginx firewalld
+pip install -r requirements.txt
+```
+
+#### 1. Clone the repository
+
+```bash
+git clone https://github.com/raulillo82/powerlifting-clip-extractor.git ~/powerlifting-clip-extractor
+cd ~/powerlifting-clip-extractor
+```
+
+#### 2. First run
+
+`secret.key` and `users.db` are generated automatically the first time the app starts. **Do not commit them** (already in `.gitignore`).
+
+#### 3. gunicorn systemd user service
+
+Create `~/.config/systemd/user/powerlifting.service`:
+
+```ini
+[Unit]
+Description=Powerlifting Clip Extractor (gunicorn)
+After=network.target
+
+[Service]
+WorkingDirectory=/home/YOUR_USER/powerlifting-clip-extractor
+ExecStart=/usr/bin/gunicorn --workers 1 --threads 4 --bind 127.0.0.1:5000 --timeout 600 app:app
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user enable --now powerlifting.service
+loginctl enable-linger YOUR_USER   # start on boot without an active session
+```
+
+#### 4. nginx reverse proxy with HTTPS
+
+Create `/etc/nginx/conf.d/powerlifting.conf`:
+
+```nginx
+server {
+    listen 80;
+    server_name YOUR_DOMAIN;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name YOUR_DOMAIN;
+
+    ssl_certificate     /etc/nginx/ssl/YOUR_DOMAIN.crt;
+    ssl_certificate_key /etc/nginx/ssl/YOUR_DOMAIN.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+
+    client_max_body_size 20M;
+
+    location / {
+        proxy_pass         http://127.0.0.1:5000;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_read_timeout 600;
+        proxy_send_timeout 600;
+    }
+}
+```
+
+```bash
+sudo systemctl enable --now nginx
+```
+
+#### 5. Free TLS certificate with acme.sh
+
+Using a DNS provider with an API (DuckDNS, Cloudflare…) for the DNS-01 challenge is recommended — it does not require opening port 80.
+
+Example with DuckDNS:
+
+```bash
+git clone --depth 1 https://github.com/acmesh-official/acme.sh.git /tmp/acme_src
+cd /tmp/acme_src && ./acme.sh --install --home ~/.acme.sh --accountemail YOUR_EMAIL --no-cron
+
+export DuckDNS_Token="YOUR_TOKEN"
+~/.acme.sh/acme.sh --issue --dns dns_duckdns -d YOUR_DOMAIN --server zerossl
+
+sudo mkdir -p /etc/nginx/ssl
+~/.acme.sh/acme.sh --install-cert -d YOUR_DOMAIN \
+  --key-file /etc/nginx/ssl/YOUR_DOMAIN.key \
+  --fullchain-file /etc/nginx/ssl/YOUR_DOMAIN.crt \
+  --reloadcmd "sudo systemctl reload nginx"
+```
+
+Renewal is handled automatically by the cron job acme.sh installs.
+
+#### 6. Security settings
+
+**SELinux** (if running in enforcing mode):
+
+```bash
+sudo setsebool -P httpd_can_network_connect 1
+```
+
+**firewalld**:
+
+```bash
+sudo firewall-cmd --zone=public --add-service=https --permanent
+sudo firewall-cmd --zone=trusted --add-interface=lo --permanent
+sudo firewall-cmd --reload
+```
+
+#### 7. Dynamic DNS (optional)
+
+If the server is on a residential connection with a dynamic IP, you can update DNS automatically every 5 minutes using a systemd timer.
+
+Store the token in `~/.config/duckdns.env`:
+```
+DUCKDNS_TOKEN=your_token_here
+```
+
+Create `~/.config/systemd/user/duckdns.service`:
+```ini
+[Unit]
+Description=DuckDNS IP update
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/duckdns.env
+ExecStart=/usr/bin/curl -s "https://www.duckdns.org/update?domains=YOUR_SUBDOMAIN&token=${DUCKDNS_TOKEN}&ip=" -o /tmp/duckdns.log
+```
+
+Create `~/.config/systemd/user/duckdns.timer`:
+```ini
+[Unit]
+Description=Update DuckDNS IP every 5 minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
+```
+
+```bash
+systemctl --user enable --now duckdns.timer
+```
+
+</details>
