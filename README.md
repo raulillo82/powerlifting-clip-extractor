@@ -8,6 +8,22 @@
 
 ## Español
 
+### Hoja de ruta
+
+| Estado | Tarea | Responsable |
+|---|---|---|
+| ✅ | Descarga de clips individuales con `yt-dlp` y `--download-sections` | — |
+| ✅ | Vídeo combinado con 3 levantamientos apilados verticalmente | — |
+| ✅ | Compatibilidad Instagram / WhatsApp / Telegram (H.264 + AAC + faststart) | — |
+| ✅ | Duración configurable por movimiento (sentadilla / banca / peso muerto) | — |
+| ✅ | Freeze en el último frame para clips de distinta duración | — |
+| ✅ | Previews en baja resolución para dispositivos lentos | — |
+| ✅ | Modo interactivo y modo parámetros (CLI) | — |
+| ✅ | Música en el combinado con punto de inicio configurable | — |
+| 🧪 | Probar el modo interactivo manualmente | Usuario |
+| 🔲 | Tests automatizados (`pytest`) | Claude |
+| 🔲 | Interfaz web (Flask) | Claude |
+
 Extrae levantamientos individuales de un vídeo de competición de powerlifting en YouTube y genera un vídeo combinado compatible con Instagram con sentadilla, press de banca y peso muerto apilados verticalmente.
 
 ### Requisitos
@@ -103,6 +119,22 @@ Todos los archivos son MP4 / H.264 / AAC con `-movflags +faststart`, compatibles
 > 🇪🇸 [Leer en español ↑](#español)
 
 ---
+
+### Roadmap
+
+| Status | Task | Owner |
+|---|---|---|
+| ✅ | Individual clip download with `yt-dlp` and `--download-sections` | — |
+| ✅ | Combined video with 3 lifts stacked vertically | — |
+| ✅ | Instagram / WhatsApp / Telegram compatibility (H.264 + AAC + faststart) | — |
+| ✅ | Per-movement clip duration (squat / bench / deadlift) | — |
+| ✅ | Freeze on last frame for clips of different lengths | — |
+| ✅ | Low-res previews for slow devices | — |
+| ✅ | Interactive mode and parameter (CLI) mode | — |
+| ✅ | Music on combined video with configurable start point | — |
+| 🧪 | Test interactive mode manually | User |
+| 🔲 | Automated tests (`pytest`) | Claude |
+| 🔲 | Web interface (Flask) | Claude |
 
 Extracts individual lifts from a YouTube powerlifting competition and creates an Instagram-compatible combined video with squat, bench and deadlift stacked vertically.
 
