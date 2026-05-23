@@ -1,7 +1,7 @@
 # Powerlifting Clip Extractor
 
 > 🌐 **Accede a la herramienta → [raulillo82.duckdns.org](https://raulillo82.duckdns.org)**
-> *(Necesitas una cuenta — pide acceso al administrador / You need an account — ask the administrator for access)*
+> *(Puedes crear tu cuenta gratis desde la propia web mientras haya plazas disponibles / You can register for free directly from the site while slots are available)*
 
 > 🖥️ ¿Eres administrador y quieres montar tu propia instancia? → [Guía de despliegue (ES)](#despliegue-en-producción) &nbsp;·&nbsp; [Deployment guide (EN)](#production-deployment)
 
