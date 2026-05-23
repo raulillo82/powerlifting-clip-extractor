@@ -131,11 +131,20 @@ function renderError() {
   errSection.classList.remove('d-none');
 }
 
+function renderQueued(data) {
+  badgeEl.textContent = T('badge.queued');
+  badgeEl.className = 'badge bg-secondary fs-6';
+  const pos = data.queue_pos || 1;
+  stepEl.textContent = T('step.queued').replace('{pos}', pos);
+  counterEl.textContent = '';
+}
+
 // Called by base.html when the user switches language
 function onLangChange() {
   if (!lastData) return;
-  if (lastData.status === 'done')  renderDone(lastData);
-  if (lastData.status === 'error') renderError();
+  if (lastData.status === 'done')   renderDone(lastData);
+  if (lastData.status === 'error')  renderError();
+  if (lastData.status === 'queued') renderQueued(lastData);
   if (lastData.status === 'running' && lastData.log) updateProgress(lastData.log);
 }
 
@@ -147,7 +156,6 @@ function poll() {
       if (data.log) {
         logEl.textContent = data.log;
         logEl.scrollTop = logEl.scrollHeight;
-        updateProgress(data.log);
       }
       if (data.status === 'done') {
         progressEl.classList.remove('progress-bar-animated', 'progress-bar-striped');
@@ -156,14 +164,19 @@ function poll() {
       } else if (data.status === 'error') {
         clearInterval(timer);
         renderError();
+      } else if (data.status === 'queued') {
+        renderQueued(data);
       } else {
         badgeEl.textContent = T('badge.running');
+        badgeEl.className = 'badge bg-warning text-dark fs-6';
+        if (data.log) updateProgress(data.log);
       }
     });
 }
 
 // Init badge text before first poll
-badgeEl.textContent = T('badge.running');
+badgeEl.textContent = T('badge.queued');
+badgeEl.className = 'badge bg-secondary fs-6';
 stepEl.textContent  = T('step.starting');
 
 const timer = setInterval(poll, 2000);

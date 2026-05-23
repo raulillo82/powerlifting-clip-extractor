@@ -12,6 +12,7 @@ import contextlib
 import io
 import json
 import os
+import queue
 import shutil
 import threading
 import time
@@ -42,9 +43,13 @@ app.register_blueprint(admin_bp)
 init_db()
 
 EXPIRY_SECONDS = 24 * 3600  # files are kept for 24 hours after the job finishes
+MAX_WORKERS = 2
 
 # In-memory cache — populated from disk on cache miss so server restarts are safe
 jobs: dict[str, dict] = {}
+
+# FIFO job queue consumed by a fixed pool of worker threads
+_job_queue: queue.Queue = queue.Queue()
 
 
 # ── Persistence ────────────────────────────────────────────────────────────────
@@ -101,6 +106,38 @@ def _cleanup_loop() -> None:
 
 
 threading.Thread(target=_cleanup_loop, daemon=True).start()
+
+
+# ── Queue / worker pool ────────────────────────────────────────────────────────
+
+def _queue_worker() -> None:
+    """Persistent worker thread: pulls jobs from the queue and executes them."""
+    while True:
+        job_id, run_kwargs = _job_queue.get()
+        job = jobs.get(job_id)
+        if job is not None:
+            job["status"] = "running"
+            _save_job(job_id, job)
+            _worker(job_id, run_kwargs)
+        _job_queue.task_done()
+
+
+def _queue_position(job_id: str) -> int:
+    """Return the 1-based position in the pending queue, or 0 if not queued."""
+    job = jobs.get(job_id)
+    if not job or job["status"] != "queued":
+        return 0
+    target_t = job.get("queued_at", 0.0)
+    ahead = sum(
+        1 for jid, j in jobs.items()
+        if jid != job_id and j["status"] == "queued"
+        and j.get("queued_at", 0.0) < target_t
+    )
+    return ahead + 1
+
+
+for _ in range(MAX_WORKERS):
+    threading.Thread(target=_queue_worker, daemon=True).start()
 
 
 # ── Live log buffer ────────────────────────────────────────────────────────────
@@ -227,10 +264,11 @@ def start_job():
                                error_field=e.field,
                                form_data=request.form), 400
 
-    job = {"status": "running", "log": "", "output_dir": str(output_dir), "expires_at": None}
+    job = {"status": "queued", "log": "", "output_dir": str(output_dir),
+           "expires_at": None, "queued_at": time.time()}
     jobs[job_id] = job
     _save_job(job_id, job)
-    threading.Thread(target=_worker, args=(job_id, run_kwargs), daemon=True).start()
+    _job_queue.put((job_id, run_kwargs))
     return redirect(url_for("status", job_id=job_id))
 
 
@@ -252,6 +290,7 @@ def status_json(job_id: str):
         "status":     job["status"],
         "log":        job["log"],
         "expires_at": job.get("expires_at"),
+        "queue_pos":  _queue_position(job_id),
     })
 
 

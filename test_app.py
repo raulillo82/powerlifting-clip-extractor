@@ -76,7 +76,7 @@ class TestIndex:
 class TestRun:
     def _post(self, client, overrides=None):
         data = {**VALID_FORM, **(overrides or {})}
-        with patch("app._save_job"), patch("app.threading.Thread"):
+        with patch("app._save_job"), patch("app._job_queue.put"):
             return client.post("/run", data=data, follow_redirects=False)
 
     def test_missing_url_returns_400(self, client):
@@ -103,10 +103,10 @@ class TestRun:
         assert r.status_code == 302
         assert "/status/" in r.headers["Location"]
 
-    def test_valid_form_creates_running_job(self, client):
+    def test_valid_form_creates_queued_job(self, client):
         self._post(client)
         assert len(flask_app.jobs) == 1
-        assert next(iter(flask_app.jobs.values()))["status"] == "running"
+        assert next(iter(flask_app.jobs.values()))["status"] == "queued"
 
     def test_file_mode_missing_file_returns_400(self, client):
         assert self._post(client, {"timestamps_mode": "file"}).status_code == 400
@@ -398,3 +398,67 @@ class TestDryRun:
         job = self._poll(client, job_id)
         assert "[dry run]" in job["log"]
         shutil.rmtree(Path(flask_app.jobs[job_id]["output_dir"]), ignore_errors=True)
+
+
+# ── Queue system ──────────────────────────────────────────────────────────────
+
+class TestQueue:
+    """Tests for the FIFO worker-pool queue."""
+
+    def test_status_json_includes_queue_pos(self, client):
+        flask_app.jobs["q1"] = {
+            "status": "queued", "log": "", "output_dir": "x",
+            "expires_at": None, "queued_at": time.time(),
+        }
+        r = client.get("/status/q1/json")
+        data = json.loads(r.data)
+        assert "queue_pos" in data
+        assert data["queue_pos"] >= 1
+
+    def test_running_job_has_zero_queue_pos(self, client):
+        flask_app.jobs["r1"] = {
+            "status": "running", "log": "", "output_dir": "x",
+            "expires_at": None,
+        }
+        data = json.loads(client.get("/status/r1/json").data)
+        assert data["queue_pos"] == 0
+
+    def test_queue_pos_ordering(self, client):
+        t0 = time.time()
+        flask_app.jobs["qa"] = {
+            "status": "queued", "log": "", "output_dir": "x",
+            "expires_at": None, "queued_at": t0,
+        }
+        flask_app.jobs["qb"] = {
+            "status": "queued", "log": "", "output_dir": "x",
+            "expires_at": None, "queued_at": t0 + 1,
+        }
+        pos_a = json.loads(client.get("/status/qa/json").data)["queue_pos"]
+        pos_b = json.loads(client.get("/status/qb/json").data)["queue_pos"]
+        assert pos_a == 1
+        assert pos_b == 2
+
+    def test_multiple_dry_run_jobs_all_complete(self, client):
+        data = {**VALID_FORM, "dry_run": "on"}
+        r1 = client.post("/run", data=data, follow_redirects=False)
+        r2 = client.post("/run", data=data, follow_redirects=False)
+        r3 = client.post("/run", data=data, follow_redirects=False)
+
+        def job_id(r):
+            return r.headers["Location"].split("/status/")[1].strip("/")
+
+        ids = [job_id(r1), job_id(r2), job_id(r3)]
+
+        deadline = time.monotonic() + 15.0
+        while time.monotonic() < deadline:
+            statuses = [
+                json.loads(client.get(f"/status/{jid}/json").data)["status"]
+                for jid in ids
+            ]
+            if all(s == "done" for s in statuses):
+                break
+            time.sleep(0.1)
+
+        assert all(s == "done" for s in statuses)
+        for jid in ids:
+            shutil.rmtree(Path(flask_app.jobs[jid]["output_dir"]), ignore_errors=True)
