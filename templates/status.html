@@ -2,15 +2,15 @@
 {% block content %}
 
 <div class="d-flex align-items-center gap-3 mb-3">
-  <h2 class="mb-0">Job status</h2>
-  <span id="status-badge" class="badge bg-warning text-dark fs-6">Running...</span>
+  <h2 class="mb-0" data-i18n="status.title">Job status</h2>
+  <span id="status-badge" class="badge bg-warning text-dark fs-6"></span>
 </div>
 
 {# ── Progress ── #}
-<div id="progress-section" class="card mb-3">
+<div class="card mb-3">
   <div class="card-body py-2">
     <div class="d-flex justify-content-between align-items-center mb-1">
-      <small id="step-label" class="text-muted">Starting...</small>
+      <small id="step-label" class="text-muted"></small>
       <small id="clip-counter" class="text-muted"></small>
     </div>
     <div class="progress" style="height: 8px;">
@@ -23,37 +23,40 @@
 {# ── Log ── #}
 <div class="card mb-4">
   <div class="card-header d-flex justify-content-between align-items-center">
-    <span class="fw-semibold">Log</span>
-    <small class="text-muted">yt-dlp download progress is shown in the terminal, not here</small>
+    <span class="fw-semibold" data-i18n="log.header">Log</span>
+    <small class="text-muted" data-i18n="log.hint">yt-dlp download progress is shown in the terminal, not here</small>
   </div>
   <div class="card-body p-0">
     <pre id="log-output" class="m-0 p-3 bg-dark text-light rounded-bottom"
-         style="max-height: 420px; overflow-y: auto; font-size: 0.85rem;">Waiting for output...</pre>
+         style="max-height: 420px; overflow-y: auto; font-size: 0.85rem;"></pre>
   </div>
 </div>
 
 {# ── Download ── #}
 <div id="download-section" class="d-none">
   <a id="zip-btn" href="/download/{{ job_id }}/zip"
-     class="btn btn-success btn-lg px-5">Download ZIP</a>
+     class="btn btn-success btn-lg px-5" data-i18n="btn.zip">Download ZIP</a>
   <p id="expiry-notice" class="text-muted small mt-2 mb-0"></p>
   <p class="text-muted small mt-1">
-    Upload <strong>for-instagram</strong> files to Instagram and add music inside the app.<br>
-    Send <strong>with-music</strong> files via WhatsApp or Telegram.
+    <span data-i18n="warning.ig">Upload</span>
+    <strong data-i18n="warning.ig.b">for-instagram</strong>
+    <span data-i18n="warning.ig.c">files to Instagram and add music inside the app. Send</span>
+    <strong data-i18n="warning.ig.d">with-music</strong>
+    <span data-i18n="warning.ig.e">files via WhatsApp or Telegram.</span>
   </p>
 </div>
 
 <div id="error-section" class="d-none">
-  <div class="alert alert-danger">Extraction failed — see the log for details.</div>
+  <div class="alert alert-danger" data-i18n="err.failed">Extraction failed — see the log for details.</div>
 </div>
 
-<a href="/" class="btn btn-outline-secondary mt-3">New extraction</a>
+<a href="/" class="btn btn-outline-secondary mt-3" data-i18n="btn.new">New extraction</a>
 
 {% endblock %}
 
 {% block scripts %}
 <script>
-const jobId = {{ job_id | tojson }};
+const jobId      = {{ job_id | tojson }};
 const logEl      = document.getElementById('log-output');
 const badgeEl    = document.getElementById('status-badge');
 const progressEl = document.getElementById('progress-bar');
@@ -64,6 +67,15 @@ const errSection = document.getElementById('error-section');
 const expiryEl   = document.getElementById('expiry-notice');
 
 const TOTAL_CLIPS = 9;
+let lastData = null;   // saved so language changes can re-render
+
+function T(key) {
+  return (TRANSLATIONS[currentLang] || TRANSLATIONS.en)[key] || key;
+}
+
+function movementKey(clips) {
+  return clips <= 3 ? 'mov.squat' : clips <= 6 ? 'mov.bench' : 'mov.deadlift';
+}
 
 function updateProgress(log) {
   const clips    = (log.match(/\[lift \d+/g) || []).length;
@@ -71,27 +83,24 @@ function updateProgress(log) {
   const music    = log.includes('[music]');
   const done     = log.includes('====');
 
-  const totalSteps = TOTAL_CLIPS + 1 + (music ? 1 : 0);
-  const step = clips + (combined ? 1 : 0) + (music ? 1 : 0);
-  const pct  = done ? 100 : Math.round((step / totalSteps) * 100);
-
-  progressEl.style.width = pct + '%';
+  const total = TOTAL_CLIPS + 1 + (music ? 1 : 0);
+  const step  = clips + (combined ? 1 : 0) + (music ? 1 : 0);
+  progressEl.style.width = (done ? 100 : Math.round(step / total * 100)) + '%';
 
   if (done) {
-    stepEl.textContent = 'All done!';
+    stepEl.textContent = T('step.done');
     counterEl.textContent = '';
   } else if (music) {
-    stepEl.textContent = 'Adding music...';
+    stepEl.textContent = T('step.music');
     counterEl.textContent = '';
   } else if (combined) {
-    stepEl.textContent = 'Creating combined video...';
+    stepEl.textContent = T('step.combined');
     counterEl.textContent = '';
   } else if (clips > 0) {
-    const movement = clips <= 3 ? 'squat' : clips <= 6 ? 'bench' : 'deadlift';
-    stepEl.textContent = `Downloading clip ${clips} / ${TOTAL_CLIPS} (${movement})`;
-    counterEl.textContent = clips + ' / ' + TOTAL_CLIPS;
+    stepEl.textContent = `${T('step.clip')} ${clips} / ${TOTAL_CLIPS} (${T(movementKey(clips))})`;
+    counterEl.textContent = `${clips} / ${TOTAL_CLIPS}`;
   } else {
-    stepEl.textContent = 'Starting download...';
+    stepEl.textContent = T('step.init');
     counterEl.textContent = '';
   }
 }
@@ -99,40 +108,63 @@ function updateProgress(log) {
 function formatExpiry(ts) {
   const d = new Date(ts * 1000);
   const pad = n => String(n).padStart(2, '0');
-  return `${pad(d.getDate())}/${pad(d.getMonth()+1)} at ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${pad(d.getDate())}/${pad(d.getMonth()+1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function renderDone(data) {
+  badgeEl.textContent = T('badge.done');
+  badgeEl.className = 'badge bg-success fs-6';
+  if (data.log) updateProgress(data.log);
+  dlSection.classList.remove('d-none');
+  if (data.expires_at) {
+    expiryEl.textContent =
+      `${T('expiry.until')} ${formatExpiry(data.expires_at)}. ${T('expiry.after')}`;
+  }
+}
+
+function renderError() {
+  badgeEl.textContent = T('badge.error');
+  badgeEl.className = 'badge bg-danger fs-6';
+  progressEl.classList.add('bg-danger');
+  progressEl.classList.remove('progress-bar-animated', 'progress-bar-striped');
+  stepEl.textContent = T('step.failed');
+  errSection.classList.remove('d-none');
+}
+
+// Called by base.html when the user switches language
+function onLangChange() {
+  if (!lastData) return;
+  if (lastData.status === 'done')  renderDone(lastData);
+  if (lastData.status === 'error') renderError();
+  if (lastData.status === 'running' && lastData.log) updateProgress(lastData.log);
 }
 
 function poll() {
   fetch(`/status/${jobId}/json`)
     .then(r => r.json())
     .then(data => {
+      lastData = data;
       if (data.log) {
         logEl.textContent = data.log;
         logEl.scrollTop = logEl.scrollHeight;
         updateProgress(data.log);
       }
       if (data.status === 'done') {
-        badgeEl.textContent = 'Done';
-        badgeEl.className = 'badge bg-success fs-6';
         progressEl.classList.remove('progress-bar-animated', 'progress-bar-striped');
         clearInterval(timer);
-        dlSection.classList.remove('d-none');
-        if (data.expires_at) {
-          expiryEl.textContent =
-            `You can re-download from this URL until ${formatExpiry(data.expires_at)}. `
-            + `After that, the files will be deleted from the server.`;
-        }
+        renderDone(data);
       } else if (data.status === 'error') {
-        badgeEl.textContent = 'Error';
-        badgeEl.className = 'badge bg-danger fs-6';
-        progressEl.classList.add('bg-danger');
-        progressEl.classList.remove('progress-bar-animated', 'progress-bar-striped');
-        stepEl.textContent = 'Failed — see log for details';
         clearInterval(timer);
-        errSection.classList.remove('d-none');
+        renderError();
+      } else {
+        badgeEl.textContent = T('badge.running');
       }
     });
 }
+
+// Init badge text before first poll
+badgeEl.textContent = T('badge.running');
+stepEl.textContent  = T('step.starting');
 
 const timer = setInterval(poll, 2000);
 poll();

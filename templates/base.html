@@ -7,18 +7,201 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
     pre { white-space: pre-wrap; word-break: break-word; }
+    [data-lang-btn] { opacity: 0.4; transition: opacity .15s; }
+    [data-lang-btn].active { opacity: 1; }
   </style>
 </head>
 <body class="bg-light">
   <nav class="navbar navbar-dark bg-dark mb-4">
     <div class="container">
       <a class="navbar-brand fw-bold" href="/">Powerlifting Clip Extractor</a>
+      <div class="d-flex gap-1">
+        <button data-lang-btn="es" onclick="applyLang('es')"
+                class="btn btn-sm btn-dark border-0 p-1 lh-1" style="font-size:1.4rem"
+                title="Español">🇪🇸</button>
+        <button data-lang-btn="en" onclick="applyLang('en')"
+                class="btn btn-sm btn-dark border-0 p-1 lh-1" style="font-size:1.4rem"
+                title="English">🇬🇧</button>
+      </div>
     </div>
   </nav>
+
   <div class="container pb-5">
     {% block content %}{% endblock %}
   </div>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+  <script>
+  const TRANSLATIONS = {
+    en: {
+      // ── index ──
+      'page.new':              'New extraction',
+      'card.video':            'Video',
+      'label.url':             'YouTube URL',
+      'ts.paste':              'Paste manually',
+      'ts.file':               'Upload file',
+      'ts.paste.label':        '9 timestamps — one per line (squats 1–3, bench 1–3, deadlift 1–3)',
+      'ts.file.label':         'times.txt file',
+      'ts.file.hint':          '(9 timestamps, one per line)',
+      'card.clips':            'Clip settings',
+      'label.duration':        'Default duration (s)',
+      'label.dur.squat':       'Squat (s)',
+      'label.dur.bench':       'Bench (s)',
+      'label.dur.deadlift':    'Deadlift (s)',
+      'ph.same.default':       'same as default',
+      'attempt.squat':         'Squat attempt in combined video',
+      'attempt.bench':         'Bench attempt in combined video',
+      'attempt.deadlift':      'Deadlift attempt in combined video',
+      'card.options':          'Options',
+      'opt.skip.ind':          'Skip individual downloads',
+      'opt.skip.ind.hint':     'use existing clips',
+      'opt.skip.comb':         'Skip combined video',
+      'opt.no.replay':         'No slow-motion replay',
+      'opt.no.replay.hint':    'halves all durations',
+      'opt.preview':           'Generate low-res previews',
+      'label.preview.width':   'Preview width (px)',
+      'card.music':            'Music',
+      'music.optional':        '(optional)',
+      'music.desc.1':          'When set, two combined videos are generated: one without music for Instagram, and one with music for WhatsApp / Telegram / personal use.',
+      'music.desc.2':          'Do not upload the music version to Instagram',
+      'music.desc.2b':         '— posts, reels and stories are all scanned.',
+      'music.tip':             'Tip:',
+      'music.tip.text':        'paste a YouTube URL for exact control. If you enter a search query instead, the first result is auto-selected.',
+      'label.music':           'YouTube URL or search query',
+      'label.music.start':     'Start at (MM:SS)',
+      'btn.extract':           'Extract',
+      // ── status ──
+      'status.title':          'Job status',
+      'log.header':            'Log',
+      'log.hint':              'yt-dlp download progress is shown in the terminal, not here',
+      'btn.zip':               'Download ZIP',
+      'expiry.until':          'You can re-download from this URL until',
+      'expiry.after':          'After that, the files will be deleted from the server.',
+      'warning.ig':            'Upload',
+      'warning.ig.b':          'for-instagram',
+      'warning.ig.c':          'files to Instagram and add music inside the app. Send',
+      'warning.ig.d':          'with-music',
+      'warning.ig.e':          'files via WhatsApp or Telegram.',
+      'err.failed':            'Extraction failed — see the log for details.',
+      'btn.new':               'New extraction',
+      // ── status: dynamic (set by JS) ──
+      'badge.running':         'Running...',
+      'badge.done':            'Done',
+      'badge.error':           'Error',
+      'step.starting':         'Starting...',
+      'step.init':             'Starting download...',
+      'step.clip':             'Downloading clip',
+      'step.combined':         'Creating combined video...',
+      'step.music':            'Adding music...',
+      'step.done':             'All done!',
+      'step.failed':           'Failed — see log for details',
+      'mov.squat':             'squat',
+      'mov.bench':             'bench',
+      'mov.deadlift':          'deadlift',
+      // ── expired ──
+      'expired.title':         'Link expired',
+      'expired.desc':          'These files were automatically deleted from the server 24 hours after the extraction finished.',
+    },
+    es: {
+      'page.new':              'Nueva extracción',
+      'card.video':            'Vídeo',
+      'label.url':             'URL de YouTube',
+      'ts.paste':              'Pegar manualmente',
+      'ts.file':               'Subir archivo',
+      'ts.paste.label':        '9 marcas de tiempo — una por línea (sentadillas 1–3, banca 1–3, peso muerto 1–3)',
+      'ts.file.label':         'Archivo times.txt',
+      'ts.file.hint':          '(9 marcas de tiempo, una por línea)',
+      'card.clips':            'Ajustes de clips',
+      'label.duration':        'Duración por defecto (s)',
+      'label.dur.squat':       'Sentadilla (s)',
+      'label.dur.bench':       'Banca (s)',
+      'label.dur.deadlift':    'Peso muerto (s)',
+      'ph.same.default':       'igual que por defecto',
+      'attempt.squat':         'Intento de sentadilla en el combinado',
+      'attempt.bench':         'Intento de banca en el combinado',
+      'attempt.deadlift':      'Intento de peso muerto en el combinado',
+      'card.options':          'Opciones',
+      'opt.skip.ind':          'Omitir descargas individuales',
+      'opt.skip.ind.hint':     'usar clips ya descargados',
+      'opt.skip.comb':         'Omitir vídeo combinado',
+      'opt.no.replay':         'Sin repetición a cámara lenta',
+      'opt.no.replay.hint':    'reduce a la mitad todas las duraciones',
+      'opt.preview':           'Generar previsualización en baja resolución',
+      'label.preview.width':   'Ancho de preview (px)',
+      'card.music':            'Música',
+      'music.optional':        '(opcional)',
+      'music.desc.1':          'Cuando se activa, se generan dos vídeos combinados: uno sin música para Instagram, y otro con música para WhatsApp / Telegram / uso personal.',
+      'music.desc.2':          'No subas la versión con música a Instagram',
+      'music.desc.2b':         '— posts, reels e historias se escanean todos.',
+      'music.tip':             'Consejo:',
+      'music.tip.text':        'pega una URL de YouTube para mayor control. Si introduces una búsqueda, se selecciona automáticamente el primer resultado.',
+      'label.music':           'URL de YouTube o búsqueda',
+      'label.music.start':     'Empezar en (MM:SS)',
+      'btn.extract':           'Extraer',
+      'status.title':          'Estado del job',
+      'log.header':            'Log',
+      'log.hint':              'El progreso de yt-dlp se muestra en el terminal, no aquí',
+      'btn.zip':               'Descargar ZIP',
+      'expiry.until':          'Puedes volver a descargar desde esta URL hasta',
+      'expiry.after':          'Después, los archivos se eliminarán del servidor.',
+      'warning.ig':            'Sube los archivos',
+      'warning.ig.b':          'for-instagram',
+      'warning.ig.c':          'a Instagram y añade la música desde la propia app. Envía los archivos',
+      'warning.ig.d':          'with-music',
+      'warning.ig.e':          'por WhatsApp o Telegram.',
+      'err.failed':            'La extracción ha fallado — consulta el log para más detalles.',
+      'btn.new':               'Nueva extracción',
+      'badge.running':         'En curso...',
+      'badge.done':            'Listo',
+      'badge.error':           'Error',
+      'step.starting':         'Iniciando...',
+      'step.init':             'Iniciando descarga...',
+      'step.clip':             'Descargando clip',
+      'step.combined':         'Creando vídeo combinado...',
+      'step.music':            'Añadiendo música...',
+      'step.done':             '¡Todo listo!',
+      'step.failed':           'Error — ver log para más detalles',
+      'mov.squat':             'sentadilla',
+      'mov.bench':             'banca',
+      'mov.deadlift':          'peso muerto',
+      'expired.title':         'Enlace caducado',
+      'expired.desc':          'Estos archivos se eliminaron automáticamente del servidor 24 horas después de que finalizó la extracción.',
+    }
+  };
+
+  let currentLang = 'en';
+
+  function applyLang(lang) {
+    if (!TRANSLATIONS[lang]) return;
+    currentLang = lang;
+    const T = TRANSLATIONS[lang];
+
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const v = T[el.dataset.i18n];
+      if (v !== undefined) el.textContent = v;
+    });
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+      const v = T[el.dataset.i18nPlaceholder];
+      if (v !== undefined) el.placeholder = v;
+    });
+
+    document.documentElement.lang = lang;
+    localStorage.setItem('lang', lang);
+
+    document.querySelectorAll('[data-lang-btn]').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.langBtn === lang);
+    });
+
+    // Let status page re-render dynamic text when language changes
+    if (typeof onLangChange === 'function') onLangChange(T);
+  }
+  </script>
+
   {% block scripts %}{% endblock %}
+
+  <script>
+  applyLang(localStorage.getItem('lang') || 'en');
+  </script>
 </body>
 </html>

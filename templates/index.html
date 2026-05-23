@@ -1,20 +1,19 @@
 {% extends "base.html" %}
 {% block content %}
 
-<h2 class="mb-4">New extraction</h2>
+<h2 class="mb-4" data-i18n="page.new">New extraction</h2>
 
 {% if error %}
 <div class="alert alert-danger">{{ error }}</div>
 {% endif %}
 
-{# enctype required for file upload #}
 <form method="post" action="/run" enctype="multipart/form-data">
 
   {# ── 1. Video ── #}
   <div class="card mb-3">
-    <div class="card-header fw-semibold">Video</div>
+    <div class="card-header fw-semibold" data-i18n="card.video">Video</div>
     <div class="card-body">
-      <label class="form-label" for="url">YouTube URL</label>
+      <label class="form-label" for="url" data-i18n="label.url">YouTube URL</label>
       <input type="url" class="form-control {% if error_field == 'url' %}is-invalid{% endif %}"
              id="url" name="url" required
              value="{{ form_data.get('url', '') if form_data else '' }}"
@@ -36,19 +35,19 @@
                  id="ts_paste" value="paste"
                  {% if ts_mode != 'file' %}checked{% endif %}
                  onchange="toggleTimestamps()">
-          <label class="form-check-label" for="ts_paste">Paste manually</label>
+          <label class="form-check-label" data-i18n="ts.paste" for="ts_paste">Paste manually</label>
         </div>
         <div class="form-check form-check-inline">
           <input class="form-check-input" type="radio" name="timestamps_mode"
                  id="ts_file" value="file"
                  {% if ts_mode == 'file' %}checked{% endif %}
                  onchange="toggleTimestamps()">
-          <label class="form-check-label" for="ts_file">Upload file</label>
+          <label class="form-check-label" data-i18n="ts.file" for="ts_file">Upload file</label>
         </div>
       </div>
 
       <div id="ts_paste_area" {% if ts_mode == 'file' %}class="d-none"{% endif %}>
-        <label class="form-label" for="timestamps_text">
+        <label class="form-label" data-i18n="ts.paste.label" for="timestamps_text">
           9 timestamps — one per line (squats 1–3, bench 1–3, deadlift 1–3)
         </label>
         <textarea class="form-control font-monospace {% if error_field == 'timestamps_text' %}is-invalid{% endif %}"
@@ -61,7 +60,8 @@
 
       <div id="ts_file_area" {% if ts_mode != 'file' %}class="d-none"{% endif %}>
         <label class="form-label" for="timestamps_file">
-          times.txt file <span class="text-muted">(9 timestamps, one per line)</span>
+          <span data-i18n="ts.file.label">times.txt file</span>
+          <span class="text-muted" data-i18n="ts.file.hint">(9 timestamps, one per line)</span>
         </label>
         <input type="file" accept=".txt"
                class="form-control {% if error_field == 'timestamps_file' %}is-invalid{% endif %}"
@@ -75,29 +75,33 @@
 
   {# ── 3. Clip settings ── #}
   <div class="card mb-3">
-    <div class="card-header fw-semibold">Clip settings</div>
+    <div class="card-header fw-semibold" data-i18n="card.clips">Clip settings</div>
     <div class="card-body">
       <div class="row g-3 mb-3">
-        {% for name, label, default in [
-            ('duration',          'Default duration (s)', '60'),
-            ('duration_squat',    'Squat (s)',            ''),
-            ('duration_bench',    'Bench (s)',            ''),
-            ('duration_deadlift', 'Deadlift (s)',         ''),
+        {% for name, i18n_key, has_placeholder, default in [
+            ('duration',          'label.duration',     False, '60'),
+            ('duration_squat',    'label.dur.squat',    True,  ''),
+            ('duration_bench',    'label.dur.bench',    True,  ''),
+            ('duration_deadlift', 'label.dur.deadlift', True,  ''),
         ] %}
         <div class="col-md-3">
-          <label class="form-label" for="{{ name }}">{{ label }}</label>
+          <label class="form-label" data-i18n="{{ i18n_key }}" for="{{ name }}">{{ i18n_key }}</label>
           <input type="number" class="form-control" id="{{ name }}" name="{{ name }}"
                  value="{{ form_data.get(name, default) if form_data else default }}"
                  min="10" max="300"
-                 {% if not default %}placeholder="same as default"{% endif %}>
+                 {% if has_placeholder %}data-i18n-placeholder="ph.same.default" placeholder="same as default"{% endif %}>
         </div>
         {% endfor %}
       </div>
 
       <div class="row g-3">
-        {% for movement, label in [("squat", "Squat attempt"), ("bench", "Bench attempt"), ("deadlift", "Deadlift attempt")] %}
+        {% for movement, i18n_key in [
+            ("squat",    "attempt.squat"),
+            ("bench",    "attempt.bench"),
+            ("deadlift", "attempt.deadlift"),
+        ] %}
         <div class="col-md-4">
-          <label class="form-label">{{ label }} in combined video</label>
+          <label class="form-label" data-i18n="{{ i18n_key }}">{{ i18n_key }}</label>
           <div>
             {% for n in [1, 2, 3] %}
             {% set selected = (form_data.get(movement + '_attempt', '3') if form_data else '3') == n|string %}
@@ -117,20 +121,23 @@
 
   {# ── 4. Options ── #}
   <div class="card mb-3">
-    <div class="card-header fw-semibold">Options</div>
+    <div class="card-header fw-semibold" data-i18n="card.options">Options</div>
     <div class="card-body">
       <div class="row g-2 mb-3">
-        {% for name, label, hint in [
-            ('skip_individual', 'Skip individual downloads', 'use existing clips'),
-            ('skip_combined',   'Skip combined video',       ''),
-            ('no_replay',       'No slow-motion replay',     'halves all durations'),
+        {% for name, label_key, hint_key in [
+            ('skip_individual', 'opt.skip.ind',  'opt.skip.ind.hint'),
+            ('skip_combined',   'opt.skip.comb', ''),
+            ('no_replay',       'opt.no.replay', 'opt.no.replay.hint'),
         ] %}
         <div class="col-auto">
           <div class="form-check">
             <input class="form-check-input" type="checkbox" id="{{ name }}" name="{{ name }}"
                    {% if form_data and name in form_data %}checked{% endif %}>
             <label class="form-check-label" for="{{ name }}">
-              {{ label }}{% if hint %} <span class="text-muted">({{ hint }})</span>{% endif %}
+              <span data-i18n="{{ label_key }}">{{ label_key }}</span>
+              {% if hint_key %}
+              <span class="text-muted">(<span data-i18n="{{ hint_key }}">{{ hint_key }}</span>)</span>
+              {% endif %}
             </label>
           </div>
         </div>
@@ -141,11 +148,11 @@
         <input class="form-check-input" type="checkbox" id="preview" name="preview"
                {% if form_data and 'preview' in form_data %}checked{% endif %}
                onchange="togglePreview()">
-        <label class="form-check-label" for="preview">Generate low-res previews</label>
+        <label class="form-check-label" data-i18n="opt.preview" for="preview">Generate low-res previews</label>
       </div>
       <div id="preview_width_area"
            class="ms-4 {% if not (form_data and 'preview' in form_data) %}d-none{% endif %}">
-        <label class="form-label" for="preview_width">Preview width (px)</label>
+        <label class="form-label" data-i18n="label.preview.width" for="preview_width">Preview width (px)</label>
         <input type="number" class="form-control w-auto" id="preview_width" name="preview_width"
                value="{{ form_data.get('preview_width', '640') if form_data else '640' }}"
                min="240" max="1920">
@@ -155,24 +162,27 @@
 
   {# ── 5. Music ── #}
   <div class="card mb-4">
-    <div class="card-header fw-semibold">Music <span class="text-muted fw-normal">(optional)</span></div>
+    <div class="card-header fw-semibold">
+      <span data-i18n="card.music">Music</span>
+      <span class="text-muted fw-normal" data-i18n="music.optional">(optional)</span>
+    </div>
     <div class="card-body">
       <p class="text-muted small mb-3">
-        When set, two combined videos are generated: one without music for Instagram,
-        and one with music for WhatsApp / Telegram / personal use.<br>
-        <strong>Do not upload the music version to Instagram</strong> — posts, reels and stories are all scanned.<br>
-        <strong>Tip:</strong> paste a YouTube URL for exact control.
-        If you enter a search query instead, the first result is auto-selected.
+        <span data-i18n="music.desc.1">When set, two combined videos are generated: one without music for Instagram, and one with music for WhatsApp / Telegram / personal use.</span><br>
+        <strong data-i18n="music.desc.2">Do not upload the music version to Instagram</strong>
+        <span data-i18n="music.desc.2b">— posts, reels and stories are all scanned.</span><br>
+        <strong data-i18n="music.tip">Tip:</strong>
+        <span data-i18n="music.tip.text">paste a YouTube URL for exact control. If you enter a search query instead, the first result is auto-selected.</span>
       </p>
       <div class="row g-3">
         <div class="col-md-8">
-          <label class="form-label" for="music">YouTube URL or search query</label>
+          <label class="form-label" data-i18n="label.music" for="music">YouTube URL or search query</label>
           <input type="text" class="form-control" id="music" name="music"
                  value="{{ form_data.get('music', '') if form_data else '' }}"
-                 placeholder="https://www.youtube.com/watch?v=… or: daft punk harder better faster">
+                 placeholder="https://www.youtube.com/watch?v=…">
         </div>
         <div class="col-md-4">
-          <label class="form-label" for="music_start">Start at (MM:SS)</label>
+          <label class="form-label" data-i18n="label.music.start" for="music_start">Start at (MM:SS)</label>
           <input type="text" class="form-control font-monospace" id="music_start" name="music_start"
                  value="{{ form_data.get('music_start', '') if form_data else '' }}"
                  placeholder="0:00">
@@ -181,7 +191,7 @@
     </div>
   </div>
 
-  <button type="submit" class="btn btn-primary btn-lg px-5">Extract</button>
+  <button type="submit" class="btn btn-primary btn-lg px-5" data-i18n="btn.extract">Extract</button>
 
 </form>
 

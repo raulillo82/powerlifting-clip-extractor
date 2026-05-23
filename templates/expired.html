@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="text-center py-5">
-  <h2 class="mb-3">Link expired</h2>
-  <p class="text-muted mb-4">
+  <h2 class="mb-3" data-i18n="expired.title">Link expired</h2>
+  <p class="text-muted mb-4" data-i18n="expired.desc">
     These files were automatically deleted from the server 24 hours after the extraction finished.
   </p>
-  <a href="/" class="btn btn-primary">New extraction</a>
+  <a href="/" class="btn btn-primary" data-i18n="btn.new">New extraction</a>
 </div>
 {% endblock %}
