@@ -2,7 +2,15 @@ name: Tests
 
 on:
   push:
+    paths-ignore:
+      - '**.md'
+      - 'prompt.txt'
+      - '.gitignore'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'prompt.txt'
+      - '.gitignore'
 
 jobs:
   test:
@@ -14,6 +22,6 @@ jobs:
         with:
           python-version: "3.11"
 
-      - run: pip install pytest
+      - run: pip install pytest flask
 
-      - run: pytest test_extract_lifts.py -v
+      - run: pytest test_extract_lifts.py test_app.py -v
