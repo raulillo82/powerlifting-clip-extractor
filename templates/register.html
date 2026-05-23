@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-sm-10 col-md-7 col-lg-5">
+
+  {% if already_registered %}
+
+    <div class="alert alert-info">
+      <strong>Ya tienes cuenta desde este dispositivo.</strong><br>
+      Tu usuario es <code>{{ username }}</code>.
+    </div>
+    <a href="{{ url_for('auth.login') }}?username={{ username }}"
+       class="btn btn-primary w-100">Ir al login</a>
+
+  {% elif created %}
+
+    <h2 class="mb-1">¡Bienvenid@, {{ display_name }}!</h2>
+    <p class="text-muted mb-3">Tu cuenta está lista. <strong>Guarda las credenciales ahora</strong> — solo se muestran una vez.</p>
+
+    <div class="card mb-4">
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Tu usuario</label>
+          <div class="input-group">
+            <input type="text" class="form-control font-monospace" id="gen-user"
+                   value="{{ username }}" readonly>
+            <button class="btn btn-outline-secondary" type="button"
+                    onclick="copyField('gen-user', this, false)">Copiar</button>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Tu contraseña</label>
+          <div class="input-group">
+            <input type="text" class="form-control font-monospace" id="gen-pass"
+                   value="{{ password }}" readonly>
+            <button class="btn btn-primary" type="button"
+                    onclick="copyField('gen-pass', this, true)">📋 Copiar contraseña</button>
+          </div>
+        </div>
+        <p class="text-muted small mb-1">
+          💡 <strong>Consejo:</strong> cuando entres, tu navegador te ofrecerá guardar las credenciales. Acéptalo y no tendrás que recordarlas.
+        </p>
+        <p class="text-muted small mb-0">
+          🔒 Esta cuenta queda vinculada a este dispositivo. Para usarla en otro, contacta al administrador.
+        </p>
+      </div>
+    </div>
+
+    <h5 class="mb-3">Entra ahora:</h5>
+    <form method="post" action="{{ url_for('auth.login') }}" autocomplete="on">
+      <div class="mb-3">
+        <label for="username" class="form-label fw-semibold">Usuario</label>
+        <input type="text" class="form-control font-monospace" id="username" name="username"
+               value="{{ username }}" autocomplete="username" readonly>
+      </div>
+      <div class="mb-3">
+        <label for="password" class="form-label fw-semibold">Contraseña</label>
+        <input type="password" class="form-control" id="password" name="password"
+               autocomplete="new-password" placeholder="Pega aquí la contraseña" required>
+      </div>
+      <button type="submit" class="btn btn-success btn-lg w-100">Entrar</button>
+    </form>
+
+  {% else %}
+
+    <h2 class="mb-2">Crear cuenta</h2>
+
+    {% if slots_left > 0 %}
+    <p class="text-muted mb-1">Quedan <strong>{{ slots_left }}</strong> plazas disponibles.</p>
+    <p class="mb-3">Pulsa el botón para recibir tu usuario y contraseña automáticamente.</p>
+    <p class="text-muted small mb-4">
+      🔒 Tu cuenta quedará vinculada a este dispositivo. Si necesitas acceder desde otro, contacta con el administrador.
+    </p>
+    <form method="post">
+      <button type="submit" class="btn btn-primary btn-lg w-100">Crear mi cuenta</button>
+    </form>
+    {% else %}
+    <div class="alert alert-warning mt-3">No quedan plazas disponibles.</div>
+    {% endif %}
+
+  {% endif %}
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function copyField(id, btn, isPrimary) {
+  navigator.clipboard.writeText(document.getElementById(id).value).then(() => {
+    const orig = btn.textContent;
+    const origClass = isPrimary ? 'btn-primary' : 'btn-outline-secondary';
+    btn.textContent = '✓ Copiado';
+    btn.classList.replace(origClass, 'btn-success');
+    setTimeout(() => {
+      btn.textContent = orig;
+      btn.classList.replace('btn-success', origClass);
+    }, 2000);
+  });
+}
+</script>
+{% endblock %}

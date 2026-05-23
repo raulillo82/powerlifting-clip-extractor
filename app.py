@@ -11,6 +11,7 @@ From another machine on the same network: http://mordor:5000
 import contextlib
 import io
 import json
+import os
 import shutil
 import threading
 import time
@@ -19,10 +20,26 @@ import zipfile
 from pathlib import Path
 
 from flask import Flask, jsonify, redirect, render_template, request, send_file, url_for
+from flask_login import login_required
 
+from auth import auth_bp, login_manager
+from admin import admin_bp
+from db import init_db
 from extract_lifts import parse_timestamp, run
 
 app = Flask(__name__)
+
+# Persist secret key across restarts so sessions survive server reloads
+_key_file = Path("secret.key")
+app.secret_key = _key_file.read_bytes() if _key_file.exists() else (
+    lambda k: (_key_file.write_bytes(k), k)[1]
+)(os.urandom(24))
+
+login_manager.init_app(app)
+app.register_blueprint(auth_bp)
+app.register_blueprint(admin_bp)
+
+init_db()
 
 EXPIRY_SECONDS = 24 * 3600  # files are kept for 24 hours after the job finishes
 
@@ -191,11 +208,13 @@ def _build_run_kwargs(form, files, output_dir: Path) -> dict:
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
 @app.route("/")
+@login_required
 def index():
     return render_template("index.html")
 
 
 @app.route("/run", methods=["POST"])
+@login_required
 def start_job():
     job_id = uuid.uuid4().hex
     output_dir = Path("lifts") / job_id[:8]
@@ -215,11 +234,13 @@ def start_job():
 
 
 @app.route("/status/<job_id>")
+@login_required
 def status(job_id: str):
     return render_template("status.html", job_id=job_id)
 
 
 @app.route("/status/<job_id>/json")
+@login_required
 def status_json(job_id: str):
     job = jobs.get(job_id) or _load_job(job_id)
     if not job:
@@ -234,6 +255,7 @@ def status_json(job_id: str):
 
 
 @app.route("/download/<job_id>/zip")
+@login_required
 def download_zip(job_id: str):
     job = jobs.get(job_id) or _load_job(job_id)
     if not job or job["status"] != "done":

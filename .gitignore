@@ -19,3 +19,7 @@ __pycache__/
 .idea/
 .vscode/
 *.swp
+
+# Auth — never commit these
+secret.key
+users.db

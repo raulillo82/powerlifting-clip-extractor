@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex align-items-center gap-3 mb-4">
+  <h2 class="mb-0">Panel de administración</h2>
+  <span class="badge bg-secondary fs-6">{{ users|length }} usuario(s)</span>
+</div>
+
+{% if users %}
+<div class="table-responsive">
+  <table class="table table-hover align-middle">
+    <thead class="table-dark">
+      <tr>
+        <th>Usuario</th>
+        <th>Nombre</th>
+        <th>Estado</th>
+        <th>Dispositivo</th>
+        <th>Creado</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for u in users %}
+      <tr>
+        <td class="font-monospace small">{{ u.username }}</td>
+        <td>{{ u.display_name }}</td>
+        <td>
+          {% if u.is_active %}
+          <span class="badge bg-success">Activo</span>
+          {% else %}
+          <span class="badge bg-secondary">Inactivo</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if u.device_token %}
+          <span class="badge bg-info text-dark">Vinculado</span>
+          {% else %}
+          <span class="badge bg-warning text-dark">Libre</span>
+          {% endif %}
+        </td>
+        <td class="text-muted small">{{ u.created_fmt }}</td>
+        <td>
+          <div class="d-flex gap-1 flex-wrap">
+            <form method="post" action="{{ url_for('admin.toggle', user_id=u.id) }}">
+              <button class="btn btn-sm {% if u.is_active %}btn-outline-secondary{% else %}btn-outline-success{% endif %}">
+                {% if u.is_active %}Desactivar{% else %}Activar{% endif %}
+              </button>
+            </form>
+            {% if u.device_token %}
+            <form method="post" action="{{ url_for('admin.reset_device', user_id=u.id) }}">
+              <button class="btn btn-sm btn-outline-warning" title="Permite al usuario entrar desde un dispositivo diferente">
+                Reset dispositivo
+              </button>
+            </form>
+            {% endif %}
+            <form method="post" action="{{ url_for('admin.delete', user_id=u.id) }}"
+                  onsubmit="return confirm('¿Borrar a {{ u.username }}?')">
+              <button class="btn btn-sm btn-outline-danger">Borrar</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="text-muted">Aún no hay usuarios registrados. Comparte <a href="{{ url_for('auth.register') }}">/register</a> para que se den de alta.</p>
+{% endif %}
+
+<hr>
+<p class="text-muted small">
+  URL de registro: <a href="{{ url_for('auth.register', _external=True) }}">{{ url_for('auth.register', _external=True) }}</a>
+</p>
+{% endblock %}
