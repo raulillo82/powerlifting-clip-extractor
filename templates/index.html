@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2 class="mb-4">New extraction</h2>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+<form method="post" action="/run">
+
+  {# ── 1. Video ── #}
+  <div class="card mb-3">
+    <div class="card-header fw-semibold">Video</div>
+    <div class="card-body">
+      <div class="mb-3">
+        <label class="form-label" for="url">YouTube URL</label>
+        <input type="url" class="form-control" id="url" name="url" required
+               placeholder="https://www.youtube.com/live/VIDEO_ID">
+      </div>
+      <div class="mb-0">
+        <label class="form-label" for="output_dir">Output directory</label>
+        <input type="text" class="form-control" id="output_dir" name="output_dir"
+               value="lifts" placeholder="lifts">
+      </div>
+    </div>
+  </div>
+
+  {# ── 2. Timestamps ── #}
+  <div class="card mb-3">
+    <div class="card-header fw-semibold">Timestamps</div>
+    <div class="card-body">
+      <div class="mb-3">
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="radio" name="timestamps_mode"
+                 id="ts_paste" value="paste" checked onchange="toggleTimestamps()">
+          <label class="form-check-label" for="ts_paste">Paste manually</label>
+        </div>
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="radio" name="timestamps_mode"
+                 id="ts_file" value="file" onchange="toggleTimestamps()">
+          <label class="form-check-label" for="ts_file">Load from file</label>
+        </div>
+      </div>
+
+      <div id="ts_paste_area">
+        <label class="form-label" for="timestamps_text">
+          9 timestamps — one per line (squats 1–3, bench 1–3, deadlift 1–3)
+        </label>
+        <textarea class="form-control font-monospace" id="timestamps_text"
+                  name="timestamps_text" rows="9"
+                  placeholder="0:21:27&#10;0:29:55&#10;0:38:15&#10;1h23:30&#10;1h32:21&#10;1h41:30&#10;2h26:15&#10;2h33:4&#10;2h41:35"></textarea>
+      </div>
+
+      <div id="ts_file_area" class="d-none">
+        <label class="form-label" for="timestamps_file">Path to timestamps file</label>
+        <input type="text" class="form-control font-monospace" id="timestamps_file"
+               name="timestamps_file" placeholder="/home/raul/times.txt">
+      </div>
+    </div>
+  </div>
+
+  {# ── 3. Clip settings ── #}
+  <div class="card mb-3">
+    <div class="card-header fw-semibold">Clip settings</div>
+    <div class="card-body">
+      <div class="row g-3 mb-3">
+        <div class="col-md-3">
+          <label class="form-label" for="duration">Default duration (s)</label>
+          <input type="number" class="form-control" id="duration" name="duration"
+                 value="60" min="10" max="300">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label" for="duration_squat">Squat duration (s)</label>
+          <input type="number" class="form-control" id="duration_squat" name="duration_squat"
+                 min="10" max="300" placeholder="same as default">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label" for="duration_bench">Bench duration (s)</label>
+          <input type="number" class="form-control" id="duration_bench" name="duration_bench"
+                 min="10" max="300" placeholder="same as default">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label" for="duration_deadlift">Deadlift duration (s)</label>
+          <input type="number" class="form-control" id="duration_deadlift" name="duration_deadlift"
+                 min="10" max="300" placeholder="same as default">
+        </div>
+      </div>
+
+      <div class="row g-3">
+        {% for movement, label in [("squat", "Squat attempt"), ("bench", "Bench attempt"), ("deadlift", "Deadlift attempt")] %}
+        <div class="col-md-4">
+          <label class="form-label">{{ label }} in combined video</label>
+          <div>
+            {% for n in [1, 2, 3] %}
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio"
+                     name="{{ movement }}_attempt" id="{{ movement }}_{{ n }}"
+                     value="{{ n }}" {% if n == 3 %}checked{% endif %}>
+              <label class="form-check-label" for="{{ movement }}_{{ n }}">{{ n }}</label>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {# ── 4. Options ── #}
+  <div class="card mb-3">
+    <div class="card-header fw-semibold">Options</div>
+    <div class="card-body">
+      <div class="row g-2 mb-3">
+        <div class="col-auto">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="skip_individual" name="skip_individual">
+            <label class="form-check-label" for="skip_individual">
+              Skip individual downloads <span class="text-muted">(use existing clips)</span>
+            </label>
+          </div>
+        </div>
+        <div class="col-auto">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="skip_combined" name="skip_combined">
+            <label class="form-check-label" for="skip_combined">
+              Skip combined video
+            </label>
+          </div>
+        </div>
+        <div class="col-auto">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="no_replay" name="no_replay">
+            <label class="form-check-label" for="no_replay">
+              No slow-motion replay <span class="text-muted">(halves all durations)</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-check mb-2">
+        <input class="form-check-input" type="checkbox" id="preview" name="preview"
+               onchange="togglePreview()">
+        <label class="form-check-label" for="preview">Generate low-res previews</label>
+      </div>
+      <div id="preview_width_area" class="d-none ms-4">
+        <label class="form-label" for="preview_width">Preview width (px)</label>
+        <input type="number" class="form-control w-auto" id="preview_width" name="preview_width"
+               value="640" min="240" max="1920">
+      </div>
+    </div>
+  </div>
+
+  {# ── 5. Music ── #}
+  <div class="card mb-4">
+    <div class="card-header fw-semibold">Music <span class="text-muted fw-normal">(optional)</span></div>
+    <div class="card-body">
+      <p class="text-muted small mb-3">
+        When set, two combined videos are generated: one without music for Instagram,
+        and one with music for WhatsApp / Telegram / personal use.<br>
+        <strong>Do not upload the music version to Instagram</strong> — posts, reels and stories are all scanned.
+      </p>
+      <div class="row g-3">
+        <div class="col-md-8">
+          <label class="form-label" for="music">YouTube URL or search query</label>
+          <input type="text" class="form-control" id="music" name="music"
+                 placeholder="https://www.youtube.com/watch?v=… or: daft punk harder better faster">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="music_start">Start at (MM:SS)</label>
+          <input type="text" class="form-control font-monospace" id="music_start" name="music_start"
+                 placeholder="0:00">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <button type="submit" class="btn btn-primary btn-lg px-5">Extract</button>
+
+</form>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleTimestamps() {
+  const mode = document.querySelector('input[name="timestamps_mode"]:checked').value;
+  document.getElementById('ts_paste_area').classList.toggle('d-none', mode !== 'paste');
+  document.getElementById('ts_file_area').classList.toggle('d-none', mode !== 'file');
+}
+
+function togglePreview() {
+  const checked = document.getElementById('preview').checked;
+  document.getElementById('preview_width_area').classList.toggle('d-none', !checked);
+}
+</script>
+{% endblock %}

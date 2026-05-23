@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="d-flex align-items-center gap-3 mb-4">
+  <h2 class="mb-0">Job status</h2>
+  <span id="status-badge" class="badge bg-warning text-dark fs-6">Running...</span>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span class="fw-semibold">Log</span>
+    <small class="text-muted">yt-dlp download progress is shown in the terminal, not here</small>
+  </div>
+  <div class="card-body p-0">
+    <pre id="log-output" class="m-0 p-3 bg-dark text-light rounded-bottom"
+         style="max-height: 420px; overflow-y: auto; font-size: 0.85rem;">Waiting for output...</pre>
+  </div>
+</div>
+
+<div id="downloads-section" class="d-none">
+  <h4 class="mb-3">Output files</h4>
+  <div class="row g-2" id="downloads-list"></div>
+  <p class="text-muted small mt-2">
+    Upload <strong>for-instagram</strong> files to Instagram and add music inside the app.<br>
+    Send <strong>with-music</strong> files via WhatsApp or Telegram.
+  </p>
+</div>
+
+<a href="/" class="btn btn-outline-secondary mt-3">New extraction</a>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const jobId = {{ job_id | tojson }};
+const logEl = document.getElementById('log-output');
+const badgeEl = document.getElementById('status-badge');
+const downloadsSection = document.getElementById('downloads-section');
+const downloadsList = document.getElementById('downloads-list');
+
+function fileLabel(filename) {
+  if (filename.includes('with-music'))    return { text: 'with music',    cls: 'success' };
+  if (filename.includes('for-instagram')) return { text: 'for Instagram', cls: 'primary' };
+  if (filename.includes('combined'))      return { text: 'combined',      cls: 'info'    };
+  if (filename.startsWith('preview/'))    return { text: 'preview',       cls: 'secondary'};
+  return { text: 'clip', cls: 'light' };
+}
+
+function renderDownloads(files) {
+  downloadsList.innerHTML = '';
+  files.forEach(f => {
+    const { text, cls } = fileLabel(f);
+    const short = f.split('/').pop();
+    downloadsList.innerHTML += `
+      <div class="col-md-6">
+        <a href="/download/${jobId}/${f}"
+           class="btn btn-outline-${cls} w-100 text-start text-truncate" download>
+          <span class="badge bg-${cls} text-${cls === 'light' ? 'dark' : 'white'} me-2">${text}</span>${short}
+        </a>
+      </div>`;
+  });
+  downloadsSection.classList.remove('d-none');
+}
+
+function poll() {
+  fetch(`/status/${jobId}/json`)
+    .then(r => r.json())
+    .then(data => {
+      if (data.log) {
+        logEl.textContent = data.log;
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+      if (data.status === 'done') {
+        badgeEl.textContent = 'Done';
+        badgeEl.className = 'badge bg-success fs-6';
+        clearInterval(timer);
+        if (data.output_files && data.output_files.length > 0) {
+          renderDownloads(data.output_files);
+        }
+      } else if (data.status === 'error') {
+        badgeEl.textContent = 'Error';
+        badgeEl.className = 'badge bg-danger fs-6';
+        clearInterval(timer);
+      }
+    });
+}
+
+const timer = setInterval(poll, 2000);
+poll(); // first poll immediately
+</script>
+{% endblock %}
