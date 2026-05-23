@@ -154,7 +154,7 @@ def _queue_worker() -> None:
         if job is not None:
             job["status"] = "running"
             _save_job(job_id, job)
-            _worker(job_id, run_kwargs)
+            _worker(job_id, job, run_kwargs)
         _job_queue.task_done()
 
 
@@ -198,8 +198,7 @@ class _LiveLog(io.StringIO):
 
 # ── Worker ─────────────────────────────────────────────────────────────────────
 
-def _worker(job_id: str, run_kwargs: dict) -> None:
-    job = jobs[job_id]
+def _worker(job_id: str, job: dict, run_kwargs: dict) -> None:
     buf = _LiveLog(job_id, job)
     try:
         with contextlib.redirect_stdout(buf):

@@ -27,7 +27,7 @@
 | ✅ | Cola de jobs con pool de 2 workers paralelos | — |
 | ✅ | Modo dry-run para tests sin descargas reales | — |
 | ✅ | Tests automatizados de rutas web (77 tests, CI) | — |
-| 🔲 | Despliegue en producción (RPi5, nginx, gunicorn, HTTPS) | Claude |
+| ✅ | Despliegue en producción (RPi5, nginx, gunicorn, HTTPS) | — |
 | 🔲 | **Estadísticas** (panel en `/admin/stats`) | Claude |
 |    | ↳ Mapa de calor por ciudad — España con Canarias por defecto, opción mapamundi | |
 |    | ↳ Geolocalización IP → ciudad con base de datos local (MaxMind GeoLite2) | |
@@ -152,6 +152,7 @@ Todos los archivos son MP4 / H.264 / AAC con `-movflags +faststart`, compatibles
 | ✅ | Dry-run mode for testing without real downloads | — |
 | ✅ | Web route tests (77 tests, CI) | — |
 | 🔲 | Production deployment (RPi5, nginx, gunicorn, HTTPS) | Claude |
+| ✅ | Production deployment (RPi5, nginx, gunicorn, HTTPS) | — |
 | 🔲 | **Statistics** (panel at `/admin/stats`) | Claude |
 |    | ↳ City heatmap — Spain + Canary Islands by default, world map option | |
 |    | ↳ IP → city geolocation with local database (MaxMind GeoLite2) | |
