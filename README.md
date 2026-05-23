@@ -20,9 +20,10 @@
 | ✅ | Previews en baja resolución para dispositivos lentos | — |
 | ✅ | Modo interactivo y modo parámetros (CLI) | — |
 | ✅ | Música en el combinado con punto de inicio configurable | — |
+| ✅ | Tests automatizados (`pytest`, 34 tests, CI con GitHub Actions) | — |
+| ✅ | Interfaz web bilingüe ES/EN (Flask) | — |
 | 🧪 | Probar el modo interactivo manualmente | Usuario |
-| 🔲 | Tests automatizados (`pytest`) | Claude |
-| 🔲 | Interfaz web (Flask) | Claude |
+| 🔲 | Tests de la interfaz web (Flask test client) | Claude |
 
 Extrae levantamientos individuales de un vídeo de competición de powerlifting en YouTube y genera un vídeo combinado compatible con Instagram con sentadilla, press de banca y peso muerto apilados verticalmente.
 
@@ -132,9 +133,10 @@ Todos los archivos son MP4 / H.264 / AAC con `-movflags +faststart`, compatibles
 | ✅ | Low-res previews for slow devices | — |
 | ✅ | Interactive mode and parameter (CLI) mode | — |
 | ✅ | Music on combined video with configurable start point | — |
+| ✅ | Automated tests (`pytest`, 34 tests, CI with GitHub Actions) | — |
+| ✅ | Bilingual ES/EN web interface (Flask) | — |
 | 🧪 | Test interactive mode manually | User |
-| 🔲 | Automated tests (`pytest`) | Claude |
-| 🔲 | Web interface (Flask) | Claude |
+| 🔲 | Web interface tests (Flask test client) | Claude |
 
 Extracts individual lifts from a YouTube powerlifting competition and creates an Instagram-compatible combined video with squat, bench and deadlift stacked vertically.
 
