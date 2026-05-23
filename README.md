@@ -1,6 +1,9 @@
 # Powerlifting Clip Extractor
 
-> 🖥️ **¿Quieres montar tu propia instancia?** → [Guía de despliegue](#despliegue-en-producción) &nbsp;·&nbsp; **Want to self-host?** → [Deployment guide](#production-deployment)
+> 🌐 **Accede a la herramienta → [raulillo82.duckdns.org](https://raulillo82.duckdns.org)**
+> *(Necesitas una cuenta — pide acceso al administrador / You need an account — ask the administrator for access)*
+
+> 🖥️ ¿Eres administrador y quieres montar tu propia instancia? → [Guía de despliegue (ES)](#despliegue-en-producción) &nbsp;·&nbsp; [Deployment guide (EN)](#production-deployment)
 
 ---
 
