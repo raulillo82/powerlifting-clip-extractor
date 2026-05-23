@@ -1,11 +1,26 @@
 {% extends "base.html" %}
 {% block content %}
 
-<div class="d-flex align-items-center gap-3 mb-4">
+<div class="d-flex align-items-center gap-3 mb-3">
   <h2 class="mb-0">Job status</h2>
   <span id="status-badge" class="badge bg-warning text-dark fs-6">Running...</span>
 </div>
 
+{# ── Progress ── #}
+<div id="progress-section" class="card mb-3">
+  <div class="card-body py-2">
+    <div class="d-flex justify-content-between align-items-center mb-1">
+      <small id="step-label" class="text-muted">Starting...</small>
+      <small id="clip-counter" class="text-muted"></small>
+    </div>
+    <div class="progress" style="height: 8px;">
+      <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
+           role="progressbar" style="width: 0%"></div>
+    </div>
+  </div>
+</div>
+
+{# ── Log ── #}
 <div class="card mb-4">
   <div class="card-header d-flex justify-content-between align-items-center">
     <span class="fw-semibold">Log</span>
@@ -17,6 +32,7 @@
   </div>
 </div>
 
+{# ── Downloads ── #}
 <div id="downloads-section" class="d-none">
   <div class="d-flex align-items-center gap-3 mb-3">
     <h4 class="mb-0">Output files</h4>
@@ -37,25 +53,64 @@
 {% block scripts %}
 <script>
 const jobId = {{ job_id | tojson }};
-const logEl = document.getElementById('log-output');
-const badgeEl = document.getElementById('status-badge');
-const downloadsSection = document.getElementById('downloads-section');
-const downloadsList = document.getElementById('downloads-list');
+const logEl      = document.getElementById('log-output');
+const badgeEl    = document.getElementById('status-badge');
+const progressEl = document.getElementById('progress-bar');
+const stepEl     = document.getElementById('step-label');
+const counterEl  = document.getElementById('clip-counter');
+const dlSection  = document.getElementById('downloads-section');
+const dlList     = document.getElementById('downloads-list');
+
+// Total steps: 9 clips + combined video + optional music
+// We don't know upfront if music is included, so we treat 9+1 = 10 as the baseline.
+const TOTAL_CLIPS = 9;
+
+function updateProgress(log) {
+  const clips     = (log.match(/\[lift \d+/g) || []).length;
+  const combined  = log.includes('[combined]');
+  const music     = log.includes('[music]');
+  const done      = log.includes('====');
+
+  // Each clip is worth 1 step; combined = 1; music = 1
+  const totalSteps = TOTAL_CLIPS + 1 + (music ? 1 : 0);
+  let step = clips + (combined ? 1 : 0) + (music ? 1 : 0);
+  const pct = done ? 100 : Math.round((step / totalSteps) * 100);
+
+  progressEl.style.width = pct + '%';
+
+  if (done) {
+    stepEl.textContent = 'All done!';
+    counterEl.textContent = '';
+  } else if (music) {
+    stepEl.textContent = 'Adding music...';
+    counterEl.textContent = '';
+  } else if (combined) {
+    stepEl.textContent = 'Creating combined video...';
+    counterEl.textContent = '';
+  } else if (clips > 0) {
+    const movement = clips <= 3 ? 'squat' : clips <= 6 ? 'bench' : 'deadlift';
+    stepEl.textContent = `Downloading clip ${clips} / ${TOTAL_CLIPS} (${movement})`;
+    counterEl.textContent = clips + ' / ' + TOTAL_CLIPS;
+  } else {
+    stepEl.textContent = 'Starting download...';
+    counterEl.textContent = '';
+  }
+}
 
 function fileLabel(filename) {
-  if (filename.includes('with-music'))    return { text: 'with music',    cls: 'success' };
-  if (filename.includes('for-instagram')) return { text: 'for Instagram', cls: 'primary' };
-  if (filename.includes('combined'))      return { text: 'combined',      cls: 'info'    };
-  if (filename.startsWith('preview/'))    return { text: 'preview',       cls: 'secondary'};
+  if (filename.includes('with-music'))    return { text: 'with music',    cls: 'success'   };
+  if (filename.includes('for-instagram')) return { text: 'for Instagram', cls: 'primary'   };
+  if (filename.includes('combined'))      return { text: 'combined',      cls: 'info'      };
+  if (filename.startsWith('preview/'))    return { text: 'preview',       cls: 'secondary' };
   return { text: 'clip', cls: 'light' };
 }
 
 function renderDownloads(files) {
-  downloadsList.innerHTML = '';
+  dlList.innerHTML = '';
   files.forEach(f => {
     const { text, cls } = fileLabel(f);
     const short = f.split('/').pop();
-    downloadsList.innerHTML += `
+    dlList.innerHTML += `
       <div class="col-md-6">
         <a href="/download/${jobId}/${f}"
            class="btn btn-outline-${cls} w-100 text-start text-truncate" download>
@@ -63,7 +118,7 @@ function renderDownloads(files) {
         </a>
       </div>`;
   });
-  downloadsSection.classList.remove('d-none');
+  dlSection.classList.remove('d-none');
 }
 
 function poll() {
@@ -73,23 +128,26 @@ function poll() {
       if (data.log) {
         logEl.textContent = data.log;
         logEl.scrollTop = logEl.scrollHeight;
+        updateProgress(data.log);
       }
       if (data.status === 'done') {
         badgeEl.textContent = 'Done';
         badgeEl.className = 'badge bg-success fs-6';
+        progressEl.classList.remove('progress-bar-animated', 'progress-bar-striped');
         clearInterval(timer);
-        if (data.output_files && data.output_files.length > 0) {
-          renderDownloads(data.output_files);
-        }
+        if (data.output_files && data.output_files.length > 0) renderDownloads(data.output_files);
       } else if (data.status === 'error') {
         badgeEl.textContent = 'Error';
         badgeEl.className = 'badge bg-danger fs-6';
+        progressEl.classList.add('bg-danger');
+        progressEl.classList.remove('progress-bar-animated', 'progress-bar-striped');
+        stepEl.textContent = 'Failed — see log for details';
         clearInterval(timer);
       }
     });
 }
 
 const timer = setInterval(poll, 2000);
-poll(); // first poll immediately
+poll();
 </script>
 {% endblock %}

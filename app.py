@@ -10,7 +10,9 @@ From another machine on the same network: http://mordor:5000
 
 import contextlib
 import io
+import json
 import threading
+import time
 import uuid
 import zipfile
 from pathlib import Path
@@ -21,9 +23,74 @@ from extract_lifts import parse_timestamp, run
 
 app = Flask(__name__)
 
-# In-memory job store — single-user tool, no persistence needed
+# In-memory cache — populated from disk on cache miss so server restarts are safe
 jobs: dict[str, dict] = {}
 
+
+# ── Persistence ────────────────────────────────────────────────────────────────
+
+def _status_path(job_id: str) -> Path:
+    return Path("lifts") / job_id[:8] / "status.json"
+
+
+def _save_job(job_id: str, job: dict) -> None:
+    path = _status_path(job_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "status":     job["status"],
+        "log":        job["log"],
+        "output_dir": job["output_dir"],
+    }))
+
+
+def _load_job(job_id: str) -> dict | None:
+    path = _status_path(job_id)
+    if not path.exists():
+        return None
+    return json.loads(path.read_text())
+
+
+# ── Live log buffer ────────────────────────────────────────────────────────────
+
+class _LiveLog(io.StringIO):
+    """StringIO that updates job["log"] on every write and flushes to disk every 5 s."""
+    def __init__(self, job_id: str, job: dict):
+        super().__init__()
+        self._job_id = job_id
+        self._job = job
+        self._last_flush = 0.0
+
+    def write(self, s: str) -> int:
+        result = super().write(s)
+        self._job["log"] = self.getvalue()
+        now = time.monotonic()
+        if now - self._last_flush >= 5.0:
+            _save_job(self._job_id, self._job)
+            self._last_flush = now
+        return result
+
+
+# ── Worker ─────────────────────────────────────────────────────────────────────
+
+def _worker(job_id: str, run_kwargs: dict) -> None:
+    job = jobs[job_id]
+    buf = _LiveLog(job_id, job)
+    try:
+        with contextlib.redirect_stdout(buf):
+            run(**run_kwargs)
+        job["status"] = "done"
+    except SystemExit as e:
+        job["status"] = "error"
+        buf.write(f"\nFailed: {e}\n")
+    except Exception as e:
+        job["status"] = "error"
+        buf.write(f"\nUnexpected error: {e}\n")
+    finally:
+        job["log"] = buf.getvalue()
+        _save_job(job_id, job)  # final authoritative write
+
+
+# ── Form parsing ───────────────────────────────────────────────────────────────
 
 class FormError(ValueError):
     def __init__(self, message: str, field: str = ""):
@@ -84,22 +151,7 @@ def _build_run_kwargs(form, files, output_dir: Path) -> dict:
     )
 
 
-def _worker(job_id: str, run_kwargs: dict) -> None:
-    job = jobs[job_id]
-    buf = io.StringIO()
-    try:
-        with contextlib.redirect_stdout(buf):
-            run(**run_kwargs)
-        job["status"] = "done"
-    except SystemExit as e:
-        job["status"] = "error"
-        buf.write(f"\nFailed: {e}\n")
-    except Exception as e:
-        job["status"] = "error"
-        buf.write(f"\nUnexpected error: {e}\n")
-    finally:
-        job["log"] = buf.getvalue()
-
+# ── Routes ─────────────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
@@ -118,23 +170,25 @@ def start_job():
                                error_field=e.field,
                                form_data=request.form), 400
 
-    jobs[job_id] = {"status": "running", "log": "", "output_dir": str(output_dir)}
+    job = {"status": "running", "log": "", "output_dir": str(output_dir)}
+    jobs[job_id] = job
+    _save_job(job_id, job)  # persist immediately so the page survives a restart
     threading.Thread(target=_worker, args=(job_id, run_kwargs), daemon=True).start()
     return redirect(url_for("status", job_id=job_id))
 
 
 @app.route("/status/<job_id>")
 def status(job_id: str):
-    if job_id not in jobs:
-        return "Job not found", 404
+    # Accept the page even if the job isn't in memory — disk recovery happens in status_json
     return render_template("status.html", job_id=job_id)
 
 
 @app.route("/status/<job_id>/json")
 def status_json(job_id: str):
-    job = jobs.get(job_id)
+    job = jobs.get(job_id) or _load_job(job_id)
     if not job:
         return jsonify({"error": "not found"}), 404
+    jobs[job_id] = job  # restore to memory cache if it came from disk
 
     output_files: list[str] = []
     if job["status"] == "done":
@@ -150,7 +204,7 @@ def status_json(job_id: str):
 
 @app.route("/download/<job_id>/zip")
 def download_zip(job_id: str):
-    job = jobs.get(job_id)
+    job = jobs.get(job_id) or _load_job(job_id)
     if not job or job["status"] != "done":
         return "Not ready", 404
     out_dir = Path(job["output_dir"])
@@ -165,7 +219,7 @@ def download_zip(job_id: str):
 
 @app.route("/download/<job_id>/<path:filename>")
 def download_file(job_id: str, filename: str):
-    job = jobs.get(job_id)
+    job = jobs.get(job_id) or _load_job(job_id)
     if not job:
         return "Job not found", 404
     file_path = (Path(job["output_dir"]) / filename).resolve()
