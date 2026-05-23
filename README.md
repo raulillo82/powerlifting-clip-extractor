@@ -22,8 +22,19 @@
 | ✅ | Música en el combinado con punto de inicio configurable | — |
 | ✅ | Tests automatizados (`pytest`, 34 tests, CI con GitHub Actions) | — |
 | ✅ | Interfaz web bilingüe ES/EN (Flask) | — |
-| 🧪 | Probar el modo interactivo manualmente | Usuario |
-| 🔲 | Tests de la interfaz web (Flask test client) | Claude |
+| ✅ | Sistema de autenticación (registro, login, vinculación de dispositivo) | — |
+| ✅ | Panel de administración de usuarios | — |
+| ✅ | Cola de jobs con pool de 2 workers paralelos | — |
+| ✅ | Modo dry-run para tests sin descargas reales | — |
+| ✅ | Tests automatizados de rutas web (77 tests, CI) | — |
+| 🔲 | Despliegue en producción (RPi5, nginx, gunicorn, HTTPS) | Claude |
+| 🔲 | **Estadísticas** (panel en `/admin/stats`) | Claude |
+|    | ↳ Mapa de calor por ciudad — España con Canarias por defecto, opción mapamundi | |
+|    | ↳ Geolocalización IP → ciudad con base de datos local (MaxMind GeoLite2) | |
+|    | ↳ Hora del día, día de la semana, nº de jobs en cola al enviar | |
+|    | ↳ URL del vídeo solo si el canal está en la whitelist (AEP, IPF…) — ya implementado | |
+|    | ↳ Tasa de éxito/error, tiempo medio de extracción, uso de música | |
+|    | ↳ Sin FK a usuarios — datos anónimos (base: interés legítimo RGPD) | |
 
 Extrae levantamientos individuales de un vídeo de competición de powerlifting en YouTube y genera un vídeo combinado compatible con Instagram con sentadilla, press de banca y peso muerto apilados verticalmente.
 
@@ -135,8 +146,19 @@ Todos los archivos son MP4 / H.264 / AAC con `-movflags +faststart`, compatibles
 | ✅ | Music on combined video with configurable start point | — |
 | ✅ | Automated tests (`pytest`, 34 tests, CI with GitHub Actions) | — |
 | ✅ | Bilingual ES/EN web interface (Flask) | — |
-| 🧪 | Test interactive mode manually | User |
-| 🔲 | Web interface tests (Flask test client) | Claude |
+| ✅ | Auth system (registration, login, device binding) | — |
+| ✅ | User admin panel | — |
+| ✅ | Job queue with pool of 2 parallel workers | — |
+| ✅ | Dry-run mode for testing without real downloads | — |
+| ✅ | Web route tests (77 tests, CI) | — |
+| 🔲 | Production deployment (RPi5, nginx, gunicorn, HTTPS) | Claude |
+| 🔲 | **Statistics** (panel at `/admin/stats`) | Claude |
+|    | ↳ City heatmap — Spain + Canary Islands by default, world map option | |
+|    | ↳ IP → city geolocation with local database (MaxMind GeoLite2) | |
+|    | ↳ Time of day, day of week, number of jobs in queue at submission | |
+|    | ↳ Video URL only if channel is whitelisted (AEP, IPF…) — logic already in place | |
+|    | ↳ Success/error rate, average extraction time, music usage | |
+|    | ↳ No FK to users — anonymous data (basis: legitimate interest GDPR) | |
 
 Extracts individual lifts from a YouTube powerlifting competition and creates an Instagram-compatible combined video with squat, bench and deadlift stacked vertically.
 

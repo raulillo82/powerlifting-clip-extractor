@@ -14,6 +14,7 @@ import json
 import os
 import queue
 import shutil
+import subprocess
 import threading
 import time
 import uuid
@@ -44,6 +45,41 @@ init_db()
 
 EXPIRY_SECONDS = 24 * 3600  # files are kept for 24 hours after the job finishes
 MAX_WORKERS = 2
+
+# ── Channel whitelist (statistics / privacy-by-design) ────────────────────────
+# Only video URLs from channels in this list are recorded in the jobs log.
+# Add the YouTube handle (@name) of any federation that streams public competitions.
+# GDPR note: a public competition video URL is not personal data; recording it
+# under legitimate interest is fine. Arbitrary user-provided URLs are NOT stored.
+YOUTUBE_CHANNEL_WHITELIST: list[str] = [
+    "@AEpowerlifting",       # Asociación Española de Powerlifting
+    "@IPF_Powerlifting",     # International Powerlifting Federation
+    "@EPF_Powerlifting",     # European Powerlifting Federation
+    "@BritishPowerlifting",  # British Powerlifting
+]
+
+
+def _resolve_channel_url(video_url: str) -> str:
+    """Return the YouTube channel URL for a video, or '' on any failure.
+
+    Uses yt-dlp --skip-download so no video is fetched; takes ~1–2 s.
+    Should only be called for real jobs (not dry-run).
+    """
+    try:
+        result = subprocess.run(
+            ["yt-dlp", "--skip-download", "--print", "uploader_url",
+             "--quiet", "--no-playlist", video_url],
+            capture_output=True, text=True, timeout=30,
+        )
+        return result.stdout.strip()
+    except Exception:
+        return ""
+
+
+def _channel_whitelisted(channel_url: str) -> bool:
+    """Return True if channel_url contains any whitelisted handle."""
+    low = channel_url.lower()
+    return any(handle.lower() in low for handle in YOUTUBE_CHANNEL_WHITELIST)
 
 # In-memory cache — populated from disk on cache miss so server restarts are safe
 jobs: dict[str, dict] = {}
@@ -170,6 +206,12 @@ def _worker(job_id: str, run_kwargs: dict) -> None:
             run(**run_kwargs)
         job["status"] = "done"
         job["expires_at"] = time.time() + EXPIRY_SECONDS
+        # Resolve channel for stats logging — only for real (non-dry-run) jobs
+        if not run_kwargs.get("dry_run"):
+            channel_url = _resolve_channel_url(run_kwargs["url"])
+            if _channel_whitelisted(channel_url):
+                job["video_url"] = run_kwargs["url"]
+                job["channel_url"] = channel_url
     except SystemExit as e:
         job["status"] = "error"
         buf.write(f"\nFailed: {e}\n")
