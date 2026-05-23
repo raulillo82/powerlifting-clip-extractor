@@ -158,6 +158,18 @@
                value="{{ form_data.get('preview_width', '640') if form_data else '640' }}"
                min="240" max="1920">
       </div>
+
+      {% if current_user.is_admin %}
+      <hr class="my-3">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="dry_run" name="dry_run"
+               {% if form_data and 'dry_run' in form_data %}checked{% endif %}>
+        <label class="form-check-label text-muted small" for="dry_run">
+          <span data-i18n="opt.dry_run">Dry run</span>
+          <span class="text-muted">(<span data-i18n="opt.dry_run.hint">no downloads, placeholder files only</span>)</span>
+        </label>
+      </div>
+      {% endif %}
     </div>
   </div>
 

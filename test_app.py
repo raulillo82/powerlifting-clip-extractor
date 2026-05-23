@@ -1,6 +1,7 @@
 """Flask route tests using the built-in test client."""
 import io
 import json
+import shutil
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -339,3 +340,61 @@ class TestAdmin:
                 "SELECT id FROM users WHERE id=?", (uid,)
             ).fetchone()
         assert row is None
+
+
+# ── Dry-run end-to-end ────────────────────────────────────────────────────────
+
+class TestDryRun:
+    """End-to-end tests using dry_run=True — no yt-dlp or ffmpeg needed."""
+
+    def _submit(self, client):
+        data = {**VALID_FORM, "dry_run": "on"}
+        return client.post("/run", data=data, follow_redirects=False)
+
+    def _poll(self, client, job_id, timeout=5.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            r = client.get(f"/status/{job_id}/json")
+            if json.loads(r.data)["status"] != "running":
+                break
+            time.sleep(0.05)
+        return json.loads(client.get(f"/status/{job_id}/json").data)
+
+    def _job_id(self, r):
+        return r.headers["Location"].split("/status/")[1].strip("/")
+
+    def test_dry_run_redirects_to_status(self, client):
+        r = self._submit(client)
+        assert r.status_code == 302
+        assert "/status/" in r.headers["Location"]
+
+    def test_dry_run_job_completes(self, client):
+        r = self._submit(client)
+        job = self._poll(client, self._job_id(r))
+        assert job["status"] == "done"
+
+    def test_dry_run_creates_placeholder_files(self, client):
+        r = self._submit(client)
+        job_id = self._job_id(r)
+        self._poll(client, job_id)
+        out_dir = Path(flask_app.jobs[job_id]["output_dir"])
+        mp4s = list(out_dir.rglob("*.mp4"))
+        # 9 individual clips + 1 combined
+        assert len(mp4s) == 10
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+    def test_dry_run_zip_download_works(self, client):
+        r = self._submit(client)
+        job_id = self._job_id(r)
+        self._poll(client, job_id)
+        zr = client.get(f"/download/{job_id}/zip")
+        assert zr.status_code == 200
+        assert "zip" in zr.content_type
+        shutil.rmtree(Path(flask_app.jobs[job_id]["output_dir"]), ignore_errors=True)
+
+    def test_dry_run_log_contains_dry_run_marker(self, client):
+        r = self._submit(client)
+        job_id = self._job_id(r)
+        job = self._poll(client, job_id)
+        assert "[dry run]" in job["log"]
+        shutil.rmtree(Path(flask_app.jobs[job_id]["output_dir"]), ignore_errors=True)

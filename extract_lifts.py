@@ -368,6 +368,7 @@ def run(
     music_source: str = "",   # YouTube URL or search query; empty = no music
     music_start: float = 0.0,
     interactive: bool = False,
+    dry_run: bool = False,   # skip all network/ffmpeg calls; write placeholder files
 ) -> None:
     if no_replay:
         # Without a slow-motion replay, lifts are roughly half as long
@@ -380,22 +381,29 @@ def run(
         clip_paths.append(output_dir / f"lift_{i:02d}_{movement}_attempt{attempt}.mp4")
 
     if not skip_individual:
-        print(f"\nDownloading {len(timestamps)} clips into '{output_dir}/'...")
+        action = "Simulating" if dry_run else "Downloading"
+        print(f"\n{action} {len(timestamps)} clips into '{output_dir}/'...")
         for i, (ts, path) in enumerate(zip(timestamps, clip_paths), 1):
             movement = MOVEMENTS[i - 1]
             attempt = ((i - 1) % 3) + 1
             duration = durations[movement]
-            download_clip(url, ts, duration, path, f"lift {i:02d} — {movement} attempt {attempt}")
-            if preview_width:
-                prev = output_dir / "preview" / path.name
-                print(f"    → preview {prev.name}")
-                make_preview(path, prev, preview_width)
+            if dry_run:
+                end = ts + duration
+                print(f"\n  [lift {i:02d} — {movement} attempt {attempt}]"
+                      f"  {seconds_to_hms(ts)} → {seconds_to_hms(end)}  [dry run]")
+                path.write_bytes(b"")
+            else:
+                download_clip(url, ts, duration, path, f"lift {i:02d} — {movement} attempt {attempt}")
+                if preview_width:
+                    prev = output_dir / "preview" / path.name
+                    print(f"    → preview {prev.name}")
+                    make_preview(path, prev, preview_width)
     else:
         missing = [p for p in clip_paths if not p.exists()]
         if missing:
             sys.exit("Missing clips (run without --skip-individual first):\n" +
                      "\n".join(f"  {p}" for p in missing))
-        if preview_width:
+        if preview_width and not dry_run:
             print(f"\nGenerating previews from existing clips...")
             for path in clip_paths:
                 prev = output_dir / "preview" / path.name
@@ -419,26 +427,34 @@ def run(
     else:
         combined_path = output_dir / f"{base}.mp4"
 
-    make_combined(selected, combined_path)
-
-    if preview_width:
-        prev_combined = output_dir / "preview" / combined_path.name
-        print(f"  → combined preview {prev_combined.name}")
-        make_combined(selected, prev_combined, preview_width=preview_width)
+    if dry_run:
+        print(f"\n  [combined]  {combined_path.name}  [dry run]")
+        combined_path.write_bytes(b"")
+    else:
+        make_combined(selected, combined_path)
+        if preview_width:
+            prev_combined = output_dir / "preview" / combined_path.name
+            print(f"  → combined preview {prev_combined.name}")
+            make_combined(selected, prev_combined, preview_width=preview_width)
 
     # Music: resolve source → download audio → mix into a second combined file
     music_path: Path | None = None
     if music_source:
-        music_url = resolve_music(music_source, interactive=interactive)
-        with tempfile.TemporaryDirectory() as tmp:
-            audio_file = Path(tmp) / "music.m4a"
-            download_audio(music_url, audio_file)
+        if dry_run:
             music_path = output_dir / f"{base}_with-music.mp4"
-            add_music(combined_path, audio_file, music_path, music_start=music_start)
-            if preview_width:
-                prev_music = output_dir / "preview" / music_path.name
-                print(f"  → music preview {prev_music.name}")
-                make_preview(music_path, prev_music, preview_width)
+            print(f"\n  [music]  {music_path.name}  [dry run]")
+            music_path.write_bytes(b"")
+        else:
+            music_url = resolve_music(music_source, interactive=interactive)
+            with tempfile.TemporaryDirectory() as tmp:
+                audio_file = Path(tmp) / "music.m4a"
+                download_audio(music_url, audio_file)
+                music_path = output_dir / f"{base}_with-music.mp4"
+                add_music(combined_path, audio_file, music_path, music_start=music_start)
+                if preview_width:
+                    prev_music = output_dir / "preview" / music_path.name
+                    print(f"  → music preview {prev_music.name}")
+                    make_preview(music_path, prev_music, preview_width)
 
     print(f"\n{'='*52}")
     print(f"  Individual clips   : {output_dir}/")

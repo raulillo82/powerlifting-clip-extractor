@@ -202,6 +202,7 @@ def _build_run_kwargs(form, files, output_dir: Path) -> dict:
         music_source=music_source,
         music_start=music_start,
         interactive=False,
+        dry_run="dry_run" in form,
     )
 
 
