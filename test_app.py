@@ -172,3 +172,170 @@ class TestDownloadZip:
                                     "output_dir": "lifts/expjob",
                                     "expires_at": time.time() - 1}
         assert client.get("/download/expjob/zip").status_code == 410
+
+
+# ── /login ────────────────────────────────────────────────────────────────────
+
+class TestLogin:
+    def test_login_page_returns_200(self, client):
+        # Log out first so we can see the login page
+        client.get("/logout")
+        assert client.get("/login").status_code == 200
+
+    def test_login_with_valid_credentials(self, client, tmp_path, monkeypatch):
+        import db as db_mod
+        monkeypatch.setattr(db_mod, "DB_PATH", tmp_path / "test2.db")
+        db_mod.init_db()
+        with db_mod.get_db() as conn:
+            conn.execute(
+                "INSERT INTO users (username, display_name, password_hash) VALUES (?,?,?)",
+                ("heather_connor", "Heather Connor", generate_password_hash("pass")),
+            )
+            conn.commit()
+        with flask_app.app.test_client() as c:
+            r = c.post("/login", data={"username": "heather_connor", "password": "pass"},
+                       follow_redirects=False)
+        assert r.status_code == 302
+
+    def test_wrong_password_shows_error(self, client):
+        client.get("/logout")
+        r = client.post("/login", data={"username": "testadmin", "password": "wrong"})
+        assert r.status_code == 200
+        assert b"incorrectos" in r.data
+
+    def test_inactive_user_shows_error(self, client):
+        with db.get_db() as conn:
+            conn.execute(
+                "INSERT INTO users (username, display_name, password_hash, is_active)"
+                " VALUES (?,?,?,0)",
+                ("russel_orhii", "Russel Orhii", generate_password_hash("pass")),
+            )
+            conn.commit()
+        client.get("/logout")
+        r = client.post("/login", data={"username": "russel_orhii", "password": "pass"})
+        assert b"desactivada" in r.data
+
+    def test_wrong_device_shows_error(self, client):
+        with db.get_db() as conn:
+            conn.execute(
+                "INSERT INTO users (username, display_name, password_hash, device_token)"
+                " VALUES (?,?,?,?)",
+                ("agata_sitko", "Agata Sitko", generate_password_hash("pass"), "device-XYZ"),
+            )
+            conn.commit()
+        client.get("/logout")
+        # Client's device_token cookie doesn't match "device-XYZ"
+        r = client.post("/login", data={"username": "agata_sitko", "password": "pass"})
+        assert b"vinculada" in r.data
+
+    def test_logout_redirects_to_login(self, client):
+        r = client.get("/logout", follow_redirects=False)
+        assert r.status_code == 302
+        assert "/login" in r.headers["Location"]
+
+    def test_unauthenticated_access_redirects(self, client):
+        client.get("/logout")
+        r = client.get("/", follow_redirects=False)
+        assert r.status_code == 302
+        assert "/login" in r.headers["Location"]
+
+
+# ── /register ─────────────────────────────────────────────────────────────────
+
+class TestRegister:
+    def test_register_page_shows_slots(self, client):
+        # client has a device_token cookie from logging in as testadmin;
+        # use a fresh client with no cookies so /register shows the slots form
+        with flask_app.app.test_client() as fresh:
+            r = fresh.get("/register")
+        assert r.status_code == 200
+        assert b"50" in r.data  # MAX_USERS slots shown
+
+    def test_register_creates_user(self, client, tmp_path, monkeypatch):
+        import db as db_mod
+        monkeypatch.setattr(db_mod, "DB_PATH", tmp_path / "reg.db")
+        db_mod.init_db()
+        with flask_app.app.test_client() as c:
+            r = c.post("/register", follow_redirects=False)
+        assert r.status_code == 200
+        with db_mod.get_db() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM users WHERE is_admin=0"
+            ).fetchone()[0]
+        assert count == 1
+
+    def test_register_same_device_blocked(self, client, tmp_path, monkeypatch):
+        import db as db_mod
+        monkeypatch.setattr(db_mod, "DB_PATH", tmp_path / "reg2.db")
+        db_mod.init_db()
+        with flask_app.app.test_client() as c:
+            c.post("/register")           # first registration sets cookie
+            r = c.get("/register")        # same device visits again
+        assert b"already_registered" not in r.data  # Jinja variable not leaked
+        # The page should show the "already registered" message
+        assert r.status_code == 200
+
+
+# ── /admin ────────────────────────────────────────────────────────────────────
+
+class TestAdmin:
+    def _make_user(self, conn, username="taylor_atwood"):
+        conn.execute(
+            "INSERT INTO users (username, display_name, password_hash, device_token)"
+            " VALUES (?,?,?,?)",
+            (username, username.replace("_"," ").title(),
+             generate_password_hash("x"), "tok"),
+        )
+        conn.commit()
+        return conn.execute(
+            "SELECT id FROM users WHERE username=?", (username,)
+        ).fetchone()["id"]
+
+    def test_admin_page_lists_users(self, client):
+        with db.get_db() as conn:
+            self._make_user(conn)
+        r = client.get("/admin/")
+        assert r.status_code == 200
+        assert b"taylor_atwood" in r.data
+
+    def test_non_admin_cannot_access_admin(self, client):
+        with db.get_db() as conn:
+            conn.execute(
+                "INSERT INTO users (username, display_name, password_hash) VALUES (?,?,?)",
+                ("gustave_hedlund", "Gustav Hedlund", generate_password_hash("p")),
+            )
+            conn.commit()
+        client.get("/logout")
+        client.post("/login", data={"username": "gustave_hedlund", "password": "p"})
+        r = client.get("/admin/", follow_redirects=False)
+        assert r.status_code == 302
+
+    def test_admin_toggle_deactivates_user(self, client):
+        with db.get_db() as conn:
+            uid = self._make_user(conn, "jessica_buettner")
+        client.post(f"/admin/toggle/{uid}")
+        with db.get_db() as conn:
+            is_active = conn.execute(
+                "SELECT is_active FROM users WHERE id=?", (uid,)
+            ).fetchone()["is_active"]
+        assert is_active == 0
+
+    def test_admin_reset_device(self, client):
+        with db.get_db() as conn:
+            uid = self._make_user(conn, "heather_connor")
+        client.post(f"/admin/reset-device/{uid}")
+        with db.get_db() as conn:
+            token = conn.execute(
+                "SELECT device_token FROM users WHERE id=?", (uid,)
+            ).fetchone()["device_token"]
+        assert token is None
+
+    def test_admin_delete_user(self, client):
+        with db.get_db() as conn:
+            uid = self._make_user(conn, "amanda_lawrence")
+        client.post(f"/admin/delete/{uid}")
+        with db.get_db() as conn:
+            row = conn.execute(
+                "SELECT id FROM users WHERE id=?", (uid,)
+            ).fetchone()
+        assert row is None

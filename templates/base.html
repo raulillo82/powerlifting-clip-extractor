@@ -19,7 +19,7 @@
       <a class="navbar-brand fw-bold" href="/">Powerlifting Clip Extractor</a>
       <div class="d-flex align-items-center gap-2">
         {% if current_user.is_authenticated %}
-        <span class="text-white-50 small d-none d-sm-inline">Hola, {{ current_user.display_name }}</span>
+        <span class="text-white-50 small">Hola, {{ current_user.display_name }}</span>
         {% if current_user.is_admin %}
         <a href="/admin/" class="btn btn-sm btn-outline-light border-0 py-0">Admin</a>
         {% endif %}
@@ -114,6 +114,35 @@
       // ── expired ──
       'expired.title':         'Link expired',
       'expired.desc':          'These files were automatically deleted from the server 24 hours after the extraction finished.',
+      // ── login ──
+      'login.title':           'Login',
+      'login.username':        'Username',
+      'login.password':        'Password',
+      'login.submit':          'Log in',
+      'login.register.link':   'First time? Create your account here',
+      // ── register ──
+      'reg.title':             'Create account',
+      'reg.slots.pre':         'There are',
+      'reg.slots.post':        'slots available.',
+      'reg.desc':              'Press the button to receive your username and password automatically.',
+      'reg.device.warn':       '🔒 Your account will be linked to this device. To use it on another, contact the administrator.',
+      'reg.submit':            'Create my account',
+      'reg.full':              'No slots available.',
+      'reg.already.title':     'You already have an account from this device.',
+      'reg.already.username':  'Your username is',
+      'reg.already.go':        'Go to login',
+      'reg.welcome.pre':       'Welcome,',
+      'reg.save.warn':         'Your account is ready. Save the credentials now — they are only shown once.',
+      'reg.username.label':    'Your username',
+      'reg.password.label':    'Your password',
+      'reg.copy':              'Copy',
+      'reg.copy.pass':         '📋 Copy password',
+      'reg.copied':            '✓ Copied',
+      'reg.tip':               '💡 Tip: when you log in, your browser will offer to save the credentials. Accept it and you won\'t have to remember them.',
+      'reg.device.note':       '🔒 This account is linked to this device. To use it on another, contact the administrator.',
+      'reg.login.now':         'Log in now:',
+      'reg.paste.hint':        'Paste password here',
+      'reg.enter':             'Log in',
     },
     es: {
       'page.new':              'Nueva extracción',
@@ -179,6 +208,35 @@
       'mov.deadlift':          'peso muerto',
       'expired.title':         'Enlace caducado',
       'expired.desc':          'Estos archivos se eliminaron automáticamente del servidor 24 horas después de que finalizó la extracción.',
+      // ── login ──
+      'login.title':           'Acceso',
+      'login.username':        'Usuario',
+      'login.password':        'Contraseña',
+      'login.submit':          'Entrar',
+      'login.register.link':   '¿Primera vez? Crea tu cuenta aquí',
+      // ── register ──
+      'reg.title':             'Crear cuenta',
+      'reg.slots.pre':         'Quedan',
+      'reg.slots.post':        'plazas disponibles.',
+      'reg.desc':              'Pulsa el botón para recibir tu usuario y contraseña automáticamente.',
+      'reg.device.warn':       '🔒 Tu cuenta quedará vinculada a este dispositivo. Si necesitas acceder desde otro, contacta con el administrador.',
+      'reg.submit':            'Crear mi cuenta',
+      'reg.full':              'No quedan plazas disponibles.',
+      'reg.already.title':     'Ya tienes cuenta desde este dispositivo.',
+      'reg.already.username':  'Tu usuario es',
+      'reg.already.go':        'Ir al login',
+      'reg.welcome.pre':       '¡Bienvenid@,',
+      'reg.save.warn':         'Tu cuenta está lista. Guarda las credenciales ahora — solo se muestran una vez.',
+      'reg.username.label':    'Tu usuario',
+      'reg.password.label':    'Tu contraseña',
+      'reg.copy':              'Copiar',
+      'reg.copy.pass':         '📋 Copiar contraseña',
+      'reg.copied':            '✓ Copiado',
+      'reg.tip':               '💡 Consejo: cuando entres, tu navegador te ofrecerá guardar las credenciales. Acéptalo y no tendrás que recordarlas.',
+      'reg.device.note':       '🔒 Esta cuenta queda vinculada a este dispositivo. Para usarla en otro, contacta al administrador.',
+      'reg.login.now':         'Entra ahora:',
+      'reg.paste.hint':        'Pega aquí la contraseña',
+      'reg.enter':             'Entrar',
     }
   };
 

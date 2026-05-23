@@ -2,7 +2,7 @@
 {% block content %}
 <div class="row justify-content-center">
   <div class="col-sm-9 col-md-6 col-lg-4">
-    <h2 class="mb-4">Acceso</h2>
+    <h2 class="mb-4" data-i18n="login.title">Acceso</h2>
 
     {% if error %}
     <div class="alert alert-danger">{{ error }}</div>
@@ -10,20 +10,20 @@
 
     <form method="post" autocomplete="on">
       <div class="mb-3">
-        <label for="username" class="form-label fw-semibold">Usuario</label>
+        <label for="username" class="form-label fw-semibold" data-i18n="login.username">Usuario</label>
         <input type="text" class="form-control font-monospace" id="username" name="username"
                value="{{ prefill }}" autocomplete="username" required autofocus>
       </div>
       <div class="mb-3">
-        <label for="password" class="form-label fw-semibold">Contraseña</label>
+        <label for="password" class="form-label fw-semibold" data-i18n="login.password">Contraseña</label>
         <input type="password" class="form-control" id="password" name="password"
                autocomplete="current-password" required>
       </div>
-      <button type="submit" class="btn btn-primary btn-lg w-100">Entrar</button>
+      <button type="submit" class="btn btn-primary btn-lg w-100" data-i18n="login.submit">Entrar</button>
     </form>
 
     <p class="text-muted small mt-3 text-center">
-      ¿Primera vez? <a href="{{ url_for('auth.register') }}">Crea tu cuenta aquí</a>
+      <a href="{{ url_for('auth.register') }}" data-i18n="login.register.link">¿Primera vez? Crea tu cuenta aquí</a>
     </p>
   </div>
 </div>
