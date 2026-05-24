@@ -92,10 +92,12 @@ MAX_WORKERS = 2
 # GDPR note: a public competition video URL is not personal data; recording it
 # under legitimate interest is fine. Arbitrary user-provided URLs are NOT stored.
 YOUTUBE_CHANNEL_WHITELIST: list[str] = [
-    "@powerliftingaep4634",  # Asociación Española de Powerlifting
-    "@powerliftingtv",       # International Powerlifting Federation
-    "@europeanpowerlifting", # European Powerlifting Federation
-    "gbpowerfed",            # British Powerlifting
+    "@powerliftingaep4634",      # Asociación Española de Powerlifting
+    "@powerliftingtv",           # International Powerlifting Federation
+    "@europeanpowerlifting",     # European Powerlifting Federation
+    "gbpowerfed",                # British Powerlifting
+    "@usapowerlifting1",         # USA Powerlifting (USAPL)
+    "@canadapowerlifting",       # Canadian Powerlifting Union (CPU)
 ]
 
 
@@ -125,9 +127,12 @@ def _channel_whitelisted(channel_url: str) -> bool:
 # ── Competition selector ───────────────────────────────────────────────────────
 
 _SOURCES: dict[str, str] = {
-    "aep": "https://www.youtube.com/@powerliftingaep4634/playlists",
-    "epf": "https://www.youtube.com/@europeanpowerlifting/playlists",
-    "ipf": "https://www.youtube.com/@powerliftingtv/playlists",
+    "aep":  "https://www.youtube.com/@powerliftingaep4634/playlists",
+    "epf":  "https://www.youtube.com/@europeanpowerlifting/playlists",
+    "ipf":  "https://www.youtube.com/@powerliftingtv/playlists",
+    "usapl": "https://www.youtube.com/@USAPowerlifting1/playlists",
+    "bp":   "https://www.youtube.com/@gbpowerfed-britishpowerlifting/playlists",
+    "cpu":  "https://www.youtube.com/@canadapowerlifting/playlists",
 }
 
 # (timestamp, grouped_data)
