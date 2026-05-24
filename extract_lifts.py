@@ -156,7 +156,7 @@ def download_clip(url: str, start: int, duration: int, output: Path, label: str)
         "--download-sections", section,
         "-f", "bestvideo[vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
         "--merge-output-format", "mp4",
-        "-N", "4",                             # parallel fragment downloads
+        "-N", "1",                             # sequential fragments → gradual progress
         "--newline",                           # one progress line per update (no \r)
         "-o", str(tmp),
         "--no-playlist",
@@ -202,10 +202,10 @@ def download_clip(url: str, start: int, duration: int, output: Path, label: str)
                         try:
                             pct = float(next(t for t in line.split()
                                             if t.endswith("%")).rstrip("%"))
-                            boundary = int(pct // 10) * 10
+                            boundary = int(pct // 5) * 5
                             if boundary > last_boundary:
                                 last_boundary = boundary
-                                print(f"  ↓ {int(pct)}%")
+                                print(f"  ↓ {boundary}%")
                                 sys.stdout.flush()
                         except (ValueError, StopIteration):
                             pass
