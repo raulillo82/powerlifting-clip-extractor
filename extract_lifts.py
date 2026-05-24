@@ -152,7 +152,6 @@ def download_clip(url: str, start: int, duration: int, output: Path, label: str)
     cmd = [
         "yt-dlp",
         "--download-sections", section,
-        "--force-keyframes-at-cuts",           # accurate cut at exact timestamps (slow but precise)
         "-f", "bestvideo[vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
         "--merge-output-format", "mp4",
         "-N", "4",                             # parallel fragment downloads
@@ -162,35 +161,40 @@ def download_clip(url: str, start: int, duration: int, output: Path, label: str)
         url,
     ]
 
-    # Merge stderr into stdout so yt-dlp's progress lines (written to stderr)
-    # are readable here. PYTHONUNBUFFERED forces yt-dlp (a Python process) to
-    # flush after every write when not attached to a TTY.
-    env = {**os.environ, "PYTHONUNBUFFERED": "1"}
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, env=env)
+    if sys.stdout.isatty():
+        # CLI: yt-dlp writes directly to the terminal → real-time native progress bar
+        result = subprocess.run(cmd)
+        if result.returncode != 0:
+            raise subprocess.CalledProcessError(result.returncode, cmd)
+    else:
+        # Web (stdout = _LiveLog pipe): capture and relay progress milestones.
+        # PYTHONUNBUFFERED forces yt-dlp to flush even when stdout is not a TTY.
+        env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, env=env)
 
-    last_boundary = -1
-    output_lines: list[str] = []
-    for raw in proc.stdout:
-        line = raw.rstrip()
-        output_lines.append(line)
-        if "[download]" in line and "%" in line:
-            try:
-                pct = float([t for t in line.split() if t.endswith("%")][0].rstrip("%"))
-                boundary = int(pct // 10) * 10
-                if boundary > last_boundary:
-                    last_boundary = boundary
-                    print(f"  ↓ {int(pct)}%")
-                    sys.stdout.flush()
-            except (ValueError, IndexError):
-                pass
+        last_boundary = -1
+        output_lines: list[str] = []
+        for raw in proc.stdout:
+            line = raw.rstrip()
+            output_lines.append(line)
+            if "[download]" in line and "%" in line:
+                try:
+                    pct = float([t for t in line.split() if t.endswith("%")][0].rstrip("%"))
+                    boundary = int(pct // 10) * 10
+                    if boundary > last_boundary:
+                        last_boundary = boundary
+                        print(f"  ↓ {int(pct)}%")
+                        sys.stdout.flush()
+                except (ValueError, IndexError):
+                    pass
 
-    proc.wait()
-    if proc.returncode != 0:
-        for line in output_lines:
-            if line and "[download]" not in line:
-                print(line)
-        raise subprocess.CalledProcessError(proc.returncode, cmd)
+        proc.wait()
+        if proc.returncode != 0:
+            for line in output_lines:
+                if line and "[download]" not in line:
+                    print(line)
+            raise subprocess.CalledProcessError(proc.returncode, cmd)
 
     # Apply faststart for faster browser playback (stream-copy, lossless).
     # If ffmpeg can't process the file (e.g. unsupported codec build), fall back to the raw file.

@@ -165,8 +165,12 @@ def _fetch_channel_videos(source: str) -> dict:
             continue
 
         upload_date = entry.get("upload_date") or ""
+        timestamp_unix = entry.get("timestamp")
         if upload_date and len(upload_date) >= 4:
             year = upload_date[:4]
+        elif timestamp_unix:
+            import datetime as _dt
+            year = str(_dt.datetime.fromtimestamp(timestamp_unix).year)
         else:
             m = _re.search(r"\b(20\d{2})\b", raw_title)
             year = m.group(1) if m else "?"
