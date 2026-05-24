@@ -1,5 +1,7 @@
 # Powerlifting Clip Extractor
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 > 🌐 **Accede a la herramienta → [raulillo82.duckdns.org](https://raulillo82.duckdns.org)**
 > *(Puedes crear tu cuenta gratis desde la propia web mientras haya plazas disponibles / You can register for free directly from the site while slots are available)*
 
