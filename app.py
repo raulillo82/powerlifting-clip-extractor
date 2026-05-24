@@ -137,7 +137,7 @@ _TITLE_NOISE = _re.compile(
 
 def _clean_title(raw: str) -> str:
     title = _TITLE_NOISE.sub("", raw).strip()
-    return title[:70] + "…" if len(title) > 70 else title
+    return title[:95] + "…" if len(title) > 95 else title
 
 
 def _fetch_channel_playlists(source: str) -> dict:
@@ -209,7 +209,8 @@ def _fetch_playlist_sessions(playlist_url: str) -> list:
         if not url:
             continue
         title = _clean_title(raw_title)
-        sessions.append({"title": title, "url": url})
+        duration = entry.get("duration")  # seconds, may be None
+        sessions.append({"title": title, "url": url, "duration": duration})
     return sessions
 
 

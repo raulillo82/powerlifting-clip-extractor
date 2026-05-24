@@ -409,7 +409,8 @@
     </div>
   </div>
 
-  <button type="submit" class="btn btn-primary btn-lg px-5" data-i18n="btn.extract">Extract</button>
+  <button type="submit" class="btn btn-primary btn-lg px-5" data-i18n="btn.extract"
+          onclick="return _validateDuration()">Extract</button>
 
 </form>
 
@@ -518,6 +519,7 @@ function _makeRadioGroup(items, groupName, onChange) {
     inp.name = groupName;
     inp.id = id;
     inp.value = v.url;
+    if (v.duration != null) inp.dataset.duration = v.duration;
     inp.addEventListener('change', () => onChange(inp));
     const lbl = document.createElement('label');
     lbl.className = 'form-check-label';
@@ -595,8 +597,67 @@ function onCompetitionChange(radio) {
     });
 }
 
+let _videoDuration = null;  // seconds, set when a session is selected
+
 function onSessionChange(radio) {
   document.getElementById('url').value = radio ? radio.value : '';
+  _videoDuration = radio && radio.dataset.duration ? parseFloat(radio.dataset.duration) : null;
+  _clearDurationError();
+}
+
+function _clearDurationError() {
+  document.getElementById('duration-error')?.remove();
+}
+
+function _showDurationError(msg) {
+  _clearDurationError();
+  const div = document.createElement('div');
+  div.id = 'duration-error';
+  div.className = 'alert alert-danger mt-2 py-2';
+  div.style.fontSize = '.875rem';
+  div.textContent = msg;
+  document.getElementById('session-radio-area').after(div);
+}
+
+function _validateDuration() {
+  if (!_videoDuration) return true;  // no duration metadata — allow
+
+  const isSingle = document.getElementById('single_lift').checked;
+  const hms = s => new Date(s*1000).toISOString().slice(11,19);
+
+  function parseTs(str) {
+    const p = str.split(':').map(Number);
+    if (p.length === 3) return p[0]*3600 + p[1]*60 + p[2];
+    if (p.length === 2) return p[0]*60 + p[1];
+    return 0;
+  }
+
+  if (isSingle) {
+    const tsStr = document.getElementById('single_ts')?.value || '';
+    const clipDur = parseInt(document.getElementById('single_duration')?.value) || 60;
+    const ts = parseTs(tsStr);
+    if (ts + clipDur > _videoDuration) {
+      _showDurationError(
+        `El timestamp ${tsStr} + ${clipDur}s supera la duración del vídeo (${hms(_videoDuration)}). Ajusta el timestamp o la duración.`
+      );
+      return false;
+    }
+  } else {
+    const clipDur = parseInt(document.getElementById('duration')?.value) || 60;
+    const tsArea = document.getElementById('timestamps_text')?.value || '';
+    const lines = tsArea.split('\n').map(s => s.trim()).filter(Boolean);
+    for (const line of lines) {
+      const ts = parseTs(line);
+      if (ts + clipDur > _videoDuration) {
+        _showDurationError(
+          `El timestamp ${line} + ${clipDur}s supera la duración del vídeo (${hms(_videoDuration)}). Ajusta los timestamps o la duración.`
+        );
+        return false;
+      }
+    }
+  }
+  _clearDurationError();
+  return true;
 }
 
 // Restore JS state after server-side validation error
