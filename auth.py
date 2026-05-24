@@ -105,11 +105,11 @@ def login():
             cookie_token = request.cookies.get("device_token")
             stored_token = row["device_token"]
 
-            if stored_token and cookie_token != stored_token:
+            if stored_token and cookie_token != stored_token and not row["is_admin"]:
                 error = "Esta cuenta está vinculada a otro dispositivo."
             else:
                 new_token = stored_token or cookie_token or str(uuid.uuid4())
-                if not stored_token:
+                if not stored_token and not row["is_admin"]:
                     with get_db() as conn:
                         conn.execute(
                             "UPDATE users SET device_token = ? WHERE id = ?",
