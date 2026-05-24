@@ -370,8 +370,6 @@ WantedBy=timers.target
 systemctl --user enable --now duckdns.timer
 ```
 
-</details>
-
 #### 8. Actualización y reinicio
 
 Para desplegar cambios en el código:
@@ -390,6 +388,8 @@ journalctl --user -u powerlifting.service -n 50 --no-pager
 ```
 
 > **Nota:** el servicio systemd de usuario arranca automáticamente con el sistema (gracias a `loginctl enable-linger`) y se reinicia solo si falla (`Restart=on-failure`). No uses `nohup` ni procesos en background manuales.
+
+</details>
 
 ### Desarrollo
 
@@ -796,8 +796,6 @@ WantedBy=timers.target
 systemctl --user enable --now duckdns.timer
 ```
 
-</details>
-
 #### 8. Updating and restarting
 
 To deploy code changes:
@@ -816,6 +814,8 @@ journalctl --user -u powerlifting.service -n 50 --no-pager
 ```
 
 > **Note:** the systemd user service starts automatically at boot (thanks to `loginctl enable-linger`) and restarts itself on failure (`Restart=on-failure`). Do not use `nohup` or manual background processes.
+
+</details>
 
 ### Development
 
