@@ -6,10 +6,18 @@ on:
       - '**.md'
       - 'prompt.txt'
       - '.gitignore'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Deploy target'
+        required: true
+        default: 'staging'
+        type: choice
+        options: [staging, production]
 
 jobs:
   deploy-production:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.target == 'production')
     runs-on: self-hosted
     concurrency:
       group: deploy-production
@@ -23,7 +31,7 @@ jobs:
           systemctl --user is-active powerlifting
 
   deploy-staging:
-    if: github.ref != 'refs/heads/main' && github.ref_name == vars.STAGING_BRANCH
+    if: (github.ref != 'refs/heads/main' && github.ref_name == vars.STAGING_BRANCH) || (github.event_name == 'workflow_dispatch' && inputs.target == 'staging')
     runs-on: self-hosted
     concurrency:
       group: deploy-staging
