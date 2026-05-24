@@ -111,6 +111,92 @@ def _channel_whitelisted(channel_url: str) -> bool:
     low = channel_url.lower()
     return any(handle.lower() in low for handle in YOUTUBE_CHANNEL_WHITELIST)
 
+
+# ── Competition selector ───────────────────────────────────────────────────────
+
+_SOURCES: dict[str, str] = {
+    "aep": "https://www.youtube.com/@powerliftingaep4634/videos",
+    "epf": "https://www.youtube.com/@europeanpowerlifting/videos",
+    "ipf": "https://www.youtube.com/@powerliftingtv/videos",
+}
+
+# (timestamp, grouped_data)
+_channel_cache: dict[str, tuple[float, dict]] = {}
+_CACHE_TTL = 6 * 3600  # 6 hours
+
+import re as _re
+
+_TITLE_NOISE = _re.compile(
+    r"^[\U00010000-\U0010ffff☀-➿︀-️‍\s]*"  # leading emoji/spaces
+    r"|🔴\s*LIVE\s*:\s*"
+    r"|LIVE\s*:\s*",
+    _re.IGNORECASE,
+)
+
+
+def _clean_title(raw: str) -> str:
+    title = _TITLE_NOISE.sub("", raw).strip()
+    return title[:70] + "…" if len(title) > 70 else title
+
+
+def _fetch_channel_videos(source: str) -> dict:
+    """Run yt-dlp flat-playlist and return videos grouped by year (newest first)."""
+    channel_url = _SOURCES[source]
+    result = subprocess.run(
+        ["yt-dlp", "--flat-playlist", "-j", "--quiet",
+         "--playlist-end", "200", "--no-playlist", channel_url],
+        capture_output=True, text=True, timeout=60,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "yt-dlp failed")
+
+    by_year: dict[str, list[dict]] = {}
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        raw_title = entry.get("title") or entry.get("fulltitle") or ""
+        title = _clean_title(raw_title)
+        url   = entry.get("webpage_url") or entry.get("url") or ""
+        if not url or not title:
+            continue
+
+        upload_date = entry.get("upload_date") or ""
+        if upload_date and len(upload_date) >= 4:
+            year = upload_date[:4]
+        else:
+            m = _re.search(r"\b(20\d{2})\b", raw_title)
+            year = m.group(1) if m else "?"
+
+        by_year.setdefault(year, []).append({"title": title, "url": url})
+
+    # Sort years descending
+    return dict(sorted(by_year.items(), reverse=True))
+
+
+@app.route("/api/channel-videos")
+@login_required
+def channel_videos():
+    source = request.args.get("source", "")
+    if source not in _SOURCES:
+        return jsonify({"error": "Unknown source"}), 400
+
+    now = time.time()
+    cached = _channel_cache.get(source)
+    if cached and now - cached[0] < _CACHE_TTL:
+        return jsonify(cached[1])
+
+    try:
+        data = _fetch_channel_videos(source)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+    _channel_cache[source] = (now, data)
+    return jsonify(data)
+
 # In-memory cache — populated from disk on cache miss so server restarts are safe
 jobs: dict[str, dict] = {}
 

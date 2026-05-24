@@ -13,6 +13,7 @@ Requirements: yt-dlp, ffmpeg
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -161,17 +162,18 @@ def download_clip(url: str, start: int, duration: int, output: Path, label: str)
         url,
     ]
 
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-    # Drain stderr in background to prevent pipe deadlock
-    stderr_buf: list[str] = []
-    def _drain() -> None:
-        stderr_buf.append(proc.stderr.read())
-    threading.Thread(target=_drain, daemon=True).start()
+    # Merge stderr into stdout so yt-dlp's progress lines (written to stderr)
+    # are readable here. PYTHONUNBUFFERED forces yt-dlp (a Python process) to
+    # flush after every write when not attached to a TTY.
+    env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, env=env)
 
     last_boundary = -1
+    output_lines: list[str] = []
     for raw in proc.stdout:
         line = raw.rstrip()
+        output_lines.append(line)
         if "[download]" in line and "%" in line:
             try:
                 pct = float([t for t in line.split() if t.endswith("%")][0].rstrip("%"))
@@ -184,10 +186,10 @@ def download_clip(url: str, start: int, duration: int, output: Path, label: str)
                 pass
 
     proc.wait()
-    stderr_output = stderr_buf[0] if stderr_buf else ""
     if proc.returncode != 0:
-        if stderr_output:
-            print(stderr_output)
+        for line in output_lines:
+            if line and "[download]" not in line:
+                print(line)
         raise subprocess.CalledProcessError(proc.returncode, cmd)
 
     # Apply faststart for faster browser playback (stream-copy, lossless).
