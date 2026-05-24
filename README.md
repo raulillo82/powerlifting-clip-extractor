@@ -21,6 +21,7 @@
 - [Opciones principales](#opciones-principales)
 - [Archivos generados](#archivos-generados)
 - [Despliegue en producción](#despliegue-en-producción)
+- [Desarrollo](#desarrollo)
 
 ---
 
@@ -42,7 +43,8 @@
 | ✅ | Panel de administración de usuarios | — |
 | ✅ | Cola de jobs con pool de 2 workers paralelos | — |
 | ✅ | Modo dry-run para tests sin descargas reales | — |
-| ✅ | Tests automatizados de rutas web (77 tests, CI) | — |
+| ✅ | Tests automatizados de rutas web (80 tests, CI) | — |
+| ✅ | Rate limiting (Flask-Limiter): `/register` 3/15 min, `/run` 1/2 min por usuario, `/login` 20/min | — |
 | ✅ | Despliegue en producción (RPi5, nginx, gunicorn, HTTPS) | — |
 | 🔲 | **Estadísticas** (panel en `/admin/stats`) | Claude |
 |    | ↳ Mapa de calor por ciudad — España con Canarias por defecto, opción mapamundi | |
@@ -171,9 +173,12 @@ Todos los archivos son MP4 / H.264 / AAC con `-movflags +faststart`, compatibles
 En openSUSE:
 
 ```bash
-sudo zypper install python3 python3-pip ffmpeg yt-dlp nginx firewalld
-pip install -r requirements.txt
+sudo zypper install python3 ffmpeg yt-dlp nginx firewalld
+python3 -m venv venv
+venv/bin/pip install -r requirements.txt
 ```
+
+> `flask-limiter` no está en los repos de zypper; se instala automáticamente dentro del venv desde `requirements.txt`. No uses `pip` como root ni con `sudo`.
 
 #### 1. Clonar el repositorio
 
@@ -197,7 +202,7 @@ After=network.target
 
 [Service]
 WorkingDirectory=/home/TU_USUARIO/powerlifting-clip-extractor
-ExecStart=/usr/bin/gunicorn --workers 1 --threads 4 --bind 127.0.0.1:5000 --timeout 600 app:app
+ExecStart=/home/TU_USUARIO/powerlifting-clip-extractor/venv/bin/gunicorn --workers 1 --threads 4 --bind 127.0.0.1:5000 --timeout 600 app:app
 Restart=on-failure
 RestartSec=5
 
@@ -326,6 +331,46 @@ systemctl --user enable --now duckdns.timer
 
 </details>
 
+### Desarrollo
+
+<details>
+<summary>🛠️ Guía para contribuidores y desarrolladores (haz clic para expandir)</summary>
+
+#### Entorno de desarrollo
+
+```bash
+git clone https://github.com/raulillo82/powerlifting-clip-extractor.git
+cd powerlifting-clip-extractor
+python3 -m venv venv
+venv/bin/pip install -r requirements.txt pytest
+```
+
+#### Tests
+
+```bash
+venv/bin/python3 -m pytest          # todos los tests (80)
+venv/bin/python3 -m pytest test_extract_lifts.py   # solo lógica de extracción (34)
+venv/bin/python3 -m pytest test_app.py             # solo rutas web y autenticación (46)
+```
+
+El hook de pre-commit ejecuta ambos ficheros automáticamente antes de cada commit. Usa el Python del venv si existe, o el del sistema si no.
+
+#### Rate limiting
+
+Los límites se configuran en `app.py` y `auth.py` (decoradores `@limiter.limit`):
+
+| Ruta | Límite | Clave |
+|---|---|---|
+| `POST /register` | 3 por 15 minutos | IP |
+| `POST /login` | 20 por minuto | IP |
+| `POST /run` | 1 por 2 minutos | ID de usuario autenticado |
+
+En los tests, el rate limiting se desactiva en el fixture `client` mediante `monkeypatch.setattr(limiter, "enabled", False)`. Los tests de la clase `TestRateLimit` usan fixtures separados (`client_limited`, `anon_client_limited`) que resetean el storage entre pruebas con `limiter.reset()`.
+
+> Nota técnica: Flask-Limiter 4.x almacena `enabled` como atributo de instancia (fijado en `init_app`), no lo lee de `app.config` en cada request. Por eso `RATELIMIT_ENABLED = False` en config no funciona para desactivarlo en tests — hay que usar `monkeypatch` directamente sobre el objeto.
+
+</details>
+
 ---
 
 ## English <a name="english"></a>
@@ -342,6 +387,7 @@ systemctl --user enable --now duckdns.timer
 - [Options](#options)
 - [Output](#output)
 - [Production deployment](#production-deployment)
+- [Development](#development)
 
 ---
 
@@ -363,7 +409,8 @@ systemctl --user enable --now duckdns.timer
 | ✅ | User admin panel | — |
 | ✅ | Job queue with pool of 2 parallel workers | — |
 | ✅ | Dry-run mode for testing without real downloads | — |
-| ✅ | Web route tests (77 tests, CI) | — |
+| ✅ | Web route tests (80 tests, CI) | — |
+| ✅ | Rate limiting (Flask-Limiter): `/register` 3/15 min, `/run` 1/2 min per user, `/login` 20/min | — |
 | ✅ | Production deployment (RPi5, nginx, gunicorn, HTTPS) | — |
 | 🔲 | **Statistics** (panel at `/admin/stats`) | Claude |
 |    | ↳ City heatmap — Spain + Canary Islands by default, world map option | |
@@ -492,9 +539,12 @@ All files are MP4 / H.264 / AAC with `-movflags +faststart`, compatible with Ins
 On openSUSE:
 
 ```bash
-sudo zypper install python3 python3-pip ffmpeg yt-dlp nginx firewalld
-pip install -r requirements.txt
+sudo zypper install python3 ffmpeg yt-dlp nginx firewalld
+python3 -m venv venv
+venv/bin/pip install -r requirements.txt
 ```
+
+> `flask-limiter` is not in zypper's repos; it is installed automatically inside the venv from `requirements.txt`. Do not use `pip` as root or with `sudo`.
 
 #### 1. Clone the repository
 
@@ -518,7 +568,7 @@ After=network.target
 
 [Service]
 WorkingDirectory=/home/YOUR_USER/powerlifting-clip-extractor
-ExecStart=/usr/bin/gunicorn --workers 1 --threads 4 --bind 127.0.0.1:5000 --timeout 600 app:app
+ExecStart=/home/YOUR_USER/powerlifting-clip-extractor/venv/bin/gunicorn --workers 1 --threads 4 --bind 127.0.0.1:5000 --timeout 600 app:app
 Restart=on-failure
 RestartSec=5
 
@@ -644,5 +694,45 @@ WantedBy=timers.target
 ```bash
 systemctl --user enable --now duckdns.timer
 ```
+
+</details>
+
+### Development
+
+<details>
+<summary>🛠️ Guide for contributors and developers (click to expand)</summary>
+
+#### Development environment
+
+```bash
+git clone https://github.com/raulillo82/powerlifting-clip-extractor.git
+cd powerlifting-clip-extractor
+python3 -m venv venv
+venv/bin/pip install -r requirements.txt pytest
+```
+
+#### Tests
+
+```bash
+venv/bin/python3 -m pytest          # all tests (80)
+venv/bin/python3 -m pytest test_extract_lifts.py   # extraction logic only (34)
+venv/bin/python3 -m pytest test_app.py             # web routes and auth only (46)
+```
+
+The pre-commit hook runs both files automatically before each commit, using the venv Python if it exists.
+
+#### Rate limiting
+
+Limits are configured in `app.py` and `auth.py` via `@limiter.limit` decorators:
+
+| Route | Limit | Key |
+|---|---|---|
+| `POST /register` | 3 per 15 minutes | IP |
+| `POST /login` | 20 per minute | IP |
+| `POST /run` | 1 per 2 minutes | authenticated user ID |
+
+In tests, rate limiting is disabled in the `client` fixture via `monkeypatch.setattr(limiter, "enabled", False)`. The `TestRateLimit` class uses separate fixtures (`client_limited`, `anon_client_limited`) that call `limiter.reset()` to clear storage between tests.
+
+> Technical note: Flask-Limiter 4.x stores `enabled` as an instance attribute (set during `init_app`), not read from `app.config` on each request. This is why setting `RATELIMIT_ENABLED = False` in config does not work in tests — you must monkeypatch the object directly.
 
 </details>

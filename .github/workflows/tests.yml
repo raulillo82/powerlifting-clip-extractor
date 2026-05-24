@@ -22,6 +22,6 @@ jobs:
         with:
           python-version: "3.11"
 
-      - run: pip install pytest flask flask-login
+      - run: pip install pytest -r requirements.txt
 
       - run: pytest test_extract_lifts.py test_app.py -v
