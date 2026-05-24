@@ -8,6 +8,6 @@
   {% if detail %}
   <p class="text-muted small">{{ detail }}</p>
   {% endif %}
-  <a href="/" class="btn btn-primary" data-i18n="btn.new">Volver</a>
+  <a href="{{ url_for('index') }}" class="btn btn-primary" data-i18n="btn.new">Volver</a>
 </div>
 {% endblock %}

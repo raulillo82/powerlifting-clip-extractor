@@ -34,7 +34,7 @@
 
 {# ── Download ── #}
 <div id="download-section" class="d-none">
-  <a id="zip-btn" href="/download/{{ job_id }}/zip"
+  <a id="zip-btn" href="{{ url_for('download_zip', job_id=job_id) }}"
      class="btn btn-success btn-lg px-5" data-i18n="btn.zip">Download ZIP</a>
   <p id="expiry-notice" class="text-muted small mt-2 mb-0"></p>
   <p class="text-muted small mt-1">
@@ -50,7 +50,7 @@
   <div class="alert alert-danger" data-i18n="err.failed">Extraction failed — see the log for details.</div>
 </div>
 
-<a href="/" class="btn btn-outline-secondary mt-3" data-i18n="btn.new">New extraction</a>
+<a href="{{ url_for('index') }}" class="btn btn-outline-secondary mt-3" data-i18n="btn.new">New extraction</a>
 
 {% endblock %}
 

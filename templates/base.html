@@ -16,12 +16,12 @@
 <body class="bg-light">
   <nav class="navbar navbar-dark bg-dark fixed-top">
     <div class="container">
-      <a class="navbar-brand fw-bold" href="/">Powerlifting Clip Extractor</a>
+      <a class="navbar-brand fw-bold" href="{{ url_for('index') }}">Powerlifting Clip Extractor</a>
       <div class="d-flex align-items-center gap-2">
         {% if current_user.is_authenticated %}
         <span class="text-white-50 small">Hola, {{ current_user.display_name }}</span>
         {% if current_user.is_admin %}
-        <a href="/admin/" class="btn btn-sm btn-outline-light border-0 py-0">Admin</a>
+        <a href="{{ url_for('admin.index') }}" class="btn btn-sm btn-outline-light border-0 py-0">Admin</a>
         {% endif %}
         <a href="{{ url_for('auth.logout') }}" class="btn btn-sm btn-outline-light border-0 py-0">Salir</a>
         <div class="vr bg-secondary mx-1"></div>
