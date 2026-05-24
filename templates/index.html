@@ -36,7 +36,7 @@
         <span class="text-muted small" data-i18n="source.loading">Cargando vídeos…</span>
       </div>
 
-      {# Year + session selectors (hidden until source loaded) #}
+      {# Year → Competition → Session cascade (hidden until source loaded) #}
       <div id="year-session-area" class="d-none">
         <div class="mb-3">
           <label class="form-label" data-i18n="label.year">Año</label>
@@ -44,10 +44,18 @@
             <option value="">—</option>
           </select>
         </div>
+        <div id="competition-radio-area" class="d-none mb-3">
+          <label class="form-label" data-i18n="label.competition">Competición</label>
+          <div id="competition-radio-group"
+               class="border rounded px-3 py-2"
+               style="max-height:260px; overflow-y:auto; background:var(--bs-body-bg)">
+          </div>
+        </div>
         <div id="session-radio-area" class="d-none">
           <label class="form-label" data-i18n="label.session">Sesión</label>
+          <div id="session-spinner" class="d-none text-muted small py-1" data-i18n="label.session.loading">Cargando sesiones…</div>
           <div id="session-radio-group"
-               class="border rounded px-3 py-2"
+               class="border rounded px-3 py-2 d-none"
                style="max-height:260px; overflow-y:auto; background:var(--bs-body-bg)">
           </div>
         </div>
@@ -498,6 +506,46 @@ function onSourceChange() {
     });
 }
 
+function _makeRadioGroup(items, groupName, onChange) {
+  const frag = document.createDocumentFragment();
+  items.forEach((v, i) => {
+    const id  = `${groupName}_${i}`;
+    const div = document.createElement('div');
+    div.className = 'form-check mb-1';
+    const inp = document.createElement('input');
+    inp.className = 'form-check-input';
+    inp.type = 'radio';
+    inp.name = groupName;
+    inp.id = id;
+    inp.value = v.url;
+    inp.addEventListener('change', () => onChange(inp));
+    const lbl = document.createElement('label');
+    lbl.className = 'form-check-label';
+    lbl.htmlFor = id;
+    lbl.style.cssText = 'font-size:.82rem;line-height:1.35;white-space:normal;cursor:pointer';
+    lbl.textContent = v.title;
+    div.appendChild(inp);
+    div.appendChild(lbl);
+    frag.appendChild(div);
+  });
+  return frag;
+}
+
+function _resetFrom(level) {
+  // level: 'year' | 'competition' | 'session'
+  if (level === 'year' || level === 'competition') {
+    document.getElementById('competition-radio-group').innerHTML = '';
+    document.getElementById('competition-radio-area').classList.add('d-none');
+  }
+  if (level === 'year' || level === 'competition' || level === 'session') {
+    document.getElementById('session-radio-group').innerHTML = '';
+    document.getElementById('session-radio-group').classList.add('d-none');
+    document.getElementById('session-spinner').classList.add('d-none');
+    document.getElementById('session-radio-area').classList.add('d-none');
+    document.getElementById('url').value = '';
+  }
+}
+
 function _populateYears(data) {
   const sel = document.getElementById('year-select');
   sel.innerHTML = `<option value="">—</option>`;
@@ -507,33 +555,44 @@ function _populateYears(data) {
     opt.textContent = year;
     sel.appendChild(opt);
   });
-  document.getElementById('session-radio-group').innerHTML = '';
-  document.getElementById('session-radio-area').classList.add('d-none');
-  document.getElementById('url').value = '';
+  _resetFrom('year');
 }
 
 function onYearChange() {
-  const year    = document.getElementById('year-select').value;
-  const group   = document.getElementById('session-radio-group');
-  const area    = document.getElementById('session-radio-area');
-  group.innerHTML = '';
-  document.getElementById('url').value = '';
-  if (!year || !_videoData[year]) { area.classList.add('d-none'); return; }
+  const year  = document.getElementById('year-select').value;
+  const group = document.getElementById('competition-radio-group');
+  const area  = document.getElementById('competition-radio-area');
+  _resetFrom('year');
+  if (!year || !_videoData[year]) return;
 
-  _videoData[year].forEach((v, i) => {
-    const id  = `session_${i}`;
-    const div = document.createElement('div');
-    div.className = 'form-check mb-1';
-    div.innerHTML = `
-      <input class="form-check-input" type="radio" name="session_radio"
-             id="${id}" value="${v.url}" onchange="onSessionChange(this)">
-      <label class="form-check-label" for="${id}"
-             style="font-size:.82rem;line-height:1.35;white-space:normal;cursor:pointer">
-        ${v.title}
-      </label>`;
-    group.appendChild(div);
-  });
+  group.appendChild(_makeRadioGroup(_videoData[year], 'competition_radio', onCompetitionChange));
   area.classList.remove('d-none');
+}
+
+function onCompetitionChange(radio) {
+  _resetFrom('competition');
+  const playlistUrl = radio.value;
+  const area    = document.getElementById('session-radio-area');
+  const spinner = document.getElementById('session-spinner');
+  const group   = document.getElementById('session-radio-group');
+
+  area.classList.remove('d-none');
+  spinner.classList.remove('d-none');
+  group.classList.add('d-none');
+
+  fetch(`/api/playlist-sessions?url=${encodeURIComponent(playlistUrl)}`)
+    .then(r => r.json())
+    .then(sessions => {
+      spinner.classList.add('d-none');
+      if (sessions.error) { alert(sessions.error); return; }
+      group.innerHTML = '';
+      group.appendChild(_makeRadioGroup(sessions, 'session_radio', onSessionChange));
+      group.classList.remove('d-none');
+    })
+    .catch(() => {
+      spinner.classList.add('d-none');
+      alert(T('label.session.error'));
+    });
 }
 
 function onSessionChange(radio) {

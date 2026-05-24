@@ -115,13 +115,14 @@ def _channel_whitelisted(channel_url: str) -> bool:
 # ── Competition selector ───────────────────────────────────────────────────────
 
 _SOURCES: dict[str, str] = {
-    "aep": "https://www.youtube.com/@powerliftingaep4634/videos",
-    "epf": "https://www.youtube.com/@europeanpowerlifting/videos",
-    "ipf": "https://www.youtube.com/@powerliftingtv/videos",
+    "aep": "https://www.youtube.com/@powerliftingaep4634/playlists",
+    "epf": "https://www.youtube.com/@europeanpowerlifting/playlists",
+    "ipf": "https://www.youtube.com/@powerliftingtv/playlists",
 }
 
 # (timestamp, grouped_data)
 _channel_cache: dict[str, tuple[float, dict]] = {}
+_playlist_cache: dict[str, tuple[float, list]] = {}
 _CACHE_TTL = 6 * 3600  # 6 hours
 
 import re as _re
@@ -139,12 +140,17 @@ def _clean_title(raw: str) -> str:
     return title[:70] + "…" if len(title) > 70 else title
 
 
-def _fetch_channel_videos(source: str) -> dict:
-    """Run yt-dlp flat-playlist and return videos grouped by year (newest first)."""
+def _fetch_channel_playlists(source: str) -> dict:
+    """Fetch channel /playlists page and return competitions grouped by year.
+
+    Each entry is a playlist (one competition). Year is extracted from the
+    title since /playlists metadata never includes upload_date/timestamp.
+    Returns {year: [{title, url}, ...]} sorted newest-first.
+    """
     channel_url = _SOURCES[source]
     result = subprocess.run(
         ["yt-dlp", "--flat-playlist", "-j", "--quiet",
-         "--playlist-end", "200", "--no-playlist", channel_url],
+         "--playlist-end", "200", channel_url],
         capture_output=True, text=True, timeout=60,
     )
     if result.returncode != 0:
@@ -158,27 +164,53 @@ def _fetch_channel_videos(source: str) -> dict:
             entry = json.loads(line)
         except json.JSONDecodeError:
             continue
-        raw_title = entry.get("title") or entry.get("fulltitle") or ""
-        title = _clean_title(raw_title)
-        url   = entry.get("webpage_url") or entry.get("url") or ""
-        if not url or not title:
+        raw_title = entry.get("title") or ""
+        if not raw_title or raw_title == "[Deleted video]":
+            continue
+        url = entry.get("webpage_url") or entry.get("url") or ""
+        if not url:
+            continue
+        # Only keep playlist URLs (competitions), not stray video URLs
+        if "playlist?list=" not in url and "/playlist/" not in url:
             continue
 
-        upload_date = entry.get("upload_date") or ""
-        timestamp_unix = entry.get("timestamp")
-        if upload_date and len(upload_date) >= 4:
-            year = upload_date[:4]
-        elif timestamp_unix:
-            import datetime as _dt
-            year = str(_dt.datetime.fromtimestamp(timestamp_unix).year)
-        else:
-            m = _re.search(r"\b(20\d{2})\b", raw_title)
-            year = m.group(1) if m else "?"
-
+        title = _clean_title(raw_title)
+        m = _re.search(r"\b(20\d{2})\b", raw_title)
+        year = m.group(1) if m else "?"
         by_year.setdefault(year, []).append({"title": title, "url": url})
 
-    # Sort years descending
     return dict(sorted(by_year.items(), reverse=True))
+
+
+def _fetch_playlist_sessions(playlist_url: str) -> list:
+    """Expand a competition playlist into individual session videos.
+
+    Returns [{title, url}, ...] filtering out deleted/private entries.
+    """
+    result = subprocess.run(
+        ["yt-dlp", "--flat-playlist", "-j", "--quiet", playlist_url],
+        capture_output=True, text=True, timeout=60,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "yt-dlp failed")
+
+    sessions = []
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        raw_title = entry.get("title") or ""
+        if not raw_title or raw_title == "[Deleted video]":
+            continue
+        url = entry.get("webpage_url") or entry.get("url") or ""
+        if not url:
+            continue
+        title = _clean_title(raw_title)
+        sessions.append({"title": title, "url": url})
+    return sessions
 
 
 @app.route("/api/channel-videos")
@@ -194,12 +226,33 @@ def channel_videos():
         return jsonify(cached[1])
 
     try:
-        data = _fetch_channel_videos(source)
+        data = _fetch_channel_playlists(source)
     except Exception as e:
         return jsonify({"error": str(e)}), 502
 
     _channel_cache[source] = (now, data)
     return jsonify(data)
+
+
+@app.route("/api/playlist-sessions")
+@login_required
+def playlist_sessions():
+    url = request.args.get("url", "")
+    if not url or "youtube.com/playlist" not in url:
+        return jsonify({"error": "Invalid playlist URL"}), 400
+
+    now = time.time()
+    cached = _playlist_cache.get(url)
+    if cached and now - cached[0] < _CACHE_TTL:
+        return jsonify(cached[1])
+
+    try:
+        sessions = _fetch_playlist_sessions(url)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+    _playlist_cache[url] = (now, sessions)
+    return jsonify(sessions)
 
 # In-memory cache — populated from disk on cache miss so server restarts are safe
 jobs: dict[str, dict] = {}
