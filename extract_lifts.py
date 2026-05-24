@@ -149,8 +149,7 @@ def download_clip(url: str, start: int, duration: int, output: Path, label: str)
     cmd = [
         "yt-dlp",
         "--download-sections", section,
-        # --force-keyframes-at-cuts omitted: openSUSE ffmpeg lacks h264 decoder (patent restrictions),
-        # so the re-encode step fails. Cuts land on the nearest keyframe (≤2 s off in broadcasts).
+        "--force-keyframes-at-cuts",           # accurate cut at exact timestamps (slow but precise)
         "-f", "bestvideo[vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
         "--merge-output-format", "mp4",
         "-N", "4",                             # parallel fragment downloads
