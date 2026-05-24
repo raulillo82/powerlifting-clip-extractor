@@ -11,6 +11,9 @@ jobs:
   deploy-production:
     if: github.ref == 'refs/heads/main'
     runs-on: self-hosted
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     steps:
       - name: Pull and restart production
         run: |
@@ -20,8 +23,11 @@ jobs:
           systemctl --user is-active powerlifting
 
   deploy-staging:
-    if: github.ref != 'refs/heads/main'
+    if: github.ref != 'refs/heads/main' && github.ref_name == vars.STAGING_BRANCH
     runs-on: self-hosted
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
     steps:
       - name: Deploy branch to staging
         run: |
