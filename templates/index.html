@@ -633,7 +633,7 @@ function _validateDuration() {
   }
 
   if (isSingle) {
-    const tsStr = document.getElementById('single_ts')?.value || '';
+    const tsStr = document.getElementById('single_timestamp')?.value || '';
     const clipDur = parseInt(document.getElementById('single_duration')?.value) || 60;
     const ts = parseTs(tsStr);
     if (ts + clipDur > _videoDuration) {
