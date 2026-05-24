@@ -104,6 +104,7 @@ def _save_job(job_id: str, job: dict) -> None:
         "log":        job["log"],
         "output_dir": job["output_dir"],
         "expires_at": job.get("expires_at"),
+        "mode":       job.get("mode", "full"),
     }))
 
 
@@ -266,6 +267,13 @@ def _build_single_run_kwargs(form, url: str, output_dir: Path) -> dict:
     music_start_raw = form.get("music_start", "").strip()
     music_start = float(parse_timestamp(music_start_raw)) if music_start_raw else 0.0
 
+    music_pct = 40
+    if "mix_custom" in form:
+        try:
+            music_pct = max(10, min(90, int(form.get("music_pct") or 40)))
+        except ValueError:
+            pass
+
     preview_width = 0
     if "preview" in form:
         preview_width = int(form.get("preview_width") or 640)
@@ -281,6 +289,7 @@ def _build_single_run_kwargs(form, url: str, output_dir: Path) -> dict:
         audio_mode=audio_mode,
         music_source=music_source,
         music_start=music_start,
+        music_pct=music_pct,
         preview_width=preview_width,
         no_replay="no_replay" in form,
         dry_run="dry_run" in form,
@@ -377,7 +386,7 @@ def start_job():
 
     mode = run_kwargs.pop("_mode", "full")
     job = {"status": "queued", "log": "", "output_dir": str(output_dir),
-           "expires_at": None, "queued_at": time.time()}
+           "expires_at": None, "queued_at": time.time(), "mode": mode}
     jobs[job_id] = job
     _save_job(job_id, job)
     _job_queue.put((job_id, run_kwargs, mode))
@@ -387,7 +396,9 @@ def start_job():
 @app.route("/status/<job_id>")
 @login_required
 def status(job_id: str):
-    return render_template("status.html", job_id=job_id)
+    job = jobs.get(job_id) or _load_job(job_id)
+    single_mode = job.get("mode") == "single" if job else False
+    return render_template("status.html", job_id=job_id, single_mode=single_mode)
 
 
 @app.route("/status/<job_id>/json")
@@ -423,8 +434,9 @@ def download_zip(job_id: str):
         for f in sorted(out_dir.rglob("*.mp4")):
             zf.write(f, f.relative_to(out_dir))
     buf.seek(0)
+    safe_name = current_user.display_name.replace(" ", "_")
     return send_file(buf, mimetype="application/zip", as_attachment=True,
-                     download_name="powerlifting_clips.zip")
+                     download_name=f"{safe_name}.zip")
 
 
 if __name__ == "__main__":

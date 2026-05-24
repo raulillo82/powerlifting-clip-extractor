@@ -17,6 +17,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 MOVEMENTS = [
@@ -143,7 +144,8 @@ def download_clip(url: str, start: int, duration: int, output: Path, label: str)
     """Download a single timed section from YouTube using yt-dlp."""
     end = start + duration
     section = f"*{seconds_to_hms(start)}-{seconds_to_hms(end)}"
-    print(f"\n  [{label}]  {seconds_to_hms(start)} → {seconds_to_hms(end)}")
+    print(f"\n[{label}] ⏳ Descargando...  {seconds_to_hms(start)} → {seconds_to_hms(end)}")
+    sys.stdout.flush()
 
     tmp = output.with_suffix(".tmp.mp4")
     cmd = [
@@ -153,15 +155,40 @@ def download_clip(url: str, start: int, duration: int, output: Path, label: str)
         "-f", "bestvideo[vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
         "--merge-output-format", "mp4",
         "-N", "4",                             # parallel fragment downloads
+        "--newline",                           # one progress line per update (no \r)
         "-o", str(tmp),
         "--no-playlist",
         url,
     ]
-    result = subprocess.run(cmd, check=False, stderr=subprocess.PIPE, text=True)
-    if result.returncode != 0:
-        if result.stderr:
-            print(result.stderr)
-        raise subprocess.CalledProcessError(result.returncode, cmd)
+
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    # Drain stderr in background to prevent pipe deadlock
+    stderr_buf: list[str] = []
+    def _drain() -> None:
+        stderr_buf.append(proc.stderr.read())
+    threading.Thread(target=_drain, daemon=True).start()
+
+    last_boundary = -1
+    for raw in proc.stdout:
+        line = raw.rstrip()
+        if "[download]" in line and "%" in line:
+            try:
+                pct = float([t for t in line.split() if t.endswith("%")][0].rstrip("%"))
+                boundary = int(pct // 10) * 10
+                if boundary > last_boundary:
+                    last_boundary = boundary
+                    print(f"  ↓ {int(pct)}%")
+                    sys.stdout.flush()
+            except (ValueError, IndexError):
+                pass
+
+    proc.wait()
+    stderr_output = stderr_buf[0] if stderr_buf else ""
+    if proc.returncode != 0:
+        if stderr_output:
+            print(stderr_output)
+        raise subprocess.CalledProcessError(proc.returncode, cmd)
 
     # Apply faststart for faster browser playback (stream-copy, lossless).
     # If ffmpeg can't process the file (e.g. unsupported codec build), fall back to the raw file.
@@ -173,9 +200,10 @@ def download_clip(url: str, start: int, duration: int, output: Path, label: str)
     r = subprocess.run(faststart_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if r.returncode == 0:
         tmp.unlink()
+        print("✓ Clip listo")
     else:
         tmp.rename(output)
-        print("  [warning] faststart skipped — file usable but not optimised for streaming")
+        print("✓ Clip listo (sin optimizar para streaming)")
 
 
 def make_combined(clips: list[Path], output: Path, preview_width: int = 0) -> None:
@@ -217,8 +245,10 @@ def make_combined(clips: list[Path], output: Path, preview_width: int = 0) -> No
         "-y",
         str(output),
     ]
-    print(f"\n  [combined]  Creating {output.name} ...")
-    subprocess.run(cmd, check=True)
+    print(f"\n[combined] ⏳ Creando vídeo combinado...")
+    sys.stdout.flush()
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    print("✓ Vídeo combinado listo")
 
 
 def make_preview(source: Path, dest: Path, width: int) -> None:
@@ -320,8 +350,10 @@ def add_music(
         "-movflags", "+faststart",
         "-y", str(output),
     ]
-    print(f"\n  [music]  Creating {output.name} ...")
-    subprocess.run(cmd, check=True)
+    print(f"\n[music] ⏳ Aplicando música...")
+    sys.stdout.flush()
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    print("✓ Música aplicada")
 
 
 def add_mixed_audio(
@@ -329,14 +361,18 @@ def add_mixed_audio(
     audio: Path,
     output: Path,
     music_start: float = 0.0,
-    music_volume: float = 0.6,
+    music_pct: int = 40,
     fade_secs: float = 2.0,
 ) -> None:
     """Blend a clip's original audio with a music track.
 
-    The clip's original audio is kept at full volume; music is added at
-    music_volume and faded out. Video stream is copied without re-encoding.
+    music_pct: percentage of music in the final mix (10-90). Original gets
+    (100 - music_pct)%. normalize=0 so the explicit volumes are honoured exactly.
     """
+    music_pct = max(10, min(90, music_pct))
+    orig_vol  = (100 - music_pct) / 100
+    music_vol = music_pct / 100
+
     video_dur = get_clip_duration(clip)
     song_dur  = get_clip_duration(audio)
 
@@ -353,10 +389,10 @@ def add_mixed_audio(
         f"[1:a]aloop=loop=-1:size=2147483647,"
         f"atrim=start={music_start:.3f}:end={end_trim:.3f},"
         f"asetpts=PTS-STARTPTS,"
-        f"volume={music_volume:.2f},"
+        f"volume={music_vol:.2f},"
         f"afade=t=out:st={fade_start:.3f}:d={fade_secs}[music_proc];"
-        f"[0:a]volume=1.0[orig_proc];"
-        f"[orig_proc][music_proc]amix=inputs=2:duration=first[aout]"
+        f"[0:a]volume={orig_vol:.2f}[orig_proc];"
+        f"[orig_proc][music_proc]amix=inputs=2:duration=first:normalize=0[aout]"
     )
     cmd = [
         "ffmpeg",
@@ -370,8 +406,10 @@ def add_mixed_audio(
         "-movflags", "+faststart",
         "-y", str(output),
     ]
-    print(f"\n  [mixed]  Creating {output.name} ...")
-    subprocess.run(cmd, check=True)
+    print(f"\n[mixed] ⏳ Mezclando audio original y música...")
+    sys.stdout.flush()
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    print("✓ Audio mezclado")
 
 
 def resolve_music(source: str, interactive: bool = True) -> str:
@@ -540,6 +578,7 @@ def run_single(
     no_replay: bool = False,
     music_source: str = "",
     music_start: float = 0.0,
+    music_pct: int = 40,
     interactive: bool = False,
     dry_run: bool = False,
 ) -> None:
@@ -593,7 +632,8 @@ def run_single(
             download_audio(music_url, audio_file)
             add_music(clip_path, audio_file, music_path, music_start=music_start)
             if audio_mode == "mixed":
-                add_mixed_audio(clip_path, audio_file, mixed_path, music_start=music_start)
+                add_mixed_audio(clip_path, audio_file, mixed_path,
+                                music_start=music_start, music_pct=music_pct)
             if preview_width:
                 make_preview(music_path, output_dir / "preview" / music_path.name, preview_width)
                 if audio_mode == "mixed":
@@ -715,6 +755,7 @@ def cli_mode(args: argparse.Namespace) -> None:
             no_replay=args.no_replay,
             music_source=args.music or "",
             music_start=float(music_start),
+            music_pct=max(10, min(90, args.mix_pct)),
             interactive=True,
         )
         return
@@ -872,6 +913,13 @@ examples:
             "original: keep original audio (1 file, no copyright risk). "
             "music_only: replace audio with music (requires --music). "
             "mixed: blend original + music, 3 files generated (requires --music)."
+        ),
+    )
+    single.add_argument(
+        "--mix-level", dest="mix_pct", type=int, default=40, metavar="N",
+        help=(
+            "Music percentage in the mixed blend (10-90, default 40). "
+            "Original gets (100-N)%%. Only used with --audio-mode mixed."
         ),
     )
     return parser

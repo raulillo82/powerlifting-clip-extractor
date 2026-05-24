@@ -24,7 +24,7 @@
 <div class="card mb-4">
   <div class="card-header d-flex justify-content-between align-items-center">
     <span class="fw-semibold" data-i18n="log.header">Log</span>
-    <small class="text-muted" data-i18n="log.hint">yt-dlp download progress is shown in the terminal, not here</small>
+    <small class="text-muted" data-i18n="log.hint">Generation steps appear here in real time</small>
   </div>
   <div class="card-body p-0">
     <pre id="log-output" class="m-0 p-3 bg-dark text-light rounded-bottom"
@@ -66,7 +66,7 @@ const dlSection  = document.getElementById('download-section');
 const errSection = document.getElementById('error-section');
 const expiryEl   = document.getElementById('expiry-notice');
 
-const TOTAL_CLIPS = 9;
+const TOTAL_CLIPS = {{ 1 if single_mode else 9 }};
 let lastData = null;   // saved so language changes can re-render
 
 function T(key) {
