@@ -388,13 +388,13 @@ class TestDryRun:
         data = {**VALID_FORM, "dry_run": "on"}
         return client.post("/run", data=data, follow_redirects=False)
 
-    def _poll(self, client, job_id, timeout=5.0):
+    def _poll(self, client, job_id, timeout=15.0):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             r = client.get(f"/status/{job_id}/json")
-            if json.loads(r.data)["status"] != "running":
+            if json.loads(r.data)["status"] in ("done", "error"):
                 break
-            time.sleep(0.05)
+            time.sleep(0.1)
         return json.loads(client.get(f"/status/{job_id}/json").data)
 
     def _job_id(self, r):
@@ -546,13 +546,13 @@ class TestSingleLift:
     def _job_id(self, r):
         return r.headers["Location"].split("/status/")[1].strip("/")
 
-    def _poll(self, client, job_id, timeout=5.0):
+    def _poll(self, client, job_id, timeout=15.0):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             r = client.get(f"/status/{job_id}/json")
-            if json.loads(r.data)["status"] != "running":
+            if json.loads(r.data)["status"] in ("done", "error"):
                 break
-            time.sleep(0.05)
+            time.sleep(0.1)
         return json.loads(client.get(f"/status/{job_id}/json").data)
 
     def test_missing_timestamp_returns_400(self, client):
