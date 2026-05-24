@@ -57,6 +57,10 @@ if os.environ.get("STAGING"):
     from werkzeug.middleware.proxy_fix import ProxyFix
     app.wsgi_app = ProxyFix(app.wsgi_app, x_prefix=1)
 
+    @limiter.request_filter
+    def _staging_admin_exempt():
+        return current_user.is_authenticated and current_user.is_admin
+
 
 @app.before_request
 def _staging_gate():
