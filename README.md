@@ -372,6 +372,25 @@ systemctl --user enable --now duckdns.timer
 
 </details>
 
+#### 8. Actualización y reinicio
+
+Para desplegar cambios en el código:
+
+```bash
+cd /home/TU_USUARIO/powerlifting-clip-extractor
+git pull
+systemctl --user restart powerlifting.service
+```
+
+Para comprobar el estado y ver los logs:
+
+```bash
+systemctl --user status powerlifting.service
+journalctl --user -u powerlifting.service -n 50 --no-pager
+```
+
+> **Nota:** el servicio systemd de usuario arranca automáticamente con el sistema (gracias a `loginctl enable-linger`) y se reinicia solo si falla (`Restart=on-failure`). No uses `nohup` ni procesos en background manuales.
+
 ### Desarrollo
 
 <details>
@@ -778,6 +797,25 @@ systemctl --user enable --now duckdns.timer
 ```
 
 </details>
+
+#### 8. Updating and restarting
+
+To deploy code changes:
+
+```bash
+cd /home/YOUR_USER/powerlifting-clip-extractor
+git pull
+systemctl --user restart powerlifting.service
+```
+
+To check status and view logs:
+
+```bash
+systemctl --user status powerlifting.service
+journalctl --user -u powerlifting.service -n 50 --no-pager
+```
+
+> **Note:** the systemd user service starts automatically at boot (thanks to `loginctl enable-linger`) and restarts itself on failure (`Restart=on-failure`). Do not use `nohup` or manual background processes.
 
 ### Development
 
