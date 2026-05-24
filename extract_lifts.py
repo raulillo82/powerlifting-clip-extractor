@@ -14,11 +14,14 @@ Requirements: yt-dlp, ffmpeg
 import argparse
 import json
 import os
+import pty
 import re
+import select
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 MOVEMENTS = [
@@ -154,7 +157,7 @@ def download_clip(url: str, start: int, duration: int, output: Path, label: str)
         "--download-sections", section,
         "-f", "bestvideo[vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
         "--merge-output-format", "mp4",
-        "-N", "4",                             # parallel fragment downloads
+        "-N", "1",                             # sequential fragments → gradual progress
         "--newline",                           # one progress line per update (no \r)
         "-o", str(tmp),
         "--no-playlist",
@@ -167,28 +170,74 @@ def download_clip(url: str, start: int, duration: int, output: Path, label: str)
         if result.returncode != 0:
             raise subprocess.CalledProcessError(result.returncode, cmd)
     else:
-        # Web (stdout = _LiveLog pipe): capture and relay progress milestones.
-        # PYTHONUNBUFFERED forces yt-dlp to flush even when stdout is not a TTY.
+        # Web (stdout = _LiveLog pipe): use a pty so yt-dlp thinks it has a real
+        # terminal and doesn't suppress intermediate progress output.
         env = {**os.environ, "PYTHONUNBUFFERED": "1"}
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                text=True, env=env)
+        master_fd, slave_fd = pty.openpty()
+        proc = subprocess.Popen(cmd, stdout=slave_fd, stderr=slave_fd,
+                                close_fds=True, env=env)
+        os.close(slave_fd)
 
         last_boundary = -1
         output_lines: list[str] = []
-        for raw in proc.stdout:
-            line = raw.rstrip()
-            output_lines.append(line)
-            if "[download]" in line and "%" in line:
-                try:
-                    pct = float([t for t in line.split() if t.endswith("%")][0].rstrip("%"))
-                    boundary = int(pct // 10) * 10
-                    if boundary > last_boundary:
-                        last_boundary = boundary
-                        print(f"  ↓ {int(pct)}%")
-                        sys.stdout.flush()
-                except (ValueError, IndexError):
-                    pass
+        buf = b""
+        start_t = time.monotonic()
+        last_tick_t = start_t
+        TICK_INTERVAL = 5.0
 
+        while True:
+            try:
+                r, _, _ = select.select([master_fd], [], [], 0.2)
+            except (ValueError, OSError):
+                break
+            if r:
+                try:
+                    buf += os.read(master_fd, 4096)
+                except OSError:
+                    break
+                lines = buf.split(b'\n')
+                buf = lines[-1]
+                for raw in lines[:-1]:
+                    line = raw.replace(b'\r', b'').decode('utf-8', errors='replace').strip()
+                    if not line:
+                        continue
+                    output_lines.append(line)
+                    if "[download]" in line and "%" in line:
+                        try:
+                            pct = float(next(t for t in line.split()
+                                            if t.endswith("%")).rstrip("%"))
+                            boundary = int(pct // 5) * 5
+                            if boundary > last_boundary:
+                                last_boundary = boundary
+                                last_tick_t = time.monotonic()  # reset tick
+                                print(f"  ↓ {boundary}%")
+                                sys.stdout.flush()
+                        except (ValueError, StopIteration):
+                            pass
+            # Time-based tick: if yt-dlp emits no % progress (e.g. ffmpeg backend),
+            # print elapsed seconds every TICK_INTERVAL so the log stays alive.
+            now = time.monotonic()
+            if now - last_tick_t >= TICK_INTERVAL:
+                elapsed = int(now - start_t)
+                print(f"  ↓ descargando... ({elapsed}s)")
+                sys.stdout.flush()
+                last_tick_t = now
+            if proc.poll() is not None:
+                # Drain any remaining output after process exits
+                try:
+                    while True:
+                        r, _, _ = select.select([master_fd], [], [], 0.05)
+                        if not r:
+                            break
+                        buf += os.read(master_fd, 4096)
+                except OSError:
+                    pass
+                break
+
+        try:
+            os.close(master_fd)
+        except OSError:
+            pass
         proc.wait()
         if proc.returncode != 0:
             for line in output_lines:

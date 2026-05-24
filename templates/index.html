@@ -7,7 +7,7 @@
 <div class="alert alert-danger">{{ error }}</div>
 {% endif %}
 
-<form method="post" action="/run" enctype="multipart/form-data">
+<form method="post" action="{{ url_for('start_job') }}" enctype="multipart/form-data">
 
   {# ── 1. Video ── #}
   <div class="card mb-3">
