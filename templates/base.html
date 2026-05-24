@@ -17,6 +17,7 @@
   <nav class="navbar navbar-dark bg-dark fixed-top">
     <div class="container">
       <a class="navbar-brand fw-bold" href="{{ url_for('index') }}">Powerlifting Clip Extractor</a>
+      {% if is_staging %}<span class="badge bg-warning text-dark ms-1">STAGING</span>{% endif %}
       <div class="d-flex align-items-center gap-2">
         {% if current_user.is_authenticated %}
         <span class="text-white-50 small">Hola, {{ current_user.display_name }}</span>

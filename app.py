@@ -62,6 +62,11 @@ if os.environ.get("STAGING"):
         return current_user.is_authenticated and current_user.is_admin
 
 
+@app.context_processor
+def _inject_staging():
+    return {"is_staging": bool(os.environ.get("STAGING"))}
+
+
 @app.before_request
 def _staging_gate():
     if not os.environ.get("STAGING"):
