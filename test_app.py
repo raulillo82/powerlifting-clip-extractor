@@ -624,7 +624,7 @@ class TestSingleLift:
 class TestChannelWhitelisted:
     def test_known_handle_returns_true(self):
         assert flask_app._channel_whitelisted(
-            "https://www.youtube.com/@AEpowerlifting"
+            "https://www.youtube.com/@powerliftingaep4634"
         )
 
     def test_unknown_handle_returns_false(self):
@@ -634,8 +634,8 @@ class TestChannelWhitelisted:
 
     def test_match_is_case_insensitive(self):
         assert flask_app._channel_whitelisted(
-            "https://www.youtube.com/@aepowerlifting"
+            "https://www.youtube.com/@POWERLIFTINGAEP4634"
         )
         assert flask_app._channel_whitelisted(
-            "https://www.youtube.com/@IPF_POWERLIFTING"
+            "https://www.youtube.com/@POWERLIFTINGTV"
         )

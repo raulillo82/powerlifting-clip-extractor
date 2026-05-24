@@ -54,10 +54,10 @@ MAX_WORKERS = 2
 # GDPR note: a public competition video URL is not personal data; recording it
 # under legitimate interest is fine. Arbitrary user-provided URLs are NOT stored.
 YOUTUBE_CHANNEL_WHITELIST: list[str] = [
-    "@AEpowerlifting",       # Asociación Española de Powerlifting
-    "@IPF_Powerlifting",     # International Powerlifting Federation
-    "@EPF_Powerlifting",     # European Powerlifting Federation
-    "@BritishPowerlifting",  # British Powerlifting
+    "@powerliftingaep4634",  # Asociación Española de Powerlifting
+    "@powerliftingtv",       # International Powerlifting Federation
+    "@europeanpowerlifting", # European Powerlifting Federation
+    "gbpowerfed",            # British Powerlifting
 ]
 
 
