@@ -603,3 +603,39 @@ class TestSingleLift:
             "squat_attempt3_original.mp4",
         ]
         shutil.rmtree(out_dir, ignore_errors=True)
+
+    def test_preview_width_defaults_to_640_when_not_specified(self, client):
+        queued = []
+        with patch("app._save_job"), patch("app._job_queue.put", side_effect=queued.append):
+            self._submit(client, {"preview": "on"})
+        _job_id, run_kwargs, _mode = queued[0]
+        assert run_kwargs["preview_width"] == 640
+
+    def test_preview_width_explicit_value_respected(self, client):
+        queued = []
+        with patch("app._save_job"), patch("app._job_queue.put", side_effect=queued.append):
+            self._submit(client, {"preview": "on", "preview_width": "320"})
+        _job_id, run_kwargs, _mode = queued[0]
+        assert run_kwargs["preview_width"] == 320
+
+
+# ── _channel_whitelisted ───────────────────────────────────────────────────────
+
+class TestChannelWhitelisted:
+    def test_known_handle_returns_true(self):
+        assert flask_app._channel_whitelisted(
+            "https://www.youtube.com/@AEpowerlifting"
+        )
+
+    def test_unknown_handle_returns_false(self):
+        assert not flask_app._channel_whitelisted(
+            "https://www.youtube.com/@SomeRandomChannel"
+        )
+
+    def test_match_is_case_insensitive(self):
+        assert flask_app._channel_whitelisted(
+            "https://www.youtube.com/@aepowerlifting"
+        )
+        assert flask_app._channel_whitelisted(
+            "https://www.youtube.com/@IPF_POWERLIFTING"
+        )

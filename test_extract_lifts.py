@@ -19,6 +19,9 @@ from extract_lifts import (
     resolve_music,
     build_parser,
     run,
+    get_clip_duration,
+    add_music,
+    add_mixed_audio,
 )
 
 
@@ -364,3 +367,97 @@ class TestRun:
         assert "for-instagram" not in combined_output.name
         assert "with-music"    not in combined_output.name
         assert combined_output.name == "combined_s3_b3_d3.mp4"
+
+
+# ── get_clip_duration ──────────────────────────────────────────────────────────
+
+class TestGetClipDuration:
+    def _make_result(self, stdout):
+        m = MagicMock()
+        m.stdout = stdout
+        return m
+
+    def test_returns_float_parsed_from_ffprobe(self, tmp_path):
+        fake = tmp_path / "clip.mp4"
+        fake.write_bytes(b"")
+        with patch("subprocess.run", return_value=self._make_result("123.456\n")) as mock_run:
+            result = get_clip_duration(fake)
+        assert result == pytest.approx(123.456)
+
+    def test_ffprobe_called_with_show_entries_duration(self, tmp_path):
+        fake = tmp_path / "clip.mp4"
+        fake.write_bytes(b"")
+        with patch("subprocess.run", return_value=self._make_result("60.0\n")) as mock_run:
+            get_clip_duration(fake)
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == "ffprobe"
+        assert "-show_entries" in cmd
+        assert "format=duration" in cmd
+
+
+# ── add_music ──────────────────────────────────────────────────────────────────
+
+class TestAddMusic:
+    def _run(self, tmp_path, video_dur, song_dur, music_start):
+        video = tmp_path / "v.mp4"
+        audio = tmp_path / "a.m4a"
+        output = tmp_path / "out.mp4"
+        video.write_bytes(b"")
+        audio.write_bytes(b"")
+
+        captured_cmd = []
+        def fake_run(cmd, **kw):
+            captured_cmd.extend(cmd)
+
+        with patch("extract_lifts.get_clip_duration", side_effect=[video_dur, song_dur]), \
+             patch("subprocess.run", side_effect=fake_run):
+            add_music(video, audio, output, music_start=music_start)
+
+        return " ".join(captured_cmd)
+
+    def test_start_clamped_when_too_close_to_end(self, tmp_path):
+        # video=60s, song=100s, music_start=90 → max_start=40 → clamped
+        cmd = self._run(tmp_path, video_dur=60.0, song_dur=100.0, music_start=90.0)
+        assert "atrim=start=40.000" in cmd
+
+    def test_start_unchanged_when_within_range(self, tmp_path):
+        # video=60s, song=100s, music_start=10 → stays 10
+        cmd = self._run(tmp_path, video_dur=60.0, song_dur=100.0, music_start=10.0)
+        assert "atrim=start=10.000" in cmd
+
+    def test_ffmpeg_maps_video_copy_and_aac(self, tmp_path):
+        cmd = self._run(tmp_path, video_dur=30.0, song_dur=200.0, music_start=0.0)
+        assert "-map" in cmd
+        assert "0:v" in cmd
+        assert "-c:v" in cmd and "copy" in cmd
+        assert "-c:a" in cmd and "aac" in cmd
+        assert "+faststart" in cmd
+
+
+# ── add_mixed_audio ────────────────────────────────────────────────────────────
+
+class TestAddMixedAudio:
+    def _run(self, tmp_path, video_dur, song_dur, music_start):
+        clip = tmp_path / "clip.mp4"
+        audio = tmp_path / "a.m4a"
+        output = tmp_path / "out.mp4"
+        clip.write_bytes(b"")
+        audio.write_bytes(b"")
+
+        captured_cmd = []
+        def fake_run(cmd, **kw):
+            captured_cmd.extend(cmd)
+
+        with patch("extract_lifts.get_clip_duration", side_effect=[video_dur, song_dur]), \
+             patch("subprocess.run", side_effect=fake_run):
+            add_mixed_audio(clip, audio, output, music_start=music_start)
+
+        return " ".join(captured_cmd)
+
+    def test_start_clamped_when_too_close_to_end(self, tmp_path):
+        cmd = self._run(tmp_path, video_dur=60.0, song_dur=100.0, music_start=90.0)
+        assert "atrim=start=40.000" in cmd
+
+    def test_filter_complex_contains_amix(self, tmp_path):
+        cmd = self._run(tmp_path, video_dur=30.0, song_dur=200.0, music_start=0.0)
+        assert "amix=inputs=2" in cmd
