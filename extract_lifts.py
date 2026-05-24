@@ -149,7 +149,8 @@ def download_clip(url: str, start: int, duration: int, output: Path, label: str)
     cmd = [
         "yt-dlp",
         "--download-sections", section,
-        "--force-keyframes-at-cuts",           # accurate cut at exact timestamps (slow but precise)
+        # --force-keyframes-at-cuts omitted: openSUSE ffmpeg lacks h264 decoder (patent restrictions),
+        # so the re-encode step fails. Cuts land on the nearest keyframe (≤2 s off in broadcasts).
         "-f", "bestvideo[vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
         "--merge-output-format", "mp4",
         "-N", "4",                             # parallel fragment downloads
@@ -163,15 +164,19 @@ def download_clip(url: str, start: int, duration: int, output: Path, label: str)
             print(result.stderr)
         raise subprocess.CalledProcessError(result.returncode, cmd)
 
-    # yt-dlp's --postprocessor-args doesn't reach the download-sections ffmpeg call,
-    # so we apply faststart explicitly as a separate stream-copy pass (fast, lossless)
+    # Apply faststart for faster browser playback (stream-copy, lossless).
+    # If ffmpeg can't process the file (e.g. unsupported codec build), fall back to the raw file.
     faststart_cmd = [
         "ffmpeg", "-i", str(tmp),
         "-c", "copy", "-movflags", "+faststart",
         "-y", str(output),
     ]
-    subprocess.run(faststart_cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    tmp.unlink()
+    r = subprocess.run(faststart_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if r.returncode == 0:
+        tmp.unlink()
+    else:
+        tmp.rename(output)
+        print("  [warning] faststart skipped — file usable but not optimised for streaming")
 
 
 def make_combined(clips: list[Path], output: Path, preview_width: int = 0) -> None:
