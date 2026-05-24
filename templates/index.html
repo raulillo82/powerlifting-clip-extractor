@@ -38,18 +38,17 @@
 
       {# Year + session selectors (hidden until source loaded) #}
       <div id="year-session-area" class="d-none">
-        <div class="row g-3 mb-3">
-          <div class="col-md-3">
-            <label class="form-label" data-i18n="label.year">Año</label>
-            <select class="form-select" id="year-select" onchange="onYearChange()">
-              <option value="">—</option>
-            </select>
-          </div>
-          <div class="col-md-9">
-            <label class="form-label" data-i18n="label.session">Sesión</label>
-            <select class="form-select" id="session-select" onchange="onSessionChange()">
-              <option value="">—</option>
-            </select>
+        <div class="mb-3">
+          <label class="form-label" data-i18n="label.year">Año</label>
+          <select class="form-select" id="year-select" onchange="onYearChange()" style="max-width:140px">
+            <option value="">—</option>
+          </select>
+        </div>
+        <div id="session-radio-area" class="d-none">
+          <label class="form-label" data-i18n="label.session">Sesión</label>
+          <div id="session-radio-group"
+               class="border rounded px-3 py-2"
+               style="max-height:260px; overflow-y:auto; background:var(--bs-body-bg)">
           </div>
         </div>
       </div>
@@ -508,27 +507,37 @@ function _populateYears(data) {
     opt.textContent = year;
     sel.appendChild(opt);
   });
-  document.getElementById('session-select').innerHTML = `<option value="">—</option>`;
+  document.getElementById('session-radio-group').innerHTML = '';
+  document.getElementById('session-radio-area').classList.add('d-none');
   document.getElementById('url').value = '';
 }
 
 function onYearChange() {
-  const year = document.getElementById('year-select').value;
-  const sel  = document.getElementById('session-select');
-  sel.innerHTML = `<option value="">—</option>`;
+  const year    = document.getElementById('year-select').value;
+  const group   = document.getElementById('session-radio-group');
+  const area    = document.getElementById('session-radio-area');
+  group.innerHTML = '';
   document.getElementById('url').value = '';
-  if (!year || !_videoData[year]) return;
-  _videoData[year].forEach(v => {
-    const opt = document.createElement('option');
-    opt.value = v.url;
-    opt.textContent = v.title;
-    sel.appendChild(opt);
+  if (!year || !_videoData[year]) { area.classList.add('d-none'); return; }
+
+  _videoData[year].forEach((v, i) => {
+    const id  = `session_${i}`;
+    const div = document.createElement('div');
+    div.className = 'form-check mb-1';
+    div.innerHTML = `
+      <input class="form-check-input" type="radio" name="session_radio"
+             id="${id}" value="${v.url}" onchange="onSessionChange(this)">
+      <label class="form-check-label" for="${id}"
+             style="font-size:.82rem;line-height:1.35;white-space:normal;cursor:pointer">
+        ${v.title}
+      </label>`;
+    group.appendChild(div);
   });
+  area.classList.remove('d-none');
 }
 
-function onSessionChange() {
-  document.getElementById('url').value =
-    document.getElementById('session-select').value;
+function onSessionChange(radio) {
+  document.getElementById('url').value = radio ? radio.value : '';
 }
 
 // Restore JS state after server-side validation error
