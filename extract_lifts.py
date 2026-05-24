@@ -692,6 +692,33 @@ def interactive_mode() -> None:
 
 
 def cli_mode(args: argparse.Namespace) -> None:
+    music_start = parse_timestamp(args.music_start) if args.music_start != "0" else 0
+
+    if args.single:
+        if not args.timestamp:
+            sys.exit("Error: --single requires --timestamp TS")
+        if args.movement not in ("squat", "bench", "deadlift"):
+            sys.exit("Error: --movement must be squat, bench or deadlift")
+        if args.audio_mode not in ("original", "music_only", "mixed"):
+            sys.exit("Error: --audio-mode must be original, music_only or mixed")
+        if args.audio_mode in ("music_only", "mixed") and not args.music:
+            sys.exit("Error: --audio-mode music_only/mixed requires --music URL_OR_QUERY")
+        run_single(
+            url=args.url,
+            timestamp=parse_timestamp(args.timestamp),
+            movement=args.movement,
+            attempt=args.attempt,
+            duration=args.duration,
+            output_dir=Path(args.output_dir),
+            audio_mode=args.audio_mode,
+            preview_width=args.preview_width,
+            no_replay=args.no_replay,
+            music_source=args.music or "",
+            music_start=float(music_start),
+            interactive=True,
+        )
+        return
+
     if args.timestamps:
         if len(args.timestamps) != 9:
             sys.exit(f"Error: --timestamps requires exactly 9 values, got {len(args.timestamps)}")
@@ -708,7 +735,6 @@ def cli_mode(args: argparse.Namespace) -> None:
         "bench":    args.duration_bench    or args.duration,
         "deadlift": args.duration_deadlift or args.duration,
     }
-    music_start = parse_timestamp(args.music_start) if args.music_start != "0" else 0
 
     run(
         url=args.url,
@@ -749,6 +775,15 @@ examples:
 
   # Only recreate the combined video from already-downloaded clips
   python extract_lifts.py https://youtube.com/live/I3LHqLA8Xao --skip-individual
+
+  # Single lift — original audio only (no copyright risk)
+  python extract_lifts.py https://youtube.com/live/VIDEO_ID \\
+      --single --timestamp 2h26:15 --movement deadlift --attempt 2
+
+  # Single lift — mixed audio (original + music blended, 3 output files)
+  python extract_lifts.py https://youtube.com/live/VIDEO_ID \\
+      --single --timestamp 2h26:15 --movement deadlift --attempt 2 \\
+      --audio-mode mixed --music "https://www.youtube.com/watch?v=..."
         """,
     )
     parser.add_argument("url", nargs="?",
@@ -806,6 +841,37 @@ examples:
             "Most federation broadcasts (AEP, IPF…) include a replay, so the default is replay=on. "
             "When set, all clip durations are halved automatically. "
             "Recommended: leave this unset unless you are sure there are no replays."
+        ),
+    )
+
+    # ── Single lift mode ──────────────────────────────────────────────────────
+    single = parser.add_argument_group(
+        "single lift mode",
+        "Extract one lift only. Use --single with --timestamp (and --movement / --attempt).",
+    )
+    single.add_argument(
+        "--single", action="store_true", default=False,
+        help="Enable single-lift mode (requires --timestamp)",
+    )
+    single.add_argument(
+        "--timestamp", metavar="TS", default=None,
+        help="Timestamp of the lift (e.g. '2h26:15' or '2:26:15'). Required with --single.",
+    )
+    single.add_argument(
+        "--movement", choices=["squat", "bench", "deadlift"], default="squat",
+        help="Movement type (default: squat)",
+    )
+    single.add_argument(
+        "--attempt", type=int, choices=[1, 2, 3], default=3,
+        help="Attempt number, used only in the output filename (default: 3)",
+    )
+    single.add_argument(
+        "--audio-mode", dest="audio_mode",
+        choices=["original", "music_only", "mixed"], default="original",
+        help=(
+            "original: keep original audio (1 file, no copyright risk). "
+            "music_only: replace audio with music (requires --music). "
+            "mixed: blend original + music, 3 files generated (requires --music)."
         ),
     )
     return parser

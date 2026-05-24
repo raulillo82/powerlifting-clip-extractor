@@ -25,7 +25,7 @@
   </div>
 
   {# ── Single lift toggle ── #}
-  {% set is_single = form_data and form_data.get('single_lift') %}
+  {% set is_single = (not form_data) or form_data.get('single_lift') %}
   <div class="form-check form-switch mb-3">
     <input class="form-check-input" type="checkbox" role="switch"
            id="single_lift" name="single_lift"
@@ -206,7 +206,7 @@
                    {% if error_field == 'single_timestamp' %}is-invalid{% endif %}"
                    id="single_timestamp" name="single_timestamp"
                    value="{{ form_data.get('single_timestamp', '') if form_data else '' }}"
-                   placeholder="0:21:27" {% if not is_single %}disabled{% endif %}>
+                   placeholder="2h26:15 ó 2:26:15" {% if not is_single %}disabled{% endif %}>
             {% if error_field == 'single_timestamp' %}
             <div class="invalid-feedback">{{ error }}</div>
             {% endif %}

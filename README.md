@@ -46,6 +46,8 @@
 | ✅ | Tests automatizados de rutas web (80 tests, CI) | — |
 | ✅ | Rate limiting (Flask-Limiter): `/register` 3/15 min, `/run` 1/2 min por usuario, `/login` 20/min | — |
 | ✅ | Despliegue en producción (RPi5, nginx, gunicorn, HTTPS) | — |
+| ✅ | **Modo un solo levantamiento** (1 tiempo, 1 movimiento; audio original / solo música / mezclado) | — |
+| ✅ | Tests automatizados (86 tests, CI) | — |
 | 🔲 | **Estadísticas** (panel en `/admin/stats`) | Claude |
 |    | ↳ Mapa de calor por ciudad — España con Canarias por defecto, opción mapamundi | |
 |    | ↳ Geolocalización IP → ciudad con base de datos local (MaxMind GeoLite2) | |
@@ -62,7 +64,12 @@ Extrae levantamientos individuales de un vídeo de competición de powerlifting 
 
 - Python 3.10+
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`sudo zypper install yt-dlp` en openSUSE)
-- ffmpeg (`sudo zypper install ffmpeg`)
+- ffmpeg con soporte H.264 — en openSUSE, el paquete oficial **no incluye H.264** por restricciones de patentes; instala desde [Packman](https://packman.links2linux.de/):
+  ```bash
+  sudo zypper addrepo -cfp 90 https://ftp.gwdg.de/pub/linux/misc/packman/suse/openSUSE_Tumbleweed/Essentials packman-essentials
+  sudo zypper --gpg-auto-import-keys refresh packman-essentials
+  sudo zypper --non-interactive install --allow-vendor-change --from packman-essentials ffmpeg-7
+  ```
 
 ---
 
@@ -91,6 +98,26 @@ python extract_lifts.py https://youtube.com/live/VIDEO_ID \
     --timestamps 0:21:27 0:29:55 0:38:15 1h23:30 1h32:21 1h41:30 2h26:15 2h33:4 2h41:35
 ```
 
+#### Modo un solo levantamiento (`--single`)
+
+Extrae un único levantamiento: un tiempo, un movimiento, sin combinado.
+
+```bash
+# Audio original (sin riesgo de copyright)
+python extract_lifts.py https://youtube.com/live/VIDEO_ID \
+    --single --timestamp 2h26:15 --movement deadlift --attempt 2
+
+# Solo música (reemplaza el audio original)
+python extract_lifts.py https://youtube.com/live/VIDEO_ID \
+    --single --timestamp 2h26:15 --movement deadlift --attempt 2 \
+    --audio-mode music_only --music "nombre de canción o URL de YouTube"
+
+# Mezclado (audio original + música; genera 3 archivos)
+python extract_lifts.py https://youtube.com/live/VIDEO_ID \
+    --single --timestamp 2h26:15 --movement deadlift --attempt 2 \
+    --audio-mode mixed --music "https://www.youtube.com/watch?v=..."
+```
+
 ---
 
 ### Opciones principales
@@ -113,6 +140,11 @@ python extract_lifts.py https://youtube.com/live/VIDEO_ID \
 | `--duration-bench SEGS` | igual que `--duration` | Duración específica para banca |
 | `--duration-deadlift SEGS` | igual que `--duration` | Duración específica para peso muerto |
 | `--no-replay` | — | Usar solo si el vídeo no tiene repeticiones a cámara lenta |
+| `--single` | — | Modo un solo levantamiento (requiere `--timestamp`) |
+| `--timestamp TS` | — | Tiempo del levantamiento (p.ej. `2h26:15`). Solo con `--single` |
+| `--movement` | `squat` | `squat` / `bench` / `deadlift`. Solo con `--single` |
+| `--attempt {1,2,3}` | `3` | Número de intento (solo afecta al nombre del archivo). Solo con `--single` |
+| `--audio-mode` | `original` | `original` / `music_only` / `mixed`. Solo con `--single` |
 
 ### Formato del archivo de tiempos (`times.txt`)
 
@@ -134,6 +166,7 @@ Un tiempo por línea, 9 en total (sentadillas 1–3, banca 1–3, peso muerto 1�
 
 ### Archivos generados
 
+**Modo completo (9 tiempos):**
 ```
 lifts/
 ├── lift_01_squat_attempt1.mp4        ← clip individual con audio original
@@ -144,6 +177,14 @@ lifts/
 ├── combined_s3_b3_d3_with-music.mp4     ← con música, ideal para WhatsApp,
 │                                           Telegram o uso personal en el móvil
 └── preview/                              ← versiones en baja resolución (--preview)
+```
+
+**Modo un solo levantamiento (`--single`):**
+```
+lifts/
+├── deadlift_attempt2_original.mp4   ← audio original (siempre)
+├── deadlift_attempt2_music.mp4      ← solo música (audio-mode: music_only o mixed)
+└── deadlift_attempt2_mixed.mp4      ← mezcla original+música (audio-mode: mixed)
 ```
 
 > ⚠️ **No subas el archivo `with-music` a Instagram** (posts, reels ni historias — todos se escanean). Usa el archivo `for-instagram` y añade la música directamente desde la app de Instagram.
@@ -348,9 +389,9 @@ venv/bin/pip install -r requirements.txt pytest
 #### Tests
 
 ```bash
-venv/bin/python3 -m pytest          # todos los tests (80)
+venv/bin/python3 -m pytest          # todos los tests (86)
 venv/bin/python3 -m pytest test_extract_lifts.py   # solo lógica de extracción (34)
-venv/bin/python3 -m pytest test_app.py             # solo rutas web y autenticación (46)
+venv/bin/python3 -m pytest test_app.py             # solo rutas web y autenticación (52)
 ```
 
 El hook de pre-commit ejecuta ambos ficheros automáticamente antes de cada commit. Usa el Python del venv si existe, o el del sistema si no.
@@ -412,6 +453,8 @@ En los tests, el rate limiting se desactiva en el fixture `client` mediante `mon
 | ✅ | Web route tests (80 tests, CI) | — |
 | ✅ | Rate limiting (Flask-Limiter): `/register` 3/15 min, `/run` 1/2 min per user, `/login` 20/min | — |
 | ✅ | Production deployment (RPi5, nginx, gunicorn, HTTPS) | — |
+| ✅ | **Single lift mode** (1 timestamp, 1 movement; original / music-only / mixed audio) | — |
+| ✅ | Automated tests (86 tests, CI) | — |
 | 🔲 | **Statistics** (panel at `/admin/stats`) | Claude |
 |    | ↳ City heatmap — Spain + Canary Islands by default, world map option | |
 |    | ↳ IP → city geolocation with local database (MaxMind GeoLite2) | |
@@ -428,7 +471,12 @@ Extracts individual lifts from a YouTube powerlifting competition and creates an
 
 - Python 3.10+
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`sudo zypper install yt-dlp` on openSUSE)
-- ffmpeg (`sudo zypper install ffmpeg`)
+- ffmpeg with H.264 support — on openSUSE, the official package **excludes H.264** for patent reasons; install from [Packman](https://packman.links2linux.de/):
+  ```bash
+  sudo zypper addrepo -cfp 90 https://ftp.gwdg.de/pub/linux/misc/packman/suse/openSUSE_Tumbleweed/Essentials packman-essentials
+  sudo zypper --gpg-auto-import-keys refresh packman-essentials
+  sudo zypper --non-interactive install --allow-vendor-change --from packman-essentials ffmpeg-7
+  ```
 
 ---
 
@@ -457,6 +505,26 @@ python extract_lifts.py https://youtube.com/live/VIDEO_ID \
     --timestamps 0:21:27 0:29:55 0:38:15 1h23:30 1h32:21 1h41:30 2h26:15 2h33:4 2h41:35
 ```
 
+#### Single lift mode (`--single`)
+
+Extract one lift only: one timestamp, one movement, no combined video.
+
+```bash
+# Original audio only (no copyright risk)
+python extract_lifts.py https://youtube.com/live/VIDEO_ID \
+    --single --timestamp 2h26:15 --movement deadlift --attempt 2
+
+# Music only (replaces original audio)
+python extract_lifts.py https://youtube.com/live/VIDEO_ID \
+    --single --timestamp 2h26:15 --movement deadlift --attempt 2 \
+    --audio-mode music_only --music "song name or YouTube URL"
+
+# Mixed (original + music blended; generates 3 files)
+python extract_lifts.py https://youtube.com/live/VIDEO_ID \
+    --single --timestamp 2h26:15 --movement deadlift --attempt 2 \
+    --audio-mode mixed --music "https://www.youtube.com/watch?v=..."
+```
+
 ---
 
 ### Options
@@ -479,6 +547,11 @@ python extract_lifts.py https://youtube.com/live/VIDEO_ID \
 | `--duration-bench SECS` | same as `--duration` | Clip duration for bench press |
 | `--duration-deadlift SECS` | same as `--duration` | Clip duration for deadlifts |
 | `--no-replay` | — | Use only if the video has no slow-motion replays |
+| `--single` | — | Single lift mode (requires `--timestamp`) |
+| `--timestamp TS` | — | Lift timestamp (e.g. `2h26:15`). Only with `--single` |
+| `--movement` | `squat` | `squat` / `bench` / `deadlift`. Only with `--single` |
+| `--attempt {1,2,3}` | `3` | Attempt number (output filename only). Only with `--single` |
+| `--audio-mode` | `original` | `original` / `music_only` / `mixed`. Only with `--single` |
 
 ### Timestamp file format (`times.txt`)
 
@@ -500,6 +573,7 @@ One timestamp per line, 9 total (squats 1–3, bench 1–3, deadlift 1–3). Mix
 
 ### Output
 
+**Full mode (9 timestamps):**
 ```
 lifts/
 ├── lift_01_squat_attempt1.mp4            ← individual clip with original audio
@@ -510,6 +584,14 @@ lifts/
 ├── combined_s3_b3_d3_with-music.mp4     ← with music; ideal for WhatsApp,
 │                                           Telegram, or personal use on your phone
 └── preview/                              ← low-res copies (--preview)
+```
+
+**Single lift mode (`--single`):**
+```
+lifts/
+├── deadlift_attempt2_original.mp4   ← original audio (always generated)
+├── deadlift_attempt2_music.mp4      ← music only (audio-mode: music_only or mixed)
+└── deadlift_attempt2_mixed.mp4      ← original + music blended (audio-mode: mixed)
 ```
 
 > ⚠️ **Do not upload the `with-music` file to Instagram** (posts, reels or stories — all are scanned). Use the `for-instagram` file and add music directly inside the Instagram app.
