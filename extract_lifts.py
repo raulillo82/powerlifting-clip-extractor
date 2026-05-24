@@ -219,7 +219,7 @@ def download_clip(url: str, start: int, duration: int, output: Path, label: str)
             now = time.monotonic()
             if now - last_tick_t >= TICK_INTERVAL:
                 elapsed = int(now - start_t)
-                print(f"  ↓ {elapsed}s...")
+                print(f"  ↓ descargando... ({elapsed}s)")
                 sys.stdout.flush()
                 last_tick_t = now
             if proc.poll() is not None:
