@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="text-center py-5">
+  <h2 class="mb-3" data-i18n="ratelimit.title">Too many requests</h2>
+  <p class="text-muted mb-4" data-i18n="ratelimit.desc">
+    Has realizado demasiadas peticiones. Espera un momento e inténtalo de nuevo.
+  </p>
+  {% if detail %}
+  <p class="text-muted small">{{ detail }}</p>
+  {% endif %}
+  <a href="/" class="btn btn-primary" data-i18n="btn.new">Volver</a>
+</div>
+{% endblock %}

@@ -22,12 +22,13 @@ import zipfile
 from pathlib import Path
 
 from flask import Flask, jsonify, redirect, render_template, request, send_file, url_for
-from flask_login import login_required
+from flask_login import current_user, login_required
 
 from auth import auth_bp, login_manager
 from admin import admin_bp
 from db import init_db
 from extract_lifts import parse_timestamp, run
+from limiter import limiter
 
 app = Flask(__name__)
 
@@ -38,6 +39,7 @@ app.secret_key = _key_file.read_bytes() if _key_file.exists() else (
 )(os.urandom(24))
 
 login_manager.init_app(app)
+limiter.init_app(app)
 app.register_blueprint(auth_bp)
 app.register_blueprint(admin_bp)
 
@@ -292,8 +294,17 @@ def index():
     return render_template("index.html")
 
 
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    description = str(e.description)
+    if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
+        return jsonify(error="Demasiadas peticiones. Espera un momento.", detail=description), 429
+    return render_template("429.html", detail=description), 429
+
+
 @app.route("/run", methods=["POST"])
 @login_required
+@limiter.limit("1 per 2 minutes", key_func=lambda: current_user.get_id())
 def start_job():
     job_id = uuid.uuid4().hex
     output_dir = Path("lifts") / job_id[:8]

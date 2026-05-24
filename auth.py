@@ -7,6 +7,7 @@ from flask_login import LoginManager, UserMixin, current_user, login_required, l
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from db import get_db
+from limiter import limiter
 
 auth_bp = Blueprint("auth", __name__)
 login_manager = LoginManager()
@@ -81,6 +82,7 @@ def _display_name(username: str) -> str:
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
 @auth_bp.route("/login", methods=["GET", "POST"])
+@limiter.limit("20 per minute")
 def login():
     if current_user.is_authenticated:
         return redirect(url_for("index"))
@@ -136,6 +138,7 @@ def logout():
 
 
 @auth_bp.route("/register", methods=["GET", "POST"])
+@limiter.limit("3 per 15 minutes")
 def register():
     cookie_token = request.cookies.get("device_token")
 
