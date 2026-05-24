@@ -311,17 +311,21 @@
 
   let currentLang = 'en';
 
+  function T(key) {
+    return (TRANSLATIONS[currentLang] || TRANSLATIONS.en)[key] || key;
+  }
+
   function applyLang(lang) {
     if (!TRANSLATIONS[lang]) return;
     currentLang = lang;
-    const T = TRANSLATIONS[lang];
+    const _t = TRANSLATIONS[lang];
 
     document.querySelectorAll('[data-i18n]').forEach(el => {
-      const v = T[el.dataset.i18n];
+      const v = _t[el.dataset.i18n];
       if (v !== undefined) el.textContent = v;
     });
     document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
-      const v = T[el.dataset.i18nPlaceholder];
+      const v = _t[el.dataset.i18nPlaceholder];
       if (v !== undefined) el.placeholder = v;
     });
 

@@ -70,9 +70,6 @@ const expiryEl   = document.getElementById('expiry-notice');
 const TOTAL_CLIPS = {{ 1 if single_mode else 9 }};
 let lastData = null;   // saved so language changes can re-render
 
-function T(key) {
-  return (TRANSLATIONS[currentLang] || TRANSLATIONS.en)[key] || key;
-}
 
 function movementKey(clips) {
   return clips <= 3 ? 'mov.squat' : clips <= 6 ? 'mov.bench' : 'mov.deadlift';
