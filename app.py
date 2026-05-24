@@ -285,6 +285,9 @@ def channel_search():
     except subprocess.TimeoutExpired:
         return jsonify([])
 
+    # Words from query used to filter YouTube's off-topic results
+    query_words = [w.lower() for w in q.split() if len(w) >= 3]
+
     entries = []
     for line in result.stdout.splitlines():
         if not line.strip():
@@ -295,6 +298,10 @@ def channel_search():
             continue
         raw_title = entry.get("title") or ""
         if not raw_title or raw_title in ("[Deleted video]", "[Private video]"):
+            continue
+        # Drop results where none of the query words appear in the title
+        title_lower = raw_title.lower()
+        if query_words and not any(w in title_lower for w in query_words):
             continue
         url = entry.get("webpage_url") or entry.get("url") or ""
         if not url:

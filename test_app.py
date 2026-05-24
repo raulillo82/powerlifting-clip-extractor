@@ -780,6 +780,23 @@ class TestChannelSearch:
         assert len(data) == 1
         assert data[0]["title"] == "Young Ambition Cup II"
 
+    def test_filters_off_topic_results(self, client):
+        # YouTube sometimes returns unrelated videos; filter by query word in title
+        client.post("/login", data={"username": "admin", "password": "adminpass"})
+        off_topic = json.dumps({
+            "title": "I Open del Mediterrani Sesión 2",
+            "webpage_url": "https://www.youtube.com/watch?v=offtopic",
+            "url": "https://www.youtube.com/watch?v=offtopic",
+            "duration": 3600,
+        })
+        stdout = self.YT_RESULT + "\n" + off_topic + "\n"
+        mock_result = type("R", (), {"stdout": stdout, "returncode": 0})()
+        with patch("subprocess.run", return_value=mock_result):
+            r = self._search(client, q="young")
+        data = r.get_json()
+        assert len(data) == 1
+        assert data[0]["title"] == "Young Ambition Cup II"
+
     def test_empty_query_returns_empty_list(self, client):
         client.post("/login", data={"username": "admin", "password": "adminpass"})
         r = client.get("/api/channel-search?source=aep&q=")
