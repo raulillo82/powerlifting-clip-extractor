@@ -149,7 +149,7 @@ function onLangChange() {
 }
 
 function poll() {
-  fetch(`/status/${jobId}/json`)
+  fetch(`status/${jobId}/json`)
     .then(r => r.json())
     .then(data => {
       lastData = data;
