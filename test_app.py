@@ -55,9 +55,46 @@ def client(tmp_path, monkeypatch):
         )
         conn.commit()
 
+    import limiter as limiter_mod
     flask_app.app.config["TESTING"] = True
+    monkeypatch.setattr(limiter_mod.limiter, "enabled", False)
     with flask_app.app.test_client() as c:
         c.post("/login", data={"username": "testadmin", "password": "testpass"})
+        yield c
+
+
+def _reset_limiter():
+    import limiter as limiter_mod
+    limiter_mod.limiter.reset()
+
+
+@pytest.fixture
+def client_limited(tmp_path, monkeypatch):
+    """Authenticated client with rate limiting active."""
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+    db.init_db()
+    with db.get_db() as conn:
+        conn.execute(
+            "INSERT INTO users (username, display_name, password_hash, is_admin)"
+            " VALUES (?, ?, ?, 1)",
+            ("testadmin", "Test Admin", generate_password_hash("testpass")),
+        )
+        conn.commit()
+    flask_app.app.config["TESTING"] = True
+    _reset_limiter()
+    with flask_app.app.test_client() as c:
+        c.post("/login", data={"username": "testadmin", "password": "testpass"})
+        yield c
+
+
+@pytest.fixture
+def anon_client_limited(tmp_path, monkeypatch):
+    """Unauthenticated client with rate limiting active."""
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+    db.init_db()
+    flask_app.app.config["TESTING"] = True
+    _reset_limiter()
+    with flask_app.app.test_client() as c:
         yield c
 
 
@@ -462,3 +499,26 @@ class TestQueue:
         assert all(s == "done" for s in statuses)
         for jid in ids:
             shutil.rmtree(Path(flask_app.jobs[jid]["output_dir"]), ignore_errors=True)
+
+
+# ── Rate limiting ──────────────────────────────────────────────────────────────
+
+class TestRateLimit:
+    def test_run_second_job_blocked(self, client_limited):
+        with patch("app._save_job"), patch("app._job_queue.put"):
+            r1 = client_limited.post("/run", data=VALID_FORM, follow_redirects=False)
+            r2 = client_limited.post("/run", data=VALID_FORM, follow_redirects=False)
+        assert r1.status_code == 302
+        assert r2.status_code == 429
+
+    def test_register_blocked_after_three(self, anon_client_limited):
+        for _ in range(3):
+            anon_client_limited.post("/register")
+        r = anon_client_limited.post("/register")
+        assert r.status_code == 429
+
+    def test_login_blocked_after_twenty(self, anon_client_limited):
+        for _ in range(20):
+            anon_client_limited.post("/login", data={"username": "x", "password": "x"})
+        r = anon_client_limited.post("/login", data={"username": "x", "password": "x"})
+        assert r.status_code == 429
