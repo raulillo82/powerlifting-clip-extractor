@@ -17,7 +17,7 @@ on:
 
 jobs:
   deploy-production:
-    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.target == 'production')
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.target == 'production')
     runs-on: self-hosted
     concurrency:
       group: deploy-production
@@ -31,7 +31,7 @@ jobs:
           systemctl --user is-active powerlifting
 
   deploy-staging:
-    if: (github.ref != 'refs/heads/main' && github.ref_name == vars.STAGING_BRANCH) || (github.event_name == 'workflow_dispatch' && inputs.target == 'staging')
+    if: (github.event_name == 'push' && github.ref != 'refs/heads/main' && github.ref_name == vars.STAGING_BRANCH) || (github.event_name == 'workflow_dispatch' && inputs.target == 'staging')
     runs-on: self-hosted
     concurrency:
       group: deploy-staging
@@ -41,7 +41,7 @@ jobs:
         run: |
           cd ~/powerlifting-clip-extractor-staging
           git fetch
-          git checkout ${{ github.ref_name }}
+          git checkout ${{ vars.STAGING_BRANCH }}
           git pull
           systemctl --user restart powerlifting-staging
           systemctl --user is-active powerlifting-staging
