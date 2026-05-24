@@ -61,6 +61,21 @@
         </div>
       </div>
 
+      {# Channel search — visible after choosing aep/epf/ipf #}
+      <div id="channel-search-area" class="d-none mt-3 border-top pt-3">
+        <p class="text-muted small mb-2" data-i18n="search.hint">¿No la encuentras en la lista?</p>
+        <div class="input-group input-group-sm">
+          <input type="text" id="channel-search-input" class="form-control"
+                 data-i18n-placeholder="search.placeholder"
+                 placeholder="Ej: Young Ambition Cup 2026"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();onChannelSearch()}">
+          <button class="btn btn-outline-secondary" type="button" onclick="onChannelSearch()">
+            <span id="search-btn-label" data-i18n="search.btn">Buscar en</span>
+          </button>
+        </div>
+        <div id="channel-search-results" class="mt-2"></div>
+      </div>
+
       {# Manual URL input — visible only for "URL personalizada" or on error #}
       {% set show_manual = (form_data and form_data.get('url')) or error_field == 'url' %}
       <div id="manual-url-area" class="{% if not show_manual %}d-none{% endif %}">
@@ -476,11 +491,15 @@ function onSourceChange() {
   const source = document.getElementById('source-select').value;
   const yearArea    = document.getElementById('year-session-area');
   const manualArea  = document.getElementById('manual-url-area');
+  const searchArea  = document.getElementById('channel-search-area');
   const spinner     = document.getElementById('source-spinner');
   const urlField    = document.getElementById('url');
 
   yearArea.classList.add('d-none');
   manualArea.classList.add('d-none');
+  searchArea.classList.add('d-none');
+  document.getElementById('channel-search-input').value = '';
+  document.getElementById('channel-search-results').innerHTML = '';
   urlField.value = '';
 
   if (!source) return;
@@ -491,6 +510,10 @@ function onSourceChange() {
     return;
   }
 
+  // Update search button label: "Buscar en AEP"
+  const sourceName = T('source.' + source).split(' ')[0];
+  document.getElementById('search-btn-label').textContent = T('search.btn') + ' ' + sourceName;
+
   spinner.classList.remove('d-none');
   fetch(`api/channel-videos?source=${source}`)
     .then(r => r.json())
@@ -500,6 +523,7 @@ function onSourceChange() {
       _videoData = data;
       _populateYears(data);
       yearArea.classList.remove('d-none');
+      searchArea.classList.remove('d-none');
     })
     .catch(() => {
       spinner.classList.add('d-none');
@@ -538,6 +562,8 @@ function _resetFrom(level) {
   if (level === 'year') {
     document.getElementById('competition-radio-group').innerHTML = '';
     document.getElementById('competition-radio-area').classList.add('d-none');
+    document.getElementById('channel-search-results').innerHTML = '';
+    document.querySelectorAll('input[name="search_radio"]').forEach(r => r.checked = false);
   }
   if (level === 'year' || level === 'competition' || level === 'session') {
     document.getElementById('session-radio-group').innerHTML = '';
@@ -599,11 +625,10 @@ function onCompetitionChange(radio) {
 
 let _videoDuration = null;  // seconds, set when a session is selected
 
-function onSessionChange(radio) {
+function _setSelectedUrl(radio, linkContainer) {
   document.getElementById('url').value = radio ? radio.value : '';
   _videoDuration = radio && radio.dataset.duration ? parseFloat(radio.dataset.duration) : null;
   _clearDurationError();
-  // Show/hide YouTube link for timestamp lookup
   document.getElementById('session-yt-link')?.remove();
   if (radio && radio.value) {
     const a = document.createElement('a');
@@ -614,8 +639,42 @@ function onSessionChange(radio) {
     a.className = 'small text-muted d-block mt-1';
     a.dataset.i18n = 'label.session.open';
     a.textContent = T('label.session.open');
-    document.getElementById('session-radio-area').appendChild(a);
+    linkContainer.appendChild(a);
   }
+}
+
+function onSessionChange(radio) {
+  // Clear search selection
+  document.querySelectorAll('input[name="search_radio"]').forEach(r => r.checked = false);
+  _setSelectedUrl(radio, document.getElementById('session-radio-area'));
+}
+
+function onSearchResultChange(radio) {
+  // Clear cascade session selection
+  document.querySelectorAll('input[name="session_radio"]').forEach(r => r.checked = false);
+  document.getElementById('session-yt-link')?.remove();
+  _setSelectedUrl(radio, document.getElementById('channel-search-results'));
+}
+
+function onChannelSearch() {
+  const q = document.getElementById('channel-search-input').value.trim();
+  if (!q) return;
+  const source  = document.getElementById('source-select').value;
+  const results = document.getElementById('channel-search-results');
+  results.innerHTML = `<small class="text-muted" data-i18n="search.loading">${T('search.loading')}</small>`;
+  fetch(`api/channel-search?source=${source}&q=${encodeURIComponent(q)}`)
+    .then(r => r.json())
+    .then(data => {
+      results.innerHTML = '';
+      if (!Array.isArray(data) || !data.length) {
+        results.innerHTML = `<small class="text-muted">${T('search.empty')}</small>`;
+        return;
+      }
+      results.appendChild(_makeRadioGroup(data, 'search_radio', onSearchResultChange));
+    })
+    .catch(() => {
+      results.innerHTML = `<small class="text-danger">${T('search.error')}</small>`;
+    });
 }
 
 function _clearDurationError() {

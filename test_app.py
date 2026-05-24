@@ -736,3 +736,69 @@ class TestChannelWhitelisted:
         assert flask_app._channel_whitelisted(
             "https://www.youtube.com/@POWERLIFTINGTV"
         )
+
+class TestChannelSearch:
+    YT_RESULT = json.dumps({
+        "title": "Young Ambition Cup II",
+        "webpage_url": "https://www.youtube.com/watch?v=abc123",
+        "url": "https://www.youtube.com/watch?v=abc123",
+        "duration": 7200,
+    })
+    PRIVATE_RESULT = json.dumps({
+        "title": "[Private video]",
+        "webpage_url": "https://www.youtube.com/watch?v=prv",
+        "url": "https://www.youtube.com/watch?v=prv",
+        "duration": None,
+    })
+
+    def _search(self, client, source="aep", q="young ambition"):
+        return client.get(f"/api/channel-search?source={source}&q={q}")
+
+    def test_unknown_source_returns_400(self, client):
+        client.post("/login", data={"username": "admin", "password": "adminpass"})
+        r = self._search(client, source="unknown")
+        assert r.status_code == 400
+
+    def test_returns_results(self, client):
+        client.post("/login", data={"username": "admin", "password": "adminpass"})
+        mock_result = type("R", (), {"stdout": self.YT_RESULT + "\n", "returncode": 0})()
+        with patch("subprocess.run", return_value=mock_result):
+            r = self._search(client)
+        assert r.status_code == 200
+        data = r.get_json()
+        assert len(data) == 1
+        assert data[0]["title"] == "Young Ambition Cup II"
+        assert "url" in data[0]
+
+    def test_filters_private_videos(self, client):
+        client.post("/login", data={"username": "admin", "password": "adminpass"})
+        stdout = self.YT_RESULT + "\n" + self.PRIVATE_RESULT + "\n"
+        mock_result = type("R", (), {"stdout": stdout, "returncode": 0})()
+        with patch("subprocess.run", return_value=mock_result):
+            r = self._search(client)
+        data = r.get_json()
+        assert len(data) == 1
+        assert data[0]["title"] == "Young Ambition Cup II"
+
+    def test_filters_off_topic_results(self, client):
+        # YouTube sometimes returns unrelated videos; filter by query word in title
+        client.post("/login", data={"username": "admin", "password": "adminpass"})
+        off_topic = json.dumps({
+            "title": "I Open del Mediterrani Sesión 2",
+            "webpage_url": "https://www.youtube.com/watch?v=offtopic",
+            "url": "https://www.youtube.com/watch?v=offtopic",
+            "duration": 3600,
+        })
+        stdout = self.YT_RESULT + "\n" + off_topic + "\n"
+        mock_result = type("R", (), {"stdout": stdout, "returncode": 0})()
+        with patch("subprocess.run", return_value=mock_result):
+            r = self._search(client, q="young")
+        data = r.get_json()
+        assert len(data) == 1
+        assert data[0]["title"] == "Young Ambition Cup II"
+
+    def test_empty_query_returns_empty_list(self, client):
+        client.post("/login", data={"username": "admin", "password": "adminpass"})
+        r = client.get("/api/channel-search?source=aep&q=")
+        assert r.status_code == 200
+        assert r.get_json() == []

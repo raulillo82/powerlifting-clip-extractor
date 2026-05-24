@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import threading
 import time
+import urllib.parse
 import uuid
 import zipfile
 from pathlib import Path
@@ -263,6 +264,55 @@ def playlist_sessions():
 
     _playlist_cache[url] = (now, sessions)
     return jsonify(sessions)
+
+@app.route("/api/channel-search")
+@login_required
+def channel_search():
+    source = request.args.get("source", "")
+    q = request.args.get("q", "").strip()
+    if source not in _SOURCES:
+        return jsonify({"error": "Unknown source"}), 400
+    if not q:
+        return jsonify([])
+
+    channel_base = _SOURCES[source].replace("/playlists", "")
+    search_url = f"{channel_base}/search?query={urllib.parse.quote(q)}"
+    try:
+        result = subprocess.run(
+            ["yt-dlp", "--flat-playlist", "-j", "--quiet", search_url],
+            capture_output=True, text=True, timeout=20,
+        )
+    except subprocess.TimeoutExpired:
+        return jsonify([])
+
+    # Words from query used to filter YouTube's off-topic results
+    query_words = [w.lower() for w in q.split() if len(w) >= 3]
+
+    entries = []
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        raw_title = entry.get("title") or ""
+        if not raw_title or raw_title in ("[Deleted video]", "[Private video]"):
+            continue
+        # Drop results where none of the query words appear in the title
+        title_lower = raw_title.lower()
+        if query_words and not any(w in title_lower for w in query_words):
+            continue
+        url = entry.get("webpage_url") or entry.get("url") or ""
+        if not url:
+            continue
+        entries.append({
+            "title":    _clean_title(raw_title),
+            "url":      url,
+            "duration": entry.get("duration"),
+        })
+    return jsonify(entries)
+
 
 # In-memory cache — populated from disk on cache miss so server restarts are safe
 jobs: dict[str, dict] = {}
