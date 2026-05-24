@@ -26,11 +26,19 @@ from flask_login import current_user, login_required
 
 from auth import auth_bp, login_manager
 from admin import admin_bp
-from db import init_db
+from db import get_staging_access, init_db
 from extract_lifts import parse_timestamp, run, run_single
 from limiter import limiter
 
 app = Flask(__name__)
+
+
+@app.template_filter("datetimeformat")
+def _datetimeformat(ts: int) -> str:
+    import datetime
+    d = datetime.datetime.fromtimestamp(ts)
+    return f"{d.day:02d}/{d.month:02d} {d.hour:02d}:{d.minute:02d}"
+
 
 # Persist secret key across restarts so sessions survive server reloads
 _key_file = Path("secret.key")
@@ -44,6 +52,26 @@ app.register_blueprint(auth_bp)
 app.register_blueprint(admin_bp)
 
 init_db()
+
+if os.environ.get("STAGING"):
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_prefix=1)
+
+
+@app.before_request
+def _staging_gate():
+    if not os.environ.get("STAGING"):
+        return
+    # Let auth routes through so users can log in and out
+    if request.endpoint and request.endpoint.startswith("auth."):
+        return
+    if not current_user.is_authenticated:
+        return redirect(url_for("auth.login"))
+    if current_user.is_admin:
+        return
+    expiry = get_staging_access(int(current_user.get_id()))
+    if not expiry or time.time() > expiry:
+        return "Staging — acceso no autorizado", 403
 
 EXPIRY_SECONDS = 24 * 3600  # files are kept for 24 hours after the job finishes
 MAX_WORKERS = 2
