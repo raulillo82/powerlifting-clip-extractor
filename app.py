@@ -62,6 +62,11 @@ if os.environ.get("STAGING"):
         return current_user.is_authenticated and current_user.is_admin
 
 
+@app.context_processor
+def _inject_staging():
+    return {"is_staging": bool(os.environ.get("STAGING"))}
+
+
 @app.before_request
 def _staging_gate():
     if not os.environ.get("STAGING"):
@@ -169,7 +174,7 @@ def _fetch_channel_playlists(source: str) -> dict:
         except json.JSONDecodeError:
             continue
         raw_title = entry.get("title") or ""
-        if not raw_title or raw_title == "[Deleted video]":
+        if not raw_title or raw_title in ("[Deleted video]", "[Private video]"):
             continue
         url = entry.get("webpage_url") or entry.get("url") or ""
         if not url:
@@ -207,7 +212,7 @@ def _fetch_playlist_sessions(playlist_url: str) -> list:
         except json.JSONDecodeError:
             continue
         raw_title = entry.get("title") or ""
-        if not raw_title or raw_title == "[Deleted video]":
+        if not raw_title or raw_title in ("[Deleted video]", "[Private video]"):
             continue
         url = entry.get("webpage_url") or entry.get("url") or ""
         if not url:
@@ -443,10 +448,10 @@ def _build_single_run_kwargs(form, url: str, output_dir: Path) -> dict:
     music_start_raw = form.get("music_start", "").strip()
     music_start = float(parse_timestamp(music_start_raw)) if music_start_raw else 0.0
 
-    music_pct = 40
+    music_pct = 50
     if "mix_custom" in form:
         try:
-            music_pct = max(10, min(90, int(form.get("music_pct") or 40)))
+            music_pct = max(10, min(90, int(form.get("music_pct") or 50)))
         except ValueError:
             pass
 

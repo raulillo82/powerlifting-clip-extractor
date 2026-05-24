@@ -17,6 +17,7 @@
   <nav class="navbar navbar-dark bg-dark fixed-top">
     <div class="container">
       <a class="navbar-brand fw-bold" href="{{ url_for('index') }}">Powerlifting Clip Extractor</a>
+      {% if is_staging %}<span class="badge bg-warning text-dark ms-1">STAGING</span>{% endif %}
       <div class="d-flex align-items-center gap-2">
         {% if current_user.is_authenticated %}
         <span class="text-white-50 small">Hola, {{ current_user.display_name }}</span>
@@ -63,6 +64,7 @@
       'label.session':         'Session',
       'label.session.loading': 'Loading sessions…',
       'label.session.error':   'Failed to load sessions. Try again.',
+      'label.session.open':    'Open on YouTube (to find timestamp) ↗',
       'label.url':             'YouTube URL',
       'ts.paste':              'Paste manually',
       'ts.file':               'Upload file',
@@ -193,6 +195,7 @@
       'label.session':         'Sesión',
       'label.session.loading': 'Cargando sesiones…',
       'label.session.error':   'Error al cargar las sesiones. Inténtalo de nuevo.',
+      'label.session.open':    'Abrir en YouTube (para buscar el timestamp) ↗',
       'label.url':             'URL de YouTube',
       'ts.paste':              'Pegar manualmente',
       'ts.file':               'Subir archivo',
@@ -308,17 +311,21 @@
 
   let currentLang = 'en';
 
+  function T(key) {
+    return (TRANSLATIONS[currentLang] || TRANSLATIONS.en)[key] || key;
+  }
+
   function applyLang(lang) {
     if (!TRANSLATIONS[lang]) return;
     currentLang = lang;
-    const T = TRANSLATIONS[lang];
+    const _t = TRANSLATIONS[lang];
 
     document.querySelectorAll('[data-i18n]').forEach(el => {
-      const v = T[el.dataset.i18n];
+      const v = _t[el.dataset.i18n];
       if (v !== undefined) el.textContent = v;
     });
     document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
-      const v = T[el.dataset.i18nPlaceholder];
+      const v = _t[el.dataset.i18nPlaceholder];
       if (v !== undefined) el.placeholder = v;
     });
 

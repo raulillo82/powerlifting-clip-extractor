@@ -1,4 +1,3 @@
-import os
 import time
 
 from flask import Blueprint, redirect, render_template, request, url_for
@@ -28,8 +27,7 @@ def index():
     now = time.time()
     return render_template("admin/index.html", users=users,
                            staging=staging, now=now,
-                           staging_durations=STAGING_DURATIONS,
-                           is_staging=bool(os.environ.get("STAGING")))
+                           staging_durations=STAGING_DURATIONS)
 
 
 @admin_bp.route("/toggle/<int:user_id>", methods=["POST"])
