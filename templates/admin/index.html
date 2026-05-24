@@ -14,12 +14,15 @@
         <th>Nombre</th>
         <th>Estado</th>
         <th>Dispositivo</th>
+        <th>Staging</th>
         <th>Creado</th>
         <th></th>
       </tr>
     </thead>
     <tbody>
     {% for u in users %}
+      {% set s_expiry = staging.get(u.id) %}
+      {% set s_active = s_expiry and s_expiry > now %}
       <tr>
         <td class="font-monospace small">{{ u.username }}</td>
         <td>{{ u.display_name }}</td>
@@ -35,6 +38,26 @@
           <span class="badge bg-info text-dark">Vinculado</span>
           {% else %}
           <span class="badge bg-warning text-dark">Libre</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if s_active %}
+            <span class="badge bg-success small" title="Expira {{ s_expiry | int | datetimeformat }}">
+              hasta {{ s_expiry | int | datetimeformat }}
+            </span>
+            <form method="post" action="{{ url_for('admin.staging_revoke', user_id=u.id) }}" class="d-inline">
+              <button class="btn btn-sm btn-outline-secondary ms-1">Revocar</button>
+            </form>
+          {% else %}
+            <form method="post" action="{{ url_for('admin.staging_grant', user_id=u.id) }}"
+                  class="d-flex gap-1 align-items-center">
+              <select name="duration" class="form-select form-select-sm" style="width:auto">
+                {% for key in staging_durations %}
+                <option value="{{ key }}" {% if key == '24h' %}selected{% endif %}>{{ key }}</option>
+                {% endfor %}
+              </select>
+              <button class="btn btn-sm btn-outline-primary">Dar acceso</button>
+            </form>
           {% endif %}
         </td>
         <td class="text-muted small">{{ u.created_fmt }}</td>

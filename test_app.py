@@ -621,6 +621,103 @@ class TestSingleLift:
 
 # ── _channel_whitelisted ───────────────────────────────────────────────────────
 
+# ── Staging gate ──────────────────────────────────────────────────────────────
+
+@pytest.fixture
+def staging_client(tmp_path, monkeypatch):
+    """Client that exercises the STAGING gate, logged in as a regular (non-admin) user."""
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+    monkeypatch.setenv("STAGING", "1")
+    db.init_db()
+
+    with db.get_db() as conn:
+        conn.execute(
+            "INSERT INTO users (username, display_name, password_hash, is_admin)"
+            " VALUES (?, ?, ?, 0)",
+            ("regular", "Regular User", generate_password_hash("pass")),
+        )
+        conn.execute(
+            "INSERT INTO users (username, display_name, password_hash, is_admin)"
+            " VALUES (?, ?, ?, 1)",
+            ("admin", "Admin User", generate_password_hash("adminpass")),
+        )
+        conn.commit()
+
+    import limiter as limiter_mod
+    flask_app.app.config["TESTING"] = True
+    monkeypatch.setattr(limiter_mod.limiter, "enabled", False)
+    with flask_app.app.test_client() as c:
+        yield c
+
+
+class TestStagingGate:
+    def _regular_id(self):
+        with db.get_db() as conn:
+            return conn.execute(
+                "SELECT id FROM users WHERE username='regular'"
+            ).fetchone()["id"]
+
+    def test_anonymous_redirected_to_login(self, staging_client):
+        r = staging_client.get("/")
+        assert r.status_code in (302, 303)
+        assert b"login" in r.headers["Location"].lower().encode()
+
+    def test_user_without_access_gets_403(self, staging_client):
+        staging_client.post("/login", data={"username": "regular", "password": "pass"})
+        assert staging_client.get("/").status_code == 403
+
+    def test_user_with_expired_access_gets_403(self, staging_client):
+        staging_client.post("/login", data={"username": "regular", "password": "pass"})
+        db.grant_staging_access(self._regular_id(), -3600)  # expires in the past
+        assert staging_client.get("/").status_code == 403
+
+    def test_user_with_valid_access_gets_200(self, staging_client):
+        staging_client.post("/login", data={"username": "regular", "password": "pass"})
+        db.grant_staging_access(self._regular_id(), 3600)
+        assert staging_client.get("/").status_code == 200
+
+    def test_admin_always_allowed(self, staging_client):
+        staging_client.post("/login", data={"username": "admin", "password": "adminpass"})
+        assert staging_client.get("/").status_code == 200
+
+
+class TestStagingAdminRoutes:
+    def test_grant_creates_access(self, client, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        with db.get_db() as conn:
+            conn.execute(
+                "INSERT INTO users (username, display_name, password_hash, is_admin)"
+                " VALUES (?, ?, ?, 0)",
+                ("u", "U", generate_password_hash("p")),
+            )
+            conn.commit()
+            user_id = conn.execute("SELECT id FROM users WHERE username='u'").fetchone()["id"]
+
+        client.post(f"/admin/staging/grant/{user_id}", data={"duration": "8h"})
+        expiry = db.get_staging_access(user_id)
+        assert expiry is not None
+        assert expiry > time.time()
+
+    def test_revoke_removes_access(self, client, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        with db.get_db() as conn:
+            conn.execute(
+                "INSERT INTO users (username, display_name, password_hash, is_admin)"
+                " VALUES (?, ?, ?, 0)",
+                ("u", "U", generate_password_hash("p")),
+            )
+            conn.commit()
+            user_id = conn.execute("SELECT id FROM users WHERE username='u'").fetchone()["id"]
+
+        db.grant_staging_access(user_id, 3600)
+        client.post(f"/admin/staging/revoke/{user_id}")
+        assert db.get_staging_access(user_id) is None
+
+
+# ── _channel_whitelisted ───────────────────────────────────────────────────────
+
 class TestChannelWhitelisted:
     def test_known_handle_returns_true(self):
         assert flask_app._channel_whitelisted(
