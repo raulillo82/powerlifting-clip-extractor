@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 MOVEMENTS = [
@@ -180,6 +181,9 @@ def download_clip(url: str, start: int, duration: int, output: Path, label: str)
         last_boundary = -1
         output_lines: list[str] = []
         buf = b""
+        start_t = time.monotonic()
+        last_tick_t = start_t
+        TICK_INTERVAL = 5.0
 
         while True:
             try:
@@ -205,10 +209,19 @@ def download_clip(url: str, start: int, duration: int, output: Path, label: str)
                             boundary = int(pct // 5) * 5
                             if boundary > last_boundary:
                                 last_boundary = boundary
+                                last_tick_t = time.monotonic()  # reset tick
                                 print(f"  ↓ {boundary}%")
                                 sys.stdout.flush()
                         except (ValueError, StopIteration):
                             pass
+            # Time-based tick: if yt-dlp emits no % progress (e.g. ffmpeg backend),
+            # print elapsed seconds every TICK_INTERVAL so the log stays alive.
+            now = time.monotonic()
+            if now - last_tick_t >= TICK_INTERVAL:
+                elapsed = int(now - start_t)
+                print(f"  ↓ {elapsed}s...")
+                sys.stdout.flush()
+                last_tick_t = now
             if proc.poll() is not None:
                 # Drain any remaining output after process exits
                 try:
