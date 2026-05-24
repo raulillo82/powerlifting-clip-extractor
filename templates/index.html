@@ -24,6 +24,20 @@
     </div>
   </div>
 
+  {# ── Single lift toggle ── #}
+  {% set is_single = form_data and form_data.get('single_lift') %}
+  <div class="form-check form-switch mb-3">
+    <input class="form-check-input" type="checkbox" role="switch"
+           id="single_lift" name="single_lift"
+           {% if is_single %}checked{% endif %}
+           onchange="toggleSingleLift()">
+    <label class="form-check-label fw-semibold" for="single_lift"
+           data-i18n="opt.single_lift">Modo un solo levantamiento</label>
+  </div>
+
+  {# ── Full-mode section (hidden in single lift mode) ── #}
+  <div id="full-mode-section" {% if is_single %}class="d-none"{% endif %}>
+
   {# ── 2. Timestamps ── #}
   <div class="card mb-3">
     <div class="card-header fw-semibold">Timestamps</div>
@@ -173,6 +187,118 @@
     </div>
   </div>
 
+  </div> {# end full-mode-section #}
+
+  {# ── Single-mode section (shown only in single lift mode) ── #}
+  {% set sel_mov   = form_data.get('single_movement', 'squat')   if form_data else 'squat' %}
+  {% set sel_att   = form_data.get('single_attempt',  '3')       if form_data else '3' %}
+  {% set sel_audio = form_data.get('audio_mode',      'original') if form_data else 'original' %}
+  <div id="single-mode-section" {% if not is_single %}class="d-none"{% endif %}>
+
+    <div class="card mb-3">
+      <div class="card-header fw-semibold" data-i18n="card.single_lift">Levantamiento</div>
+      <div class="card-body">
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <label class="form-label" for="single_timestamp"
+                   data-i18n="label.single_ts">Timestamp (HH:MM:SS)</label>
+            <input type="text" class="form-control font-monospace
+                   {% if error_field == 'single_timestamp' %}is-invalid{% endif %}"
+                   id="single_timestamp" name="single_timestamp"
+                   value="{{ form_data.get('single_timestamp', '') if form_data else '' }}"
+                   placeholder="0:21:27" {% if not is_single %}disabled{% endif %}>
+            {% if error_field == 'single_timestamp' %}
+            <div class="invalid-feedback">{{ error }}</div>
+            {% endif %}
+          </div>
+          <div class="col-md-3">
+            <label class="form-label" data-i18n="label.duration" for="single_duration">Duración (s)</label>
+            <input type="number" class="form-control" id="single_duration" name="duration"
+                   value="{{ form_data.get('duration', '60') if form_data else '60' }}"
+                   min="10" max="300" {% if not is_single %}disabled{% endif %}>
+          </div>
+        </div>
+
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <label class="form-label" data-i18n="label.movement">Movimiento</label>
+            <div>
+              {% for mov, lbl in [('squat','Squat'),('bench','Bench'),('deadlift','Deadlift')] %}
+              <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="single_movement"
+                       id="single_mov_{{ mov }}" value="{{ mov }}"
+                       {% if sel_mov == mov %}checked{% endif %}
+                       {% if not is_single %}disabled{% endif %}>
+                <label class="form-check-label" for="single_mov_{{ mov }}">{{ lbl }}</label>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" data-i18n="label.attempt">Intento</label>
+            <div>
+              {% for n in [1, 2, 3] %}
+              <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="single_attempt"
+                       id="single_att_{{ n }}" value="{{ n }}"
+                       {% if sel_att == n|string %}checked{% endif %}
+                       {% if not is_single %}disabled{% endif %}>
+                <label class="form-check-label" for="single_att_{{ n }}">{{ n }}</label>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="checkbox" id="no_replay_single" name="no_replay"
+                 {% if form_data and 'no_replay' in form_data and is_single %}checked{% endif %}
+                 {% if not is_single %}disabled{% endif %}>
+          <label class="form-check-label" for="no_replay_single">
+            <span data-i18n="opt.no.replay">Sin replay</span>
+            <span class="text-muted">(<span data-i18n="opt.no.replay.hint">reducir duración a la mitad</span>)</span>
+          </label>
+        </div>
+
+        {% if current_user.is_admin %}
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="dry_run_single" name="dry_run"
+                 {% if form_data and 'dry_run' in form_data and is_single %}checked{% endif %}
+                 {% if not is_single %}disabled{% endif %}>
+          <label class="form-check-label text-muted small" for="dry_run_single">
+            <span data-i18n="opt.dry_run">Dry run</span>
+            <span class="text-muted">(<span data-i18n="opt.dry_run.hint">sin descargas</span>)</span>
+          </label>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header fw-semibold" data-i18n="card.audio">Audio</div>
+      <div class="card-body">
+        {% for val, label_key, hint_key in [
+            ('original',   'audio.original',   'audio.original.hint'),
+            ('music_only', 'audio.music_only',  'audio.music_only.hint'),
+            ('mixed',      'audio.mixed',        'audio.mixed.hint'),
+        ] %}
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="radio" name="audio_mode"
+                 id="audio_{{ val }}" value="{{ val }}"
+                 {% if sel_audio == val %}checked{% endif %}
+                 onchange="toggleSingleAudio()"
+                 {% if not is_single %}disabled{% endif %}>
+          <label class="form-check-label" for="audio_{{ val }}">
+            <strong data-i18n="{{ label_key }}">{{ label_key }}</strong>
+            <span class="text-muted small d-block" data-i18n="{{ hint_key }}">{{ hint_key }}</span>
+          </label>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+  </div> {# end single-mode-section #}
+
   {# ── 5. Music ── #}
   <div id="combined-music" class="card mb-4{% if form_data and 'skip_combined' in form_data %} d-none{% endif %}">
     <div class="card-header fw-semibold">
@@ -212,7 +338,29 @@
 
 {% block scripts %}
 <script>
+function toggleSingleLift() {
+  const single = document.getElementById('single_lift').checked;
+  document.getElementById('full-mode-section').classList.toggle('d-none', single);
+  document.getElementById('single-mode-section').classList.toggle('d-none', !single);
+  document.querySelectorAll('#full-mode-section input, #full-mode-section textarea, #full-mode-section select')
+    .forEach(el => { el.disabled = single; });
+  document.querySelectorAll('#single-mode-section input, #single-mode-section textarea, #single-mode-section select')
+    .forEach(el => { el.disabled = !single; });
+  if (single) {
+    toggleSingleAudio();
+  } else {
+    toggleSkipCombined();
+  }
+}
+
+function toggleSingleAudio() {
+  const checked = document.querySelector('input[name="audio_mode"]:checked');
+  const needMusic = checked && (checked.value === 'music_only' || checked.value === 'mixed');
+  document.getElementById('combined-music').classList.toggle('d-none', !needMusic);
+}
+
 function toggleSkipCombined() {
+  if (document.getElementById('single_lift').checked) return;
   const skip = document.getElementById('skip_combined').checked;
   document.getElementById('combined-attempts').classList.toggle('d-none', skip);
   document.getElementById('combined-music').classList.toggle('d-none', skip);
@@ -227,6 +375,11 @@ function toggleTimestamps() {
 function togglePreview() {
   const checked = document.getElementById('preview').checked;
   document.getElementById('preview_width_area').classList.toggle('d-none', !checked);
+}
+
+// Restore JS state after server-side validation error
+if (document.getElementById('single_lift').checked) {
+  toggleSingleLift();
 }
 </script>
 {% endblock %}

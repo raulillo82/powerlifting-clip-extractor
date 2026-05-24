@@ -522,3 +522,84 @@ class TestRateLimit:
             anon_client_limited.post("/login", data={"username": "x", "password": "x"})
         r = anon_client_limited.post("/login", data={"username": "x", "password": "x"})
         assert r.status_code == 429
+
+
+# ── Single lift mode ───────────────────────────────────────────────────────────
+
+SINGLE_FORM_BASE = {
+    "url":              "https://www.youtube.com/watch?v=test",
+    "single_lift":      "on",
+    "single_timestamp": "0:21:27",
+    "single_movement":  "squat",
+    "single_attempt":   "3",
+    "duration":         "60",
+    "audio_mode":       "original",
+    "dry_run":          "on",
+}
+
+
+class TestSingleLift:
+    def _submit(self, client, overrides=None):
+        data = {**SINGLE_FORM_BASE, **(overrides or {})}
+        return client.post("/run", data=data, follow_redirects=False)
+
+    def _job_id(self, r):
+        return r.headers["Location"].split("/status/")[1].strip("/")
+
+    def _poll(self, client, job_id, timeout=5.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            r = client.get(f"/status/{job_id}/json")
+            if json.loads(r.data)["status"] != "running":
+                break
+            time.sleep(0.05)
+        return json.loads(client.get(f"/status/{job_id}/json").data)
+
+    def test_missing_timestamp_returns_400(self, client):
+        r = self._submit(client, {"single_timestamp": ""})
+        assert r.status_code == 400
+        assert b"single_timestamp" in r.data or b"is-invalid" in r.data
+
+    def test_missing_music_returns_400(self, client):
+        r = self._submit(client, {"audio_mode": "music_only", "music": ""})
+        assert r.status_code == 400
+
+    def test_dispatches_as_single_mode(self, client):
+        queued = []
+        with patch("app._save_job"), patch("app._job_queue.put", side_effect=queued.append):
+            self._submit(client)
+        assert queued, "nothing was queued"
+        _job_id, _run_kwargs, mode = queued[0]
+        assert mode == "single"
+
+    def test_dry_run_original_creates_one_file(self, client):
+        r = self._submit(client)
+        job_id = self._job_id(r)
+        self._poll(client, job_id)
+        out_dir = Path(flask_app.jobs[job_id]["output_dir"])
+        mp4s = list(out_dir.rglob("*.mp4"))
+        assert len(mp4s) == 1
+        assert mp4s[0].name == "squat_attempt3_original.mp4"
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+    def test_dry_run_music_only_creates_two_files(self, client):
+        r = self._submit(client, {"audio_mode": "music_only", "music": "test song"})
+        job_id = self._job_id(r)
+        self._poll(client, job_id)
+        out_dir = Path(flask_app.jobs[job_id]["output_dir"])
+        mp4s = sorted(f.name for f in out_dir.rglob("*.mp4"))
+        assert mp4s == ["squat_attempt3_music.mp4", "squat_attempt3_original.mp4"]
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+    def test_dry_run_mixed_creates_three_files(self, client):
+        r = self._submit(client, {"audio_mode": "mixed", "music": "test song"})
+        job_id = self._job_id(r)
+        self._poll(client, job_id)
+        out_dir = Path(flask_app.jobs[job_id]["output_dir"])
+        mp4s = sorted(f.name for f in out_dir.rglob("*.mp4"))
+        assert mp4s == [
+            "squat_attempt3_mixed.mp4",
+            "squat_attempt3_music.mp4",
+            "squat_attempt3_original.mp4",
+        ]
+        shutil.rmtree(out_dir, ignore_errors=True)

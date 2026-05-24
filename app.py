@@ -27,7 +27,7 @@ from flask_login import current_user, login_required
 from auth import auth_bp, login_manager
 from admin import admin_bp
 from db import init_db
-from extract_lifts import parse_timestamp, run
+from extract_lifts import parse_timestamp, run, run_single
 from limiter import limiter
 
 app = Flask(__name__)
@@ -151,12 +151,12 @@ threading.Thread(target=_cleanup_loop, daemon=True).start()
 def _queue_worker() -> None:
     """Persistent worker thread: pulls jobs from the queue and executes them."""
     while True:
-        job_id, run_kwargs = _job_queue.get()
+        job_id, run_kwargs, mode = _job_queue.get()
         job = jobs.get(job_id)
         if job is not None:
             job["status"] = "running"
             _save_job(job_id, job)
-            _worker(job_id, job, run_kwargs)
+            _worker(job_id, job, run_kwargs, mode)
         _job_queue.task_done()
 
 
@@ -200,11 +200,14 @@ class _LiveLog(io.StringIO):
 
 # ── Worker ─────────────────────────────────────────────────────────────────────
 
-def _worker(job_id: str, job: dict, run_kwargs: dict) -> None:
+def _worker(job_id: str, job: dict, run_kwargs: dict, mode: str = "full") -> None:
     buf = _LiveLog(job_id, job)
     try:
         with contextlib.redirect_stdout(buf):
-            run(**run_kwargs)
+            if mode == "single":
+                run_single(**run_kwargs)
+            else:
+                run(**run_kwargs)
         job["status"] = "done"
         job["expires_at"] = time.time() + EXPIRY_SECONDS
         # Resolve channel for stats logging — only for real (non-dry-run) jobs
@@ -232,10 +235,66 @@ class FormError(ValueError):
         self.field = field
 
 
+def _build_single_run_kwargs(form, url: str, output_dir: Path) -> dict:
+    ts_raw = form.get("single_timestamp", "").strip()
+    if not ts_raw:
+        raise FormError("El timestamp es obligatorio.", field="single_timestamp")
+    try:
+        timestamp = parse_timestamp(ts_raw)
+    except ValueError as e:
+        raise FormError(str(e), field="single_timestamp")
+
+    movement = form.get("single_movement", "squat")
+    if movement not in ("squat", "bench", "deadlift"):
+        raise FormError("Movimiento no válido.", field="single_movement")
+
+    try:
+        attempt = int(form.get("single_attempt", "3"))
+        if attempt not in (1, 2, 3):
+            raise ValueError
+    except ValueError:
+        raise FormError("Intento no válido.", field="single_attempt")
+
+    audio_mode = form.get("audio_mode", "original")
+    if audio_mode not in ("original", "music_only", "mixed"):
+        raise FormError("Modo de audio no válido.", field="audio_mode")
+
+    music_source = form.get("music", "").strip()
+    if audio_mode in ("music_only", "mixed") and not music_source:
+        raise FormError("Se requiere una canción para este modo de audio.", field="music")
+
+    music_start_raw = form.get("music_start", "").strip()
+    music_start = float(parse_timestamp(music_start_raw)) if music_start_raw else 0.0
+
+    preview_width = 0
+    if "preview" in form:
+        preview_width = int(form.get("preview_width") or 640)
+
+    return dict(
+        _mode="single",
+        url=url,
+        timestamp=timestamp,
+        movement=movement,
+        attempt=attempt,
+        duration=int(form.get("duration") or 60),
+        output_dir=output_dir,
+        audio_mode=audio_mode,
+        music_source=music_source,
+        music_start=music_start,
+        preview_width=preview_width,
+        no_replay="no_replay" in form,
+        dry_run="dry_run" in form,
+        interactive=False,
+    )
+
+
 def _build_run_kwargs(form, files, output_dir: Path) -> dict:
     url = form.get("url", "").strip()
     if not url:
         raise FormError("YouTube URL is required.", field="url")
+
+    if form.get("single_lift"):
+        return _build_single_run_kwargs(form, url, output_dir)
 
     if form.get("timestamps_mode") == "file":
         uploaded = files.get("timestamps_file")
@@ -316,11 +375,12 @@ def start_job():
                                error_field=e.field,
                                form_data=request.form), 400
 
+    mode = run_kwargs.pop("_mode", "full")
     job = {"status": "queued", "log": "", "output_dir": str(output_dir),
            "expires_at": None, "queued_at": time.time()}
     jobs[job_id] = job
     _save_job(job_id, job)
-    _job_queue.put((job_id, run_kwargs))
+    _job_queue.put((job_id, run_kwargs, mode))
     return redirect(url_for("status", job_id=job_id))
 
 

@@ -316,6 +316,56 @@ def add_music(
     subprocess.run(cmd, check=True)
 
 
+def add_mixed_audio(
+    clip: Path,
+    audio: Path,
+    output: Path,
+    music_start: float = 0.0,
+    music_volume: float = 0.6,
+    fade_secs: float = 2.0,
+) -> None:
+    """Blend a clip's original audio with a music track.
+
+    The clip's original audio is kept at full volume; music is added at
+    music_volume and faded out. Video stream is copied without re-encoding.
+    """
+    video_dur = get_clip_duration(clip)
+    song_dur  = get_clip_duration(audio)
+
+    max_start = max(0.0, song_dur - video_dur)
+    if music_start > max_start:
+        print(f"  ℹ  Music start adjusted: {music_start:.1f}s → {max_start:.1f}s "
+              f"(song ends at {song_dur:.1f}s, video needs {video_dur:.1f}s)")
+        music_start = max_start
+
+    end_trim   = music_start + video_dur
+    fade_start = max(0.0, video_dur - fade_secs)
+
+    audio_filter = (
+        f"[1:a]aloop=loop=-1:size=2147483647,"
+        f"atrim=start={music_start:.3f}:end={end_trim:.3f},"
+        f"asetpts=PTS-STARTPTS,"
+        f"volume={music_volume:.2f},"
+        f"afade=t=out:st={fade_start:.3f}:d={fade_secs}[music_proc];"
+        f"[0:a]volume=1.0[orig_proc];"
+        f"[orig_proc][music_proc]amix=inputs=2:duration=first[aout]"
+    )
+    cmd = [
+        "ffmpeg",
+        "-i", str(clip),
+        "-i", str(audio),
+        "-filter_complex", audio_filter,
+        "-map", "0:v",
+        "-map", "[aout]",
+        "-c:v", "copy",
+        "-c:a", "aac", "-b:a", "192k",
+        "-movflags", "+faststart",
+        "-y", str(output),
+    ]
+    print(f"\n  [mixed]  Creating {output.name} ...")
+    subprocess.run(cmd, check=True)
+
+
 def resolve_music(source: str, interactive: bool = True) -> str:
     """Return a YouTube URL from either a direct URL or a search query.
 
@@ -467,6 +517,89 @@ def run(
         print("  ⚠  Do NOT upload the music version to Instagram (posts, reels or")
         print("     stories — all are scanned). Use the for-instagram file instead")
         print("     and add music directly in the Instagram app.")
+    print(f"{'='*52}")
+
+
+def run_single(
+    url: str,
+    timestamp: int,
+    duration: int,
+    movement: str,
+    attempt: int,
+    output_dir: Path,
+    audio_mode: str,
+    preview_width: int = 0,
+    no_replay: bool = False,
+    music_source: str = "",
+    music_start: float = 0.0,
+    interactive: bool = False,
+    dry_run: bool = False,
+) -> None:
+    """Extract one lift clip with configurable audio.
+
+    audio_mode:
+      "original"   → 1 file, original audio (no copyright risk)
+      "music_only" → 1 file, music replaces original audio
+      "mixed"      → 3 files: original, original+music blend, music-only
+    """
+    if no_replay:
+        duration = max(10, duration // 2)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    base      = f"{movement}_attempt{attempt}"
+    clip_path = output_dir / f"{base}_original.mp4"
+
+    action = "Simulating" if dry_run else "Downloading"
+    print(f"\n{action} single {movement} clip (attempt {attempt}) into '{output_dir}/'...")
+
+    if dry_run:
+        end = timestamp + duration
+        print(f"\n  [{movement} attempt {attempt}]  "
+              f"{seconds_to_hms(timestamp)} → {seconds_to_hms(end)}  [dry run]")
+        clip_path.write_bytes(b"")
+    else:
+        download_clip(url, timestamp, duration, clip_path,
+                      f"{movement} attempt {attempt}")
+        if preview_width:
+            make_preview(clip_path, output_dir / "preview" / clip_path.name, preview_width)
+
+    if audio_mode == "original":
+        print(f"\n{'='*52}")
+        print(f"  Clip: {clip_path}")
+        print(f"{'='*52}")
+        return
+
+    music_path = output_dir / f"{base}_music.mp4"
+    mixed_path = output_dir / f"{base}_mixed.mp4"
+
+    if dry_run:
+        print(f"\n  [music]  {music_path.name}  [dry run]")
+        music_path.write_bytes(b"")
+        if audio_mode == "mixed":
+            print(f"\n  [mixed]  {mixed_path.name}  [dry run]")
+            mixed_path.write_bytes(b"")
+    else:
+        music_url = resolve_music(music_source, interactive=interactive)
+        with tempfile.TemporaryDirectory() as tmp:
+            audio_file = Path(tmp) / "music.m4a"
+            download_audio(music_url, audio_file)
+            add_music(clip_path, audio_file, music_path, music_start=music_start)
+            if audio_mode == "mixed":
+                add_mixed_audio(clip_path, audio_file, mixed_path, music_start=music_start)
+            if preview_width:
+                make_preview(music_path, output_dir / "preview" / music_path.name, preview_width)
+                if audio_mode == "mixed":
+                    make_preview(mixed_path, output_dir / "preview" / mixed_path.name, preview_width)
+
+    print(f"\n{'='*52}")
+    print(f"  Clip (original audio): {clip_path}")
+    if audio_mode in ("music_only", "mixed"):
+        print(f"  Clip (music only):     {music_path}")
+    if audio_mode == "mixed":
+        print(f"  Clip (mixed audio):    {mixed_path}")
+    if audio_mode in ("music_only", "mixed"):
+        print()
+        print("  ⚠  Do NOT upload the music or mixed versions to Instagram.")
     print(f"{'='*52}")
 
 
