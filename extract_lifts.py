@@ -150,14 +150,18 @@ def download_clip(url: str, start: int, duration: int, output: Path, label: str)
         "yt-dlp",
         "--download-sections", section,
         "--force-keyframes-at-cuts",           # accurate cut at exact timestamps (slow but precise)
-        "-f", "bestvideo[vcodec^=avc1]+bestaudio[ext=m4a]",  # H.264 + AAC → Instagram compatible
+        "-f", "bestvideo[vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
         "--merge-output-format", "mp4",
         "-N", "4",                             # parallel fragment downloads
         "-o", str(tmp),
         "--no-playlist",
         url,
     ]
-    subprocess.run(cmd, check=True)
+    result = subprocess.run(cmd, check=False, stderr=subprocess.PIPE, text=True)
+    if result.returncode != 0:
+        if result.stderr:
+            print(result.stderr)
+        raise subprocess.CalledProcessError(result.returncode, cmd)
 
     # yt-dlp's --postprocessor-args doesn't reach the download-sections ffmpeg call,
     # so we apply faststart explicitly as a separate stream-copy pass (fast, lossless)
