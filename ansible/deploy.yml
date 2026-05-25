@@ -61,6 +61,7 @@
       args:
         chdir: "{{ app_dir }}"
       changed_when: false
+      ignore_errors: "{{ ansible_check_mode }}"
 
     - name: Create systemd user service directory
       file:

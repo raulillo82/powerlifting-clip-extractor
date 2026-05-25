@@ -1,6 +1,7 @@
 all:
   vars:
     ansible_user: raul
+    ansible_python_interpreter: /usr/bin/python3.13
     app_dir: /home/raul/powerlifting-clip-extractor
     repo_url: https://github.com/raulillo82/powerlifting-clip-extractor.git
 
