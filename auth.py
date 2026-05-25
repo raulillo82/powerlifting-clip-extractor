@@ -198,7 +198,10 @@ def register():
         username = secrets.choice(available)
         display = _display_name(username)
         password = _generate_password()
-        device_token = cookie_token or str(uuid.uuid4())
+        # When admin creates a user, leave device_token NULL so the new user
+        # can log in from any device on their first login.
+        admin_creating = current_user.is_authenticated and current_user.is_admin
+        device_token = None if admin_creating else (cookie_token or str(uuid.uuid4()))
 
         with get_db() as conn:
             conn.execute(
@@ -215,9 +218,11 @@ def register():
             display_name=display,
             password=password,
             slots_left=slots_left - 1,
+            admin_creating=admin_creating,
         ))
-        resp.set_cookie("device_token", device_token,
-                        max_age=365 * 24 * 3600, httponly=True, samesite="Lax")
+        if device_token:
+            resp.set_cookie("device_token", device_token,
+                            max_age=365 * 24 * 3600, httponly=True, samesite="Lax")
         return resp
 
     return render_template("register.html", slots_left=slots_left)
