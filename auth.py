@@ -2,7 +2,8 @@ import secrets
 import uuid
 from functools import wraps
 
-from flask import Blueprint, make_response, redirect, render_template, request, url_for
+from altcha import ChallengeOptionsV1, create_challenge_v1, verify_solution_v1
+from flask import Blueprint, current_app, jsonify, make_response, redirect, render_template, request, url_for
 from flask_login import LoginManager, UserMixin, current_user, login_required, login_user, logout_user
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -137,12 +138,30 @@ def logout():
     return redirect(url_for("auth.login"))
 
 
+def _altcha_key() -> str:
+    key = current_app.config["SECRET_KEY"]
+    return key.hex() if isinstance(key, bytes) else key
+
+
+@auth_bp.route("/api/captcha-challenge")
+def captcha_challenge():
+    ch = create_challenge_v1(ChallengeOptionsV1(hmac_key=_altcha_key()))
+    return jsonify({
+        "algorithm": ch.algorithm,
+        "challenge": ch.challenge,
+        "maxnumber": ch.max_number,
+        "salt": ch.salt,
+        "signature": ch.signature,
+    })
+
+
 @auth_bp.route("/register", methods=["GET", "POST"])
 @limiter.limit("3 per 15 minutes")
 def register():
     cookie_token = request.cookies.get("device_token")
 
-    if cookie_token:
+    # Admins can visit /register freely to test the flow
+    if cookie_token and not (current_user.is_authenticated and current_user.is_admin):
         with get_db() as conn:
             existing = conn.execute(
                 "SELECT * FROM users WHERE device_token = ?", (cookie_token,)
@@ -167,10 +186,22 @@ def register():
         if slots_left <= 0 or not available:
             return render_template("register.html", slots_left=0)
 
+        if not current_app.config.get("TESTING"):
+            ok, _ = verify_solution_v1(
+                request.form.get("altcha", ""),
+                _altcha_key(),
+                check_expires=False,
+            )
+            if not ok:
+                return render_template("register.html", slots_left=slots_left, captcha_error=True)
+
         username = secrets.choice(available)
         display = _display_name(username)
         password = _generate_password()
-        device_token = cookie_token or str(uuid.uuid4())
+        # When admin creates a user, leave device_token NULL so the new user
+        # can log in from any device on their first login.
+        admin_creating = current_user.is_authenticated and current_user.is_admin
+        device_token = None if admin_creating else (cookie_token or str(uuid.uuid4()))
 
         with get_db() as conn:
             conn.execute(
@@ -187,9 +218,11 @@ def register():
             display_name=display,
             password=password,
             slots_left=slots_left - 1,
+            admin_creating=admin_creating,
         ))
-        resp.set_cookie("device_token", device_token,
-                        max_age=365 * 24 * 3600, httponly=True, samesite="Lax")
+        if device_token:
+            resp.set_cookie("device_token", device_token,
+                            max_age=365 * 24 * 3600, httponly=True, samesite="Lax")
         return resp
 
     return render_template("register.html", slots_left=slots_left)

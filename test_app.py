@@ -882,3 +882,42 @@ class TestHistory:
         with flask_app.app.test_client() as c:
             r = c.get("/history", follow_redirects=False)
         assert r.status_code in (302, 401)
+
+
+# ── CAPTCHA (altcha) ───────────────────────────────────────────────────────────
+
+class TestCaptcha:
+    def test_challenge_endpoint_returns_valid_json(self, client):
+        r = client.get("/api/captcha-challenge")
+        assert r.status_code == 200
+        data = r.get_json()
+        assert "algorithm" in data
+        assert "challenge" in data
+        assert "maxnumber" in data
+        assert "salt" in data
+        assert "signature" in data
+
+    def test_register_skips_captcha_in_testing_mode(self, tmp_path, monkeypatch):
+        import db as db_mod
+        monkeypatch.setattr(db_mod, "DB_PATH", tmp_path / "cap.db")
+        db_mod.init_db()
+        with flask_app.app.test_client() as c:
+            r = c.post("/register", follow_redirects=False)
+        assert r.status_code == 200
+        with db_mod.get_db() as conn:
+            count = conn.execute("SELECT COUNT(*) FROM users WHERE is_admin=0").fetchone()[0]
+        assert count == 1
+
+    def test_register_rejects_missing_captcha_outside_testing(self, tmp_path, monkeypatch):
+        import db as db_mod
+        monkeypatch.setattr(db_mod, "DB_PATH", tmp_path / "cap2.db")
+        db_mod.init_db()
+        non_testing_config = {**flask_app.app.config, "TESTING": False}
+        monkeypatch.setattr(flask_app.app, "config", non_testing_config)
+        with flask_app.app.test_client() as c:
+            r = c.post("/register")
+        assert r.status_code == 200
+        assert b"alert-danger" in r.data
+        with db_mod.get_db() as conn:
+            count = conn.execute("SELECT COUNT(*) FROM users WHERE is_admin=0").fetchone()[0]
+        assert count == 0

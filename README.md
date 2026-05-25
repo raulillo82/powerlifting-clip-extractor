@@ -89,13 +89,13 @@ Extrae levantamientos individuales de un vídeo de competición de powerlifting 
 Ejecuta sin argumentos y responde a las preguntas (pulsa Enter para aceptar los valores por defecto):
 
 ```bash
-python extract_lifts.py
+python3 extract_lifts.py
 ```
 
 #### Modo parámetros — tiempos desde archivo
 
 ```bash
-python extract_lifts.py https://youtube.com/live/VIDEO_ID
+python3 extract_lifts.py https://youtube.com/live/VIDEO_ID
 ```
 
 Lee los tiempos de `times.txt` por defecto (usa `--times otro.txt` para cambiarlo).
@@ -103,7 +103,7 @@ Lee los tiempos de `times.txt` por defecto (usa `--times otro.txt` para cambiarl
 #### Modo parámetros — tiempos en la propia llamada
 
 ```bash
-python extract_lifts.py https://youtube.com/live/VIDEO_ID \
+python3 extract_lifts.py https://youtube.com/live/VIDEO_ID \
     --timestamps 0:21:27 0:29:55 0:38:15 1h23:30 1h32:21 1h41:30 2h26:15 2h33:4 2h41:35
 ```
 
@@ -113,16 +113,16 @@ Extrae un único levantamiento: un tiempo, un movimiento, sin combinado.
 
 ```bash
 # Audio original (sin riesgo de copyright)
-python extract_lifts.py https://youtube.com/live/VIDEO_ID \
+python3 extract_lifts.py https://youtube.com/live/VIDEO_ID \
     --single --timestamp 2h26:15 --movement deadlift --attempt 2
 
 # Solo música (reemplaza el audio original)
-python extract_lifts.py https://youtube.com/live/VIDEO_ID \
+python3 extract_lifts.py https://youtube.com/live/VIDEO_ID \
     --single --timestamp 2h26:15 --movement deadlift --attempt 2 \
     --audio-mode music_only --music "nombre de canción o URL de YouTube"
 
 # Mezclado (audio original + música; genera 3 archivos)
-python extract_lifts.py https://youtube.com/live/VIDEO_ID \
+python3 extract_lifts.py https://youtube.com/live/VIDEO_ID \
     --single --timestamp 2h26:15 --movement deadlift --attempt 2 \
     --audio-mode mixed --music "https://www.youtube.com/watch?v=..."
 ```
@@ -522,13 +522,13 @@ Extracts individual lifts from a YouTube powerlifting competition and creates an
 Run without arguments and answer the prompts (press Enter to accept defaults):
 
 ```bash
-python extract_lifts.py
+python3 extract_lifts.py
 ```
 
 #### Parameter mode — timestamps from file
 
 ```bash
-python extract_lifts.py https://youtube.com/live/VIDEO_ID
+python3 extract_lifts.py https://youtube.com/live/VIDEO_ID
 ```
 
 Reads timestamps from `times.txt` by default (use `--times other.txt` to override).
@@ -536,7 +536,7 @@ Reads timestamps from `times.txt` by default (use `--times other.txt` to overrid
 #### Parameter mode — timestamps inline
 
 ```bash
-python extract_lifts.py https://youtube.com/live/VIDEO_ID \
+python3 extract_lifts.py https://youtube.com/live/VIDEO_ID \
     --timestamps 0:21:27 0:29:55 0:38:15 1h23:30 1h32:21 1h41:30 2h26:15 2h33:4 2h41:35
 ```
 
@@ -546,16 +546,16 @@ Extract one lift only: one timestamp, one movement, no combined video.
 
 ```bash
 # Original audio only (no copyright risk)
-python extract_lifts.py https://youtube.com/live/VIDEO_ID \
+python3 extract_lifts.py https://youtube.com/live/VIDEO_ID \
     --single --timestamp 2h26:15 --movement deadlift --attempt 2
 
 # Music only (replaces original audio)
-python extract_lifts.py https://youtube.com/live/VIDEO_ID \
+python3 extract_lifts.py https://youtube.com/live/VIDEO_ID \
     --single --timestamp 2h26:15 --movement deadlift --attempt 2 \
     --audio-mode music_only --music "song name or YouTube URL"
 
 # Mixed (original + music blended; generates 3 files)
-python extract_lifts.py https://youtube.com/live/VIDEO_ID \
+python3 extract_lifts.py https://youtube.com/live/VIDEO_ID \
     --single --timestamp 2h26:15 --movement deadlift --attempt 2 \
     --audio-mode mixed --music "https://www.youtube.com/watch?v=..."
 ```
