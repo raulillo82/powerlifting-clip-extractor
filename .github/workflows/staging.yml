@@ -1,0 +1,55 @@
+name: Staging
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, closed]
+
+permissions:
+  actions: write
+
+jobs:
+  deploy:
+    if: github.event.action != 'closed'
+    runs-on: self-hosted
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    steps:
+      - name: Set STAGING_BRANCH variable
+        env:
+          PAT: ${{ secrets.GH_PAT }}
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH \
+            -H "Authorization: Bearer $PAT" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_BRANCH" \
+            -d '{"name":"STAGING_BRANCH","value":"${{ github.head_ref }}"}')
+          echo "HTTP $response"
+          [ "$response" = "204" ] || { echo "Failed to update STAGING_BRANCH (HTTP $response) — create GH_PAT secret with repo scope"; exit 1; }
+
+      - name: Deploy to staging
+        run: |
+          cd ~/powerlifting-clip-extractor-staging
+          git fetch
+          git checkout ${{ github.head_ref }}
+          git pull
+          venv/bin/pip install -r requirements.txt -q
+          systemctl --user restart powerlifting-staging
+          systemctl --user is-active powerlifting-staging
+
+  clear:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clear STAGING_BRANCH
+        env:
+          PAT: ${{ secrets.GH_PAT }}
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH \
+            -H "Authorization: Bearer $PAT" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_BRANCH" \
+            -d '{"name":"STAGING_BRANCH","value":"none"}')
+          echo "HTTP $response"
+          [ "$response" = "204" ]

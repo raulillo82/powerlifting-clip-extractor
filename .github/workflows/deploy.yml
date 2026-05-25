@@ -32,7 +32,7 @@ jobs:
           systemctl --user is-active powerlifting
 
   deploy-staging:
-    if: (github.event_name == 'push' && github.ref != 'refs/heads/main' && github.ref_name == vars.STAGING_BRANCH) || (github.event_name == 'workflow_dispatch' && inputs.target == 'staging')
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'staging'
     runs-on: self-hosted
     concurrency:
       group: deploy-staging

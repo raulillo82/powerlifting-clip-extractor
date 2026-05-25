@@ -1,0 +1,13 @@
+all:
+  vars:
+    ansible_user: raul
+    ansible_python_interpreter: /usr/bin/python3.13
+    app_dir: /home/raul/powerlifting-clip-extractor
+    repo_url: https://github.com/raulillo82/powerlifting-clip-extractor.git
+
+  hosts:
+    rpi5:
+      ansible_host: raspberrypi5   # production (current)
+
+    rpi4:
+      ansible_host: raspberrypi4   # failover target — update hostname/IP if needed
