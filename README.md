@@ -56,7 +56,9 @@
 | ✅ | Link de YouTube junto a la sesión seleccionada; navegación hacia atrás en el cascade | — |
 | ✅ | Nuevas federaciones en el cascade: USAPL, British Powerlifting, CPU (solo afiliadas IPF) | — |
 | ✅ | Historial de extracciones (`/history`): últimos 20 jobs con estado y link de descarga | — |
-| ✅ | Tests automatizados (117 tests, CI) | — |
+| ✅ | Tests automatizados (120 tests, CI) | — |
+| ✅ | Contenedor Podman (imagen OCI reproducible, base OpenSUSE Tumbleweed) | — |
+| ✅ | Ansible playbook para despliegue y failover RPi5↔RPi4 | — |
 | 🔲 | **Estadísticas** (panel en `/admin/stats`) | Claude |
 |    | ↳ Mapa de calor por ciudad — España con Canarias por defecto, opción mapamundi | |
 |    | ↳ Geolocalización IP → ciudad con base de datos local (MaxMind GeoLite2) | |
@@ -212,10 +214,8 @@ Todos los archivos son MP4 / H.264 / AAC con `-movflags +faststart`, compatibles
 
 #### Software necesario en el servidor
 
-- Linux con systemd (probado en openSUSE Tumbleweed aarch64 / RPi5)
-- Python 3.10+
-- `gunicorn`, `flask`, `flask-login` y el resto de dependencias de `requirements.txt`
-- `ffmpeg` y `yt-dlp`
+- Linux con systemd (probado en openSUSE Tumbleweed aarch64 / RPi5 y RPi4)
+- `podman` — la app corre dentro de un contenedor OCI; `yt-dlp`, `ffmpeg` y Python van dentro de la imagen
 - `nginx`
 - `acme.sh` (para el certificado TLS)
 - `firewalld` o equivalente
@@ -223,12 +223,8 @@ Todos los archivos son MP4 / H.264 / AAC con `-movflags +faststart`, compatibles
 En openSUSE:
 
 ```bash
-sudo zypper install python3 ffmpeg yt-dlp nginx firewalld
-python3 -m venv venv
-venv/bin/pip install -r requirements.txt
+sudo zypper install podman nginx firewalld
 ```
-
-> `flask-limiter` no está en los repos de zypper; se instala automáticamente dentro del venv desde `requirements.txt`. No uses `pip` como root ni con `sudo`.
 
 #### 1. Clonar el repositorio
 
@@ -237,23 +233,40 @@ git clone https://github.com/raulillo82/powerlifting-clip-extractor.git ~/powerl
 cd ~/powerlifting-clip-extractor
 ```
 
-#### 2. Primera ejecución
+#### 2. Construir la imagen del contenedor
 
-`secret.key` y `users.db` se generan automáticamente al arrancar la app por primera vez. **No los subas al repositorio** (ya están en `.gitignore`).
+```bash
+podman build -t localhost/powerlifting:latest .
+```
 
-#### 3. Servicio gunicorn (systemd user service)
+La imagen usa OpenSUSE Tumbleweed como base e instala `yt-dlp`, `ffmpeg` y todas las dependencias Python. El primer build tarda unos minutos; los siguientes son rápidos gracias al caché de capas.
+
+#### 3. Datos persistentes
+
+`secret.key` y `users.db` se generan automáticamente al arrancar la app por primera vez y se almacenan **fuera del contenedor**, en el directorio del repositorio. `lifts/` también se monta desde el host. **No los subas al repositorio** (ya están en `.gitignore`).
+
+#### 4. Servicio systemd con Podman
 
 Crea `~/.config/systemd/user/powerlifting.service`:
 
 ```ini
 [Unit]
-Description=Powerlifting Clip Extractor (gunicorn)
+Description=Powerlifting Clip Extractor (podman)
 After=network.target
 
 [Service]
-WorkingDirectory=/home/TU_USUARIO/powerlifting-clip-extractor
-ExecStart=/home/TU_USUARIO/powerlifting-clip-extractor/venv/bin/gunicorn --workers 1 --threads 4 --bind 127.0.0.1:5000 --timeout 600 app:app
-Restart=on-failure
+Type=simple
+ExecStartPre=-/usr/bin/podman rm -f powerlifting
+ExecStart=/usr/bin/podman run \
+    --name powerlifting \
+    --rm \
+    -p 127.0.0.1:5000:5000 \
+    -v /home/TU_USUARIO/powerlifting-clip-extractor/users.db:/app/users.db:Z \
+    -v /home/TU_USUARIO/powerlifting-clip-extractor/secret.key:/app/secret.key:Z \
+    -v /home/TU_USUARIO/powerlifting-clip-extractor/lifts:/app/lifts:Z \
+    localhost/powerlifting:latest
+ExecStop=/usr/bin/podman stop powerlifting
+Restart=always
 RestartSec=5
 
 [Install]
@@ -264,6 +277,8 @@ WantedBy=default.target
 systemctl --user enable --now powerlifting.service
 loginctl enable-linger TU_USUARIO   # arranque automático sin sesión activa
 ```
+
+> `Restart=always` relanza el contenedor ante cualquier parada inesperada. No añadas `--restart` a `podman run` — conflictiría con la gestión de systemd.
 
 #### 4. nginx como proxy inverso con HTTPS
 
@@ -386,6 +401,7 @@ Para desplegar cambios en el código:
 ```bash
 cd /home/TU_USUARIO/powerlifting-clip-extractor
 git pull
+podman build -t localhost/powerlifting:latest .
 systemctl --user restart powerlifting.service
 ```
 
@@ -394,9 +410,22 @@ Para comprobar el estado y ver los logs:
 ```bash
 systemctl --user status powerlifting.service
 journalctl --user -u powerlifting.service -n 50 --no-pager
+podman logs powerlifting   # logs del contenedor en ejecución
 ```
 
-> **Nota:** el servicio systemd de usuario arranca automáticamente con el sistema (gracias a `loginctl enable-linger`) y se reinicia solo si falla (`Restart=on-failure`). No uses `nohup` ni procesos en background manuales.
+#### 9. Despliegue automático con Ansible (opcional)
+
+El repositorio incluye un playbook Ansible en `ansible/` que automatiza todo el despliegue (instalación de podman, build de la imagen, service file, nginx, linger):
+
+```bash
+# Verificar sin aplicar cambios
+ansible-playbook -i ansible/inventory.yml ansible/deploy.yml -l rpi4 --check
+
+# Desplegar (pide contraseña sudo para las tareas de nginx)
+ansible-playbook -i ansible/inventory.yml ansible/deploy.yml -l rpi4 --ask-become-pass
+```
+
+El playbook está pensado para el failover RPi5↔RPi4. Consulta los comentarios al inicio de `ansible/deploy.yml` para los pasos previos al failover (copiar `secret.key`, `users.db` y certificados SSL).
 
 </details>
 
@@ -489,7 +518,9 @@ En los tests, el rate limiting se desactiva en el fixture `client` mediante `mon
 | ✅ | YouTube link next to selected session; cascade back-navigation fix | — |
 | ✅ | New federations in cascade: USAPL, British Powerlifting, CPU (IPF affiliates only) | — |
 | ✅ | Job history page (`/history`): last 20 jobs with status and download link | — |
-| ✅ | Automated tests (117 tests, CI) | — |
+| ✅ | Automated tests (120 tests, CI) | — |
+| ✅ | Podman container (reproducible OCI image, OpenSUSE Tumbleweed base) | — |
+| ✅ | Ansible playbook for deployment and RPi5↔RPi4 failover | — |
 | 🔲 | **Statistics** (panel at `/admin/stats`) | Claude |
 |    | ↳ City heatmap — Spain + Canary Islands by default, world map option | |
 |    | ↳ IP → city geolocation with local database (MaxMind GeoLite2) | |
@@ -645,10 +676,8 @@ All files are MP4 / H.264 / AAC with `-movflags +faststart`, compatible with Ins
 
 #### Server requirements
 
-- Linux with systemd (tested on openSUSE Tumbleweed aarch64 / RPi5)
-- Python 3.10+
-- `gunicorn`, `flask`, `flask-login` and the rest of `requirements.txt`
-- `ffmpeg` and `yt-dlp`
+- Linux with systemd (tested on openSUSE Tumbleweed aarch64 / RPi5 and RPi4)
+- `podman` — the app runs inside an OCI container; `yt-dlp`, `ffmpeg` and Python are bundled in the image
 - `nginx`
 - `acme.sh` (for the TLS certificate)
 - `firewalld` or equivalent
@@ -656,12 +685,8 @@ All files are MP4 / H.264 / AAC with `-movflags +faststart`, compatible with Ins
 On openSUSE:
 
 ```bash
-sudo zypper install python3 ffmpeg yt-dlp nginx firewalld
-python3 -m venv venv
-venv/bin/pip install -r requirements.txt
+sudo zypper install podman nginx firewalld
 ```
-
-> `flask-limiter` is not in zypper's repos; it is installed automatically inside the venv from `requirements.txt`. Do not use `pip` as root or with `sudo`.
 
 #### 1. Clone the repository
 
@@ -670,23 +695,40 @@ git clone https://github.com/raulillo82/powerlifting-clip-extractor.git ~/powerl
 cd ~/powerlifting-clip-extractor
 ```
 
-#### 2. First run
+#### 2. Build the container image
 
-`secret.key` and `users.db` are generated automatically the first time the app starts. **Do not commit them** (already in `.gitignore`).
+```bash
+podman build -t localhost/powerlifting:latest .
+```
 
-#### 3. gunicorn systemd user service
+The image uses OpenSUSE Tumbleweed as its base and installs `yt-dlp`, `ffmpeg` and all Python dependencies. The first build takes a few minutes; subsequent builds are fast thanks to layer caching.
+
+#### 3. Persistent data
+
+`secret.key` and `users.db` are generated automatically on first start and stored **outside the container**, in the repository directory. `lifts/` is also mounted from the host. **Do not commit them** (already in `.gitignore`).
+
+#### 4. Podman systemd user service
 
 Create `~/.config/systemd/user/powerlifting.service`:
 
 ```ini
 [Unit]
-Description=Powerlifting Clip Extractor (gunicorn)
+Description=Powerlifting Clip Extractor (podman)
 After=network.target
 
 [Service]
-WorkingDirectory=/home/YOUR_USER/powerlifting-clip-extractor
-ExecStart=/home/YOUR_USER/powerlifting-clip-extractor/venv/bin/gunicorn --workers 1 --threads 4 --bind 127.0.0.1:5000 --timeout 600 app:app
-Restart=on-failure
+Type=simple
+ExecStartPre=-/usr/bin/podman rm -f powerlifting
+ExecStart=/usr/bin/podman run \
+    --name powerlifting \
+    --rm \
+    -p 127.0.0.1:5000:5000 \
+    -v /home/YOUR_USER/powerlifting-clip-extractor/users.db:/app/users.db:Z \
+    -v /home/YOUR_USER/powerlifting-clip-extractor/secret.key:/app/secret.key:Z \
+    -v /home/YOUR_USER/powerlifting-clip-extractor/lifts:/app/lifts:Z \
+    localhost/powerlifting:latest
+ExecStop=/usr/bin/podman stop powerlifting
+Restart=always
 RestartSec=5
 
 [Install]
@@ -697,6 +739,8 @@ WantedBy=default.target
 systemctl --user enable --now powerlifting.service
 loginctl enable-linger YOUR_USER   # start on boot without an active session
 ```
+
+> `Restart=always` restarts the container on any unexpected stop. Do not add `--restart` to `podman run` — it would conflict with systemd's restart management.
 
 #### 4. nginx reverse proxy with HTTPS
 
@@ -819,6 +863,7 @@ To deploy code changes:
 ```bash
 cd /home/YOUR_USER/powerlifting-clip-extractor
 git pull
+podman build -t localhost/powerlifting:latest .
 systemctl --user restart powerlifting.service
 ```
 
@@ -827,9 +872,22 @@ To check status and view logs:
 ```bash
 systemctl --user status powerlifting.service
 journalctl --user -u powerlifting.service -n 50 --no-pager
+podman logs powerlifting   # logs from the running container
 ```
 
-> **Note:** the systemd user service starts automatically at boot (thanks to `loginctl enable-linger`) and restarts itself on failure (`Restart=on-failure`). Do not use `nohup` or manual background processes.
+#### 9. Automated deployment with Ansible (optional)
+
+The repository includes an Ansible playbook under `ansible/` that automates the full deployment (podman installation, image build, service file, nginx, linger):
+
+```bash
+# Dry run — no changes applied
+ansible-playbook -i ansible/inventory.yml ansible/deploy.yml -l rpi4 --check
+
+# Deploy (prompts for sudo password for nginx tasks)
+ansible-playbook -i ansible/inventory.yml ansible/deploy.yml -l rpi4 --ask-become-pass
+```
+
+The playbook is designed for RPi5↔RPi4 failover. See the comments at the top of `ansible/deploy.yml` for the steps required before failing over (copying `secret.key`, `users.db` and SSL certificates).
 
 </details>
 

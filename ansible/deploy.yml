@@ -124,7 +124,7 @@
               -v {{ app_dir }}/lifts:/app/lifts:Z \
               {{ image_name }}
           ExecStop=/usr/bin/podman stop {{ service_name }}
-          Restart=on-failure
+          Restart=always
           RestartSec=5
 
           [Install]
