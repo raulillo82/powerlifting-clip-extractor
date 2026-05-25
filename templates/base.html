@@ -25,7 +25,7 @@
         {% if current_user.is_admin %}
         <a href="{{ url_for('admin.index') }}" class="btn btn-sm btn-outline-light border-0 py-0">Admin</a>
         {% endif %}
-        <a href="{{ url_for('auth.logout') }}" class="btn btn-sm btn-outline-light border-0 py-0">Salir</a>
+        <a href="{{ url_for('auth.logout') }}" class="btn btn-sm btn-outline-light border-0 py-0" data-i18n="nav.logout">Salir</a>
         <div class="vr bg-secondary mx-1"></div>
         {% endif %}
         <div class="d-flex gap-1">
@@ -193,7 +193,32 @@
       'reg.admin.back':        'Back to panel',
       // ── history ──
       'nav.history':           'History',
+      'nav.logout':            'Log out',
       'footer.source':         'View source code',
+      // ── admin ──
+      'admin.title':           'Administration panel',
+      'admin.users_count':     'user(s)',
+      'admin.btn.production':  'Production ↗',
+      'admin.btn.staging':     'Staging ↗',
+      'admin.col.username':    'Username',
+      'admin.col.name':        'Name',
+      'admin.col.status':      'Status',
+      'admin.col.device':      'Device',
+      'admin.col.created':     'Created',
+      'admin.badge.active':    'Active',
+      'admin.badge.inactive':  'Inactive',
+      'admin.badge.linked':    'Linked',
+      'admin.badge.free':      'Free',
+      'admin.staging.until':   'until',
+      'admin.btn.revoke':      'Revoke',
+      'admin.btn.grant':       'Grant access',
+      'admin.btn.deactivate':  'Deactivate',
+      'admin.btn.activate':    'Activate',
+      'admin.btn.reset_device':'Reset device',
+      'admin.btn.delete':      'Delete',
+      'admin.confirm_delete':  'Delete',
+      'admin.empty':           'No users registered yet. Share <a href="/register">/register</a> so they can sign up.',
+      'admin.register_url':    'Registration URL:',
       'hist.title':            'My extractions',
       'hist.empty':            'No extractions yet.',
       'hist.mode.full':        'Full',
@@ -348,7 +373,32 @@
       'reg.admin.back':        'Volver al panel',
       // ── history ──
       'nav.history':           'Historial',
+      'nav.logout':            'Salir',
       'footer.source':         'Ver código fuente',
+      // ── admin ──
+      'admin.title':           'Panel de administración',
+      'admin.users_count':     'usuario(s)',
+      'admin.btn.production':  'Producción ↗',
+      'admin.btn.staging':     'Staging ↗',
+      'admin.col.username':    'Usuario',
+      'admin.col.name':        'Nombre',
+      'admin.col.status':      'Estado',
+      'admin.col.device':      'Dispositivo',
+      'admin.col.created':     'Creado',
+      'admin.badge.active':    'Activo',
+      'admin.badge.inactive':  'Inactivo',
+      'admin.badge.linked':    'Vinculado',
+      'admin.badge.free':      'Libre',
+      'admin.staging.until':   'hasta',
+      'admin.btn.revoke':      'Revocar',
+      'admin.btn.grant':       'Dar acceso',
+      'admin.btn.deactivate':  'Desactivar',
+      'admin.btn.activate':    'Activar',
+      'admin.btn.reset_device':'Reset dispositivo',
+      'admin.btn.delete':      'Borrar',
+      'admin.confirm_delete':  'Borrar',
+      'admin.empty':           'Aún no hay usuarios registrados. Comparte <a href="/register">/register</a> para que se den de alta.',
+      'admin.register_url':    'URL de registro:',
       'hist.title':            'Mis extracciones',
       'hist.empty':            'Aún no tienes extracciones.',
       'hist.mode.full':        'Completo',

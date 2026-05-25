@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="d-flex align-items-center gap-3 mb-4">
-  <h2 class="mb-0">Panel de administración</h2>
-  <span class="badge bg-secondary fs-6">{{ users|length }} usuario(s)</span>
+  <h2 class="mb-0" data-i18n="admin.title">Panel de administración</h2>
+  <span class="badge bg-secondary fs-6">{{ users|length }} <span data-i18n="admin.users_count">usuario(s)</span></span>
   {% if is_staging %}
-  <a href="/" class="btn btn-sm btn-outline-success" target="_blank">Producción ↗</a>
+  <a href="/" class="btn btn-sm btn-outline-success" target="_blank" data-i18n="admin.btn.production">Producción ↗</a>
   {% else %}
-  <a href="/staging/" class="btn btn-sm btn-outline-warning" target="_blank">Staging ↗</a>
+  <a href="/staging/" class="btn btn-sm btn-outline-warning" target="_blank" data-i18n="admin.btn.staging">Staging ↗</a>
   {% endif %}
 </div>
 
@@ -15,12 +15,12 @@
   <table class="table table-hover align-middle">
     <thead class="table-dark">
       <tr>
-        <th>Usuario</th>
-        <th>Nombre</th>
-        <th>Estado</th>
-        <th>Dispositivo</th>
+        <th data-i18n="admin.col.username">Usuario</th>
+        <th data-i18n="admin.col.name">Nombre</th>
+        <th data-i18n="admin.col.status">Estado</th>
+        <th data-i18n="admin.col.device">Dispositivo</th>
         <th>Staging</th>
-        <th>Creado</th>
+        <th data-i18n="admin.col.created">Creado</th>
         <th></th>
       </tr>
     </thead>
@@ -33,25 +33,25 @@
         <td>{{ u.display_name }}</td>
         <td>
           {% if u.is_active %}
-          <span class="badge bg-success">Activo</span>
+          <span class="badge bg-success" data-i18n="admin.badge.active">Activo</span>
           {% else %}
-          <span class="badge bg-secondary">Inactivo</span>
+          <span class="badge bg-secondary" data-i18n="admin.badge.inactive">Inactivo</span>
           {% endif %}
         </td>
         <td>
           {% if u.device_token %}
-          <span class="badge bg-info text-dark">Vinculado</span>
+          <span class="badge bg-info text-dark" data-i18n="admin.badge.linked">Vinculado</span>
           {% else %}
-          <span class="badge bg-warning text-dark">Libre</span>
+          <span class="badge bg-warning text-dark" data-i18n="admin.badge.free">Libre</span>
           {% endif %}
         </td>
         <td>
           {% if s_active %}
             <span class="badge bg-success small" title="Expira {{ s_expiry | int | datetimeformat }}">
-              hasta {{ s_expiry | int | datetimeformat }}
+              <span data-i18n="admin.staging.until">hasta</span> {{ s_expiry | int | datetimeformat }}
             </span>
             <form method="post" action="{{ url_for('admin.staging_revoke', user_id=u.id) }}" class="d-inline">
-              <button class="btn btn-sm btn-outline-secondary ms-1">Revocar</button>
+              <button class="btn btn-sm btn-outline-secondary ms-1" data-i18n="admin.btn.revoke">Revocar</button>
             </form>
           {% else %}
             <form method="post" action="{{ url_for('admin.staging_grant', user_id=u.id) }}"
@@ -61,7 +61,7 @@
                 <option value="{{ key }}" {% if key == '24h' %}selected{% endif %}>{{ key }}</option>
                 {% endfor %}
               </select>
-              <button class="btn btn-sm btn-outline-primary">Dar acceso</button>
+              <button class="btn btn-sm btn-outline-primary" data-i18n="admin.btn.grant">Dar acceso</button>
             </form>
           {% endif %}
         </td>
@@ -69,20 +69,22 @@
         <td>
           <div class="d-flex gap-1 flex-wrap">
             <form method="post" action="{{ url_for('admin.toggle', user_id=u.id) }}">
-              <button class="btn btn-sm {% if u.is_active %}btn-outline-secondary{% else %}btn-outline-success{% endif %}">
+              <button class="btn btn-sm {% if u.is_active %}btn-outline-secondary{% else %}btn-outline-success{% endif %}"
+                      data-i18n="{% if u.is_active %}admin.btn.deactivate{% else %}admin.btn.activate{% endif %}">
                 {% if u.is_active %}Desactivar{% else %}Activar{% endif %}
               </button>
             </form>
             {% if u.device_token %}
             <form method="post" action="{{ url_for('admin.reset_device', user_id=u.id) }}">
-              <button class="btn btn-sm btn-outline-warning" title="Permite al usuario entrar desde un dispositivo diferente">
+              <button class="btn btn-sm btn-outline-warning" data-i18n="admin.btn.reset_device"
+                      title="Permite al usuario entrar desde un dispositivo diferente">
                 Reset dispositivo
               </button>
             </form>
             {% endif %}
             <form method="post" action="{{ url_for('admin.delete', user_id=u.id) }}"
-                  onsubmit="return confirm('¿Borrar a {{ u.username }}?')">
-              <button class="btn btn-sm btn-outline-danger">Borrar</button>
+                  onsubmit="return confirm(T('admin.confirm_delete') + ' {{ u.username }}?')">
+              <button class="btn btn-sm btn-outline-danger" data-i18n="admin.btn.delete">Borrar</button>
             </form>
           </div>
         </td>
@@ -92,11 +94,12 @@
   </table>
 </div>
 {% else %}
-<p class="text-muted">Aún no hay usuarios registrados. Comparte <a href="{{ url_for('auth.register') }}">/register</a> para que se den de alta.</p>
+<p class="text-muted" data-i18n="admin.empty">Aún no hay usuarios registrados. Comparte <a href="{{ url_for('auth.register') }}">/register</a> para que se den de alta.</p>
 {% endif %}
 
 <hr>
 <p class="text-muted small">
-  URL de registro: <a href="{{ url_for('auth.register', _external=True) }}">{{ url_for('auth.register', _external=True) }}</a>
+  <span data-i18n="admin.register_url">URL de registro:</span>
+  <a href="{{ url_for('auth.register', _external=True) }}">{{ url_for('auth.register', _external=True) }}</a>
 </p>
 {% endblock %}
