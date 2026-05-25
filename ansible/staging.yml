@@ -91,11 +91,11 @@
 
           [Service]
           Type=simple
-          Environment=STAGING=1
           ExecStartPre=-/usr/bin/podman rm -f {{ service_name }}
           ExecStart=/usr/bin/podman run \
               --name {{ service_name }} \
               --rm \
+              -e STAGING=1 \
               -p {{ container_port }} \
               -v {{ staging_dir }}/users.db:/app/users.db:Z \
               -v {{ staging_dir }}/secret.key:/app/secret.key:Z \
