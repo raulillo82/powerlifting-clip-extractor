@@ -1,24 +1,20 @@
 ---
-# Deploys the app to a target host (RPi5 or RPi4).
+# Deploys the app to a target host (RPi5 or RPi4) using a Podman container.
 #
 # Usage:
 #   ansible-playbook -i inventory.yml deploy.yml -l rpi4
 #
-# Prerequisites on the target host (install once manually with zypper):
-#   sudo zypper install -y python3 python3-pip git nginx yt-dlp ffmpeg
+# Prerequisites on the target host (install once manually):
+#   sudo zypper install -y git podman nginx
+#   loginctl enable-linger raul
 #
-# Sudo permissions required (playbook uses become: true for nginx tasks only):
-#   The user running the playbook needs sudo access for:
-#     - copying files to /etc/nginx/conf.d/
-#     - systemctl enable/start/reload nginx
-#   Option A — full sudo (simplest, same as RPi5):
-#     Run visudo and ensure: raul ALL=(ALL) ALL
+# Sudo permissions required (become: true for nginx tasks only):
+#   Option A — full sudo (simplest):
+#     raul ALL=(ALL) ALL      (use --ask-become-pass when running)
 #   Option B — minimal passwordless sudo for nginx only:
-#     raul ALL=(ALL) NOPASSWD: /usr/bin/cp /etc/nginx/conf.d/*, \
-#       /usr/bin/systemctl start nginx, /usr/bin/systemctl enable nginx, \
-#       /usr/bin/systemctl reload nginx
-#   Real deploy (prompts for sudo password with option A):
-#     ansible-playbook -i inventory.yml deploy.yml -l rpi4 --ask-become-pass
+#     raul ALL=(root) NOPASSWD: /usr/bin/systemctl start nginx, \
+#       /usr/bin/systemctl enable nginx, /usr/bin/systemctl reload nginx, \
+#       /usr/bin/tee /etc/nginx/conf.d/powerlifting.conf
 #
 # Before running for failover:
 #   1. Copy secret.key from RPi5:
@@ -29,32 +25,27 @@
 #          raspberrypi4:~/powerlifting-clip-extractor/users.db
 #   3. Copy SSL certs from RPi5:
 #      sudo scp -r raspberrypi5:/etc/nginx/ssl /etc/nginx/ssl
-#   4. Redirect traffic to RPi4. Two options depending on your setup:
-#      a) If RPi4 has a different public IP: update DuckDNS to point to the new IP.
-#      b) If both RPis share the same router/IP (most common): change the port
-#         forwarding rule in your router from RPi5's internal IP to RPi4's.
+#   4. Change the router port-forwarding rule from RPi5's IP to RPi4's.
 #
 # After failover, to switch back to RPi5: reverse steps 1-2 (copy DB back)
-# and restore the original port forwarding / DNS.
+# and restore the original port-forwarding.
 
 - name: Deploy Powerlifting Clip Extractor
   hosts: all
   vars:
     service_name: powerlifting
-    gunicorn_bind: "127.0.0.1:5000"
+    image_name: "localhost/powerlifting:latest"
+    container_port: "127.0.0.1:5000:5000"
     nginx_conf: /etc/nginx/conf.d/powerlifting.conf
     domain: raulillo82.duckdns.org
 
   tasks:
 
-    - name: Verify Python 3 version
-      command: python3 --version
-      register: py_version
-      changed_when: false
-
-    - name: Show Python version
-      debug:
-        msg: "{{ py_version.stdout }} — expected 3.13.x"
+    - name: Ensure podman is installed
+      become: true
+      zypper:
+        name: podman
+        state: present
 
     - name: Clone or update repository
       git:
@@ -63,20 +54,40 @@
         version: main
         update: true
         force: false
+      register: git_result
 
-    - name: Create virtual environment if absent
-      command: python3 -m venv "{{ app_dir }}/venv"
-      args:
-        creates: "{{ app_dir }}/venv/bin/activate"
+    - name: Build container image
+      command: podman build -t "{{ image_name }}" "{{ app_dir }}"
+      changed_when: true
+      when: git_result.changed or ansible_check_mode == false
 
-    - name: Install Python requirements
-      pip:
-        requirements: "{{ app_dir }}/requirements.txt"
-        virtualenv: "{{ app_dir }}/venv"
-        state: present
+    - name: Ensure lifts directory exists
+      file:
+        path: "{{ app_dir }}/lifts"
+        state: directory
+        mode: "0755"
+
+    - name: Ensure users.db file exists (app populates it on init)
+      file:
+        path: "{{ app_dir }}/users.db"
+        state: touch
+        mode: "0644"
+      changed_when: false
+
+    - name: Ensure secret.key file exists (app generates key on first run)
+      file:
+        path: "{{ app_dir }}/secret.key"
+        state: touch
+        mode: "0600"
+      changed_when: false
 
     - name: Initialise database (idempotent)
-      command: "{{ app_dir }}/venv/bin/python3 -c 'from db import init_db; init_db()'"
+      command: >
+        podman run --rm
+        -v {{ app_dir }}/users.db:/app/users.db:Z
+        -v {{ app_dir }}/secret.key:/app/secret.key:Z
+        {{ image_name }}
+        python3 -c 'from db import init_db; init_db()'
       args:
         chdir: "{{ app_dir }}"
       changed_when: false
@@ -88,21 +99,31 @@
         state: directory
         mode: "0755"
 
+    - name: Resolve real path of users.db (handles symlinks)
+      command: realpath "{{ app_dir }}/users.db"
+      register: users_db_real
+      changed_when: false
+
     - name: Deploy systemd user service
       copy:
         dest: /home/{{ ansible_user }}/.config/systemd/user/{{ service_name }}.service
         content: |
           [Unit]
-          Description=Powerlifting Clip Extractor (gunicorn)
+          Description=Powerlifting Clip Extractor (podman)
           After=network.target
 
           [Service]
-          WorkingDirectory={{ app_dir }}
-          ExecStart={{ app_dir }}/venv/bin/gunicorn \
-              --workers 1 --threads 4 \
-              --bind {{ gunicorn_bind }} \
-              --timeout 600 \
-              app:app
+          Type=simple
+          ExecStartPre=-/usr/bin/podman rm -f {{ service_name }}
+          ExecStart=/usr/bin/podman run \
+              --name {{ service_name }} \
+              --rm \
+              -p {{ container_port }} \
+              -v {{ users_db_real.stdout }}:/app/users.db:Z \
+              -v {{ app_dir }}/secret.key:/app/secret.key:Z \
+              -v {{ app_dir }}/lifts:/app/lifts:Z \
+              {{ image_name }}
+          ExecStop=/usr/bin/podman stop {{ service_name }}
           Restart=on-failure
           RestartSec=5
 
@@ -148,7 +169,7 @@
               client_max_body_size 20M;
 
               location / {
-                  proxy_pass         http://{{ gunicorn_bind }};
+                  proxy_pass         http://127.0.0.1:5000;
                   proxy_set_header   Host              $host;
                   proxy_set_header   X-Real-IP         $remote_addr;
                   proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;

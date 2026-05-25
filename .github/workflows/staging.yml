@@ -34,7 +34,7 @@ jobs:
           git fetch
           git checkout ${{ github.head_ref }}
           git pull
-          venv/bin/pip install -r requirements.txt -q
+          podman build -t localhost/powerlifting-staging:latest .
           systemctl --user restart powerlifting-staging
           systemctl --user is-active powerlifting-staging
 
