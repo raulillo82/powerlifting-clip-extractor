@@ -16,7 +16,13 @@
 #          raspberrypi4:~/powerlifting-clip-extractor/users.db
 #   3. Copy SSL certs from RPi5:
 #      sudo scp -r raspberrypi5:/etc/nginx/ssl /etc/nginx/ssl
-#   4. Update DNS (DuckDNS) to point to the RPi4 IP.
+#   4. Redirect traffic to RPi4. Two options depending on your setup:
+#      a) If RPi4 has a different public IP: update DuckDNS to point to the new IP.
+#      b) If both RPis share the same router/IP (most common): change the port
+#         forwarding rule in your router from RPi5's internal IP to RPi4's.
+#
+# After failover, to switch back to RPi5: reverse steps 1-2 (copy DB back)
+# and restore the original port forwarding / DNS.
 
 - name: Deploy Powerlifting Clip Extractor
   hosts: all
@@ -106,6 +112,7 @@
 
     - name: Deploy nginx config
       become: true
+      ignore_errors: "{{ ansible_check_mode }}"
       copy:
         dest: "{{ nginx_conf }}"
         content: |
@@ -140,6 +147,7 @@
 
     - name: Ensure nginx is enabled and running
       become: true
+      ignore_errors: "{{ ansible_check_mode }}"
       systemd:
         name: nginx
         enabled: true
