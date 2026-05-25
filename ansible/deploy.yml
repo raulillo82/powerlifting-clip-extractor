@@ -126,6 +126,7 @@
     - name: Deploy nginx config
       become: true
       ignore_errors: "{{ ansible_check_mode }}"
+      tags: nginx
       copy:
         dest: "{{ nginx_conf }}"
         content: |
@@ -161,6 +162,7 @@
     - name: Ensure nginx is enabled and running
       become: true
       ignore_errors: "{{ ansible_check_mode }}"
+      tags: nginx
       systemd:
         name: nginx
         enabled: true
@@ -178,6 +180,7 @@
 
     - name: Reload nginx
       become: true
+      tags: nginx
       systemd:
         name: nginx
         state: reloaded
