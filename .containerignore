@@ -1,0 +1,9 @@
+venv/
+lifts/
+users.db
+secret.key
+__pycache__/
+*.pyc
+.git/
+ansible/
+*.md

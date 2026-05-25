@@ -23,11 +23,11 @@ jobs:
       group: deploy-production
       cancel-in-progress: false
     steps:
-      - name: Pull and restart production
+      - name: Pull, build and restart production
         run: |
           cd ~/powerlifting-clip-extractor
           git pull
-          venv/bin/pip install -r requirements.txt -q
+          podman build -t localhost/powerlifting:latest .
           systemctl --user restart powerlifting
           systemctl --user is-active powerlifting
 
@@ -44,6 +44,6 @@ jobs:
           git fetch
           git checkout ${{ vars.STAGING_BRANCH }}
           git pull
-          venv/bin/pip install -r requirements.txt -q
+          podman build -t localhost/powerlifting-staging:latest .
           systemctl --user restart powerlifting-staging
           systemctl --user is-active powerlifting-staging
