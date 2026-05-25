@@ -19,7 +19,12 @@ jobs:
       - name: Set STAGING_BRANCH variable
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh variable set STAGING_BRANCH --body "${{ github.head_ref }}" --repo ${{ github.repository }}
+        run: |
+          curl -s -X PATCH \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_BRANCH" \
+            -d '{"name":"STAGING_BRANCH","value":"${{ github.head_ref }}"}'
 
       - name: Deploy to staging
         run: |
