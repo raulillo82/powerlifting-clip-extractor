@@ -20,8 +20,8 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.13"
 
-      - run: pip install pytest -r requirements.txt
+      - run: pip3 install pytest -r requirements.txt
 
       - run: pytest test_extract_lifts.py test_app.py -v

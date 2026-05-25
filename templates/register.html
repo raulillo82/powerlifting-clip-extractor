@@ -81,6 +81,12 @@
       🔒 Tu cuenta quedará vinculada a este dispositivo. Si necesitas acceder desde otro, contacta con el administrador.
     </p>
     <form method="post">
+      <altcha-widget challengeurl="{{ url_for('auth.captcha_challenge') }}"
+                     style="--altcha-color-border:#dee2e6;--altcha-color-border-focus:#86b7fe;--altcha-border-radius:6px"
+                     class="mb-3"></altcha-widget>
+      {% if captcha_error %}
+      <div class="alert alert-danger py-2 small" data-i18n="reg.captcha_error">Verificación fallida. Inténtalo de nuevo.</div>
+      {% endif %}
       <button type="submit" class="btn btn-primary btn-lg w-100" data-i18n="reg.submit">Crear mi cuenta</button>
     </form>
     {% else %}
@@ -94,6 +100,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script type="module" src="{{ url_for('static', filename='altcha.min.js') }}"></script>
 <script>
 function copyField(id, btn, isPrimary) {
   const text = document.getElementById(id).value;
