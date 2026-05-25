@@ -27,6 +27,7 @@ jobs:
         run: |
           cd ~/powerlifting-clip-extractor
           git pull
+          venv/bin/pip install -r requirements.txt -q
           systemctl --user restart powerlifting
           systemctl --user is-active powerlifting
 
@@ -43,5 +44,6 @@ jobs:
           git fetch
           git checkout ${{ vars.STAGING_BRANCH }}
           git pull
+          venv/bin/pip install -r requirements.txt -q
           systemctl --user restart powerlifting-staging
           systemctl --user is-active powerlifting-staging
