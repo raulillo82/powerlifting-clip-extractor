@@ -102,6 +102,7 @@
         state: started
         scope: user
         daemon_reload: true
+      ignore_errors: "{{ ansible_check_mode }}"
 
     - name: Deploy nginx config
       become: true
