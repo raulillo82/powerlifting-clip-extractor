@@ -49,7 +49,7 @@
 | ✅ | Rate limiting (Flask-Limiter): `/register` 3/15 min, `/run` 1/2 min por usuario, `/login` 20/min | — |
 | ✅ | Despliegue en producción (RPi5, nginx, gunicorn, HTTPS) | — |
 | ✅ | **Modo un solo levantamiento** (1 tiempo, 1 movimiento; audio original / solo música / mezclado) | — |
-| ✅ | Tests automatizados (98 tests, CI) | — |
+| ✅ | Tests automatizados (115 tests, CI) | — |
 | 🔲 | **Estadísticas** (panel en `/admin/stats`) | Claude |
 |    | ↳ Mapa de calor por ciudad — España con Canarias por defecto, opción mapamundi | |
 |    | ↳ Geolocalización IP → ciudad con base de datos local (MaxMind GeoLite2) | |
@@ -410,9 +410,9 @@ venv/bin/pip install -r requirements.txt pytest
 #### Tests
 
 ```bash
-venv/bin/python3 -m pytest          # todos los tests (98)
+venv/bin/python3 -m pytest          # todos los tests (115)
 venv/bin/python3 -m pytest test_extract_lifts.py   # solo lógica de extracción (41)
-venv/bin/python3 -m pytest test_app.py             # solo rutas web y autenticación (57)
+venv/bin/python3 -m pytest test_app.py             # solo rutas web y autenticación (74)
 ```
 
 El hook de pre-commit ejecuta ambos ficheros automáticamente antes de cada commit. Usa el Python del venv si existe, o el del sistema si no.
@@ -475,7 +475,7 @@ En los tests, el rate limiting se desactiva en el fixture `client` mediante `mon
 | ✅ | Rate limiting (Flask-Limiter): `/register` 3/15 min, `/run` 1/2 min per user, `/login` 20/min | — |
 | ✅ | Production deployment (RPi5, nginx, gunicorn, HTTPS) | — |
 | ✅ | **Single lift mode** (1 timestamp, 1 movement; original / music-only / mixed audio) | — |
-| ✅ | Automated tests (98 tests, CI) | — |
+| ✅ | Automated tests (115 tests, CI) | — |
 | 🔲 | **Statistics** (panel at `/admin/stats`) | Claude |
 |    | ↳ City heatmap — Spain + Canary Islands by default, world map option | |
 |    | ↳ IP → city geolocation with local database (MaxMind GeoLite2) | |
@@ -836,9 +836,9 @@ venv/bin/pip install -r requirements.txt pytest
 #### Tests
 
 ```bash
-venv/bin/python3 -m pytest          # all tests (98)
+venv/bin/python3 -m pytest          # all tests (115)
 venv/bin/python3 -m pytest test_extract_lifts.py   # extraction logic only (41)
-venv/bin/python3 -m pytest test_app.py             # web routes and auth only (57)
+venv/bin/python3 -m pytest test_app.py             # web routes and auth only (74)
 ```
 
 The pre-commit hook runs both files automatically before each commit, using the venv Python if it exists.

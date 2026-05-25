@@ -21,6 +21,7 @@
       <div class="d-flex align-items-center gap-2">
         {% if current_user.is_authenticated %}
         <span class="text-white-50 small">Hola, {{ current_user.display_name }}</span>
+        <a href="{{ url_for('history') }}" class="btn btn-sm btn-outline-light border-0 py-0" data-i18n="nav.history">Historial</a>
         {% if current_user.is_admin %}
         <a href="{{ url_for('admin.index') }}" class="btn btn-sm btn-outline-light border-0 py-0">Admin</a>
         {% endif %}
@@ -184,6 +185,19 @@
       'reg.login.now':         'Log in now:',
       'reg.paste.hint':        'Paste password here',
       'reg.enter':             'Log in',
+      // ── history ──
+      'nav.history':           'History',
+      'hist.title':            'My extractions',
+      'hist.empty':            'No extractions yet.',
+      'hist.mode.full':        'Full',
+      'hist.mode.single':      'Single lift',
+      'hist.status.queued':    'Queued',
+      'hist.status.running':   'Running',
+      'hist.status.done':      'Done',
+      'hist.status.error':     'Error',
+      'hist.expired':          'Expired',
+      'hist.download':         'Download',
+      'hist.view':             'View status',
     },
     es: {
       'page.new':              'Nueva extracción',
@@ -318,6 +332,19 @@
       'reg.login.now':         'Entra ahora:',
       'reg.paste.hint':        'Pega aquí la contraseña',
       'reg.enter':             'Entrar',
+      // ── history ──
+      'nav.history':           'Historial',
+      'hist.title':            'Mis extracciones',
+      'hist.empty':            'Aún no tienes extracciones.',
+      'hist.mode.full':        'Completo',
+      'hist.mode.single':      'Un levantamiento',
+      'hist.status.queued':    'En cola',
+      'hist.status.running':   'En curso',
+      'hist.status.done':      'Listo',
+      'hist.status.error':     'Error',
+      'hist.expired':          'Expirado',
+      'hist.download':         'Descargar',
+      'hist.view':             'Ver estado',
     }
   };
 
