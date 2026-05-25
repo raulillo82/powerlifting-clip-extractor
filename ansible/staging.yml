@@ -47,6 +47,27 @@
         mode: "0600"
       changed_when: false
 
+    - name: Check for GeoLite2-City.mmdb (needed for /admin/stats geolocation)
+      stat:
+        path: "{{ staging_dir }}/GeoLite2-City.mmdb"
+      register: geoip_stat
+
+    - name: Warn if GeoLite2-City.mmdb missing (geo stats disabled until downloaded)
+      debug:
+        msg: >
+          GeoLite2-City.mmdb not found at {{ staging_dir }}/GeoLite2-City.mmdb.
+          Download GeoLite2 City (MMDB format) from https://www.maxmind.com/en/geolite2/signup
+          and place it there to enable geolocation in /admin/stats.
+      when: not geoip_stat.stat.exists
+
+    - name: Create empty GeoLite2-City.mmdb placeholder (for bind mount)
+      file:
+        path: "{{ staging_dir }}/GeoLite2-City.mmdb"
+        state: touch
+        mode: "0644"
+      changed_when: false
+      when: not geoip_stat.stat.exists
+
     - name: Build staging container image
       command: podman build -t "{{ image_name }}" "{{ staging_dir }}"
       changed_when: true
@@ -79,6 +100,7 @@
               -v {{ staging_dir }}/users.db:/app/users.db:Z \
               -v {{ staging_dir }}/secret.key:/app/secret.key:Z \
               -v {{ staging_dir }}/lifts:/app/lifts:Z \
+              -v {{ staging_dir }}/GeoLite2-City.mmdb:/app/GeoLite2-City.mmdb:Z \
               {{ image_name }}
           ExecStop=/usr/bin/podman stop {{ service_name }}
           Restart=always

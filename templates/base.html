@@ -24,6 +24,7 @@
         <a href="{{ url_for('history') }}" class="btn btn-sm btn-outline-light border-0 py-0" data-i18n="nav.history">Historial</a>
         {% if current_user.is_admin %}
         <a href="{{ url_for('admin.index') }}" class="btn btn-sm btn-outline-light border-0 py-0">Admin</a>
+        <a href="{{ url_for('admin.stats') }}" class="btn btn-sm btn-outline-light border-0 py-0" data-i18n="nav.stats">Stats</a>
         {% endif %}
         <a href="{{ url_for('auth.logout') }}" class="btn btn-sm btn-outline-light border-0 py-0" data-i18n="nav.logout">Salir</a>
         <div class="vr bg-secondary mx-1"></div>
@@ -231,6 +232,8 @@
       'hist.download':         'Download',
       'hist.view':             'View status',
       'hist.custom_url':       'Custom URL',
+      // ── stats ──
+      'nav.stats':             'Stats',
     },
     es: {
       'page.new':              'Nueva extracción',
@@ -411,6 +414,8 @@
       'hist.download':         'Descargar',
       'hist.view':             'Ver estado',
       'hist.custom_url':       'URL personalizada',
+      // ── stats ──
+      'nav.stats':             'Stats',
     }
   };
 

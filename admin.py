@@ -1,8 +1,9 @@
+import json
 import time
 
 from flask import Blueprint, redirect, render_template, request, url_for
 from auth import admin_required
-from db import get_all_staging_access, get_db, grant_staging_access, revoke_staging_access
+from db import get_all_staging_access, get_db, get_stats, grant_staging_access, revoke_staging_access
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -79,3 +80,19 @@ def staging_grant(user_id):
 def staging_revoke(user_id):
     revoke_staging_access(user_id)
     return redirect(url_for("admin.index"))
+
+
+@admin_bp.route("/stats")
+@admin_required
+def stats():
+    days = request.args.get("days", 30, type=int)
+    if days == 0:
+        days = None
+    data = get_stats(days)
+    from app import jobs as _jobs
+    live = {
+        "running": sum(1 for j in _jobs.values() if j["status"] == "running"),
+        "queued": sum(1 for j in _jobs.values() if j["status"] == "queued"),
+    }
+    return render_template("admin/stats.html",
+                           data=data, live=live, days=days or 0)

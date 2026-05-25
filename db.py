@@ -31,6 +31,22 @@ def init_db() -> None:
                 expires_at REAL    NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS job_stats (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                submitted_at  REAL    NOT NULL,
+                started_at    REAL,
+                finished_at   REAL,
+                status        TEXT    NOT NULL,
+                source        TEXT,
+                mode          TEXT,
+                has_music     INTEGER NOT NULL DEFAULT 0,
+                city          TEXT,
+                country_code  TEXT,
+                latitude      REAL,
+                longitude     REAL
+            )
+        """)
         conn.commit()
 
 
@@ -57,6 +73,97 @@ def get_staging_access(user_id: int) -> float | None:
             "SELECT expires_at FROM staging_access WHERE user_id = ?", (user_id,)
         ).fetchone()
     return row["expires_at"] if row else None
+
+
+def record_job_stat(
+    submitted_at: float,
+    started_at: float | None,
+    finished_at: float | None,
+    status: str,
+    source: str | None = None,
+    mode: str | None = None,
+    has_music: int = 0,
+    city: str | None = None,
+    country_code: str | None = None,
+    latitude: float | None = None,
+    longitude: float | None = None,
+) -> None:
+    with get_db() as conn:
+        conn.execute("""
+            INSERT INTO job_stats
+                (submitted_at, started_at, finished_at, status, source, mode,
+                 has_music, city, country_code, latitude, longitude)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (submitted_at, started_at, finished_at, status, source, mode,
+              has_music, city, country_code, latitude, longitude))
+        conn.commit()
+
+
+def get_stats(days: int | None) -> dict:
+    cutoff = time.time() - days * 86400 if days else 0
+    with get_db() as conn:
+        summary = conn.execute("""
+            SELECT
+                COUNT(*) AS total,
+                COALESCE(SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END), 0) AS success,
+                COALESCE(AVG(CASE WHEN finished_at IS NOT NULL AND started_at IS NOT NULL
+                                  THEN finished_at - started_at END), 0) AS avg_duration
+            FROM job_stats WHERE submitted_at >= ?
+        """, (cutoff,)).fetchone()
+
+        by_status = conn.execute("""
+            SELECT status, COUNT(*) AS n
+            FROM job_stats WHERE submitted_at >= ?
+            GROUP BY status
+        """, (cutoff,)).fetchall()
+
+        by_source = conn.execute("""
+            SELECT COALESCE(source, 'custom') AS source, COUNT(*) AS n
+            FROM job_stats WHERE submitted_at >= ?
+            GROUP BY source ORDER BY n DESC
+        """, (cutoff,)).fetchall()
+
+        by_mode = conn.execute("""
+            SELECT COALESCE(mode, 'full') AS mode, COUNT(*) AS n
+            FROM job_stats WHERE submitted_at >= ?
+            GROUP BY mode
+        """, (cutoff,)).fetchall()
+
+        by_music = conn.execute("""
+            SELECT has_music, COUNT(*) AS n
+            FROM job_stats WHERE submitted_at >= ?
+            GROUP BY has_music
+        """, (cutoff,)).fetchall()
+
+        by_hour_raw = conn.execute("""
+            SELECT
+                CAST(strftime('%H', datetime(submitted_at, 'unixepoch', 'localtime')) AS INTEGER) AS hour,
+                COUNT(*) AS n
+            FROM job_stats WHERE submitted_at >= ?
+            GROUP BY hour ORDER BY hour
+        """, (cutoff,)).fetchall()
+
+        by_city = conn.execute("""
+            SELECT city, country_code,
+                   AVG(latitude) AS lat, AVG(longitude) AS lng,
+                   COUNT(*) AS n
+            FROM job_stats
+            WHERE submitted_at >= ? AND city IS NOT NULL
+            GROUP BY city ORDER BY n DESC
+        """, (cutoff,)).fetchall()
+
+    hour_map = {r["hour"]: r["n"] for r in by_hour_raw}
+    by_hour = [hour_map.get(h, 0) for h in range(24)]
+
+    return {
+        "summary": dict(summary),
+        "by_status": [dict(r) for r in by_status],
+        "by_source": [dict(r) for r in by_source],
+        "by_mode": [dict(r) for r in by_mode],
+        "by_music": [dict(r) for r in by_music],
+        "by_hour": by_hour,
+        "by_city": [dict(r) for r in by_city],
+    }
 
 
 def get_all_staging_access() -> dict[int, float]:

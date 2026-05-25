@@ -2,6 +2,7 @@ venv/
 lifts/
 users.db
 secret.key
+GeoLite2-City.mmdb
 __pycache__/
 *.pyc
 .git/
