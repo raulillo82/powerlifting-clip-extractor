@@ -99,6 +99,11 @@
         state: directory
         mode: "0755"
 
+    - name: Resolve real path of users.db (handles symlinks)
+      command: realpath "{{ app_dir }}/users.db"
+      register: users_db_real
+      changed_when: false
+
     - name: Deploy systemd user service
       copy:
         dest: /home/{{ ansible_user }}/.config/systemd/user/{{ service_name }}.service
@@ -114,7 +119,7 @@
               --name {{ service_name }} \
               --rm \
               -p {{ container_port }} \
-              -v {{ app_dir }}/users.db:/app/users.db:Z \
+              -v {{ users_db_real.stdout }}:/app/users.db:Z \
               -v {{ app_dir }}/secret.key:/app/secret.key:Z \
               -v {{ app_dir }}/lifts:/app/lifts:Z \
               {{ image_name }}
