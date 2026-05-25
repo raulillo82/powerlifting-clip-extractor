@@ -1,0 +1,41 @@
+name: Staging
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, closed]
+
+permissions:
+  actions: write
+
+jobs:
+  deploy:
+    if: github.event.action != 'closed'
+    runs-on: self-hosted
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    steps:
+      - name: Set STAGING_BRANCH variable
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh variable set STAGING_BRANCH --body "${{ github.head_ref }}" --repo ${{ github.repository }}
+
+      - name: Deploy to staging
+        run: |
+          cd ~/powerlifting-clip-extractor-staging
+          git fetch
+          git checkout ${{ github.head_ref }}
+          git pull
+          venv/bin/pip install -r requirements.txt -q
+          systemctl --user restart powerlifting-staging
+          systemctl --user is-active powerlifting-staging
+
+  clear:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clear STAGING_BRANCH
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh variable set STAGING_BRANCH --body "none" --repo ${{ github.repository }}
