@@ -737,6 +737,17 @@ class TestChannelWhitelisted:
             "https://www.youtube.com/@POWERLIFTINGTV"
         )
 
+    def test_new_federations_are_whitelisted(self):
+        assert flask_app._channel_whitelisted(
+            "https://www.youtube.com/@USAPowerlifting1"
+        )
+        assert flask_app._channel_whitelisted(
+            "https://www.youtube.com/@canadapowerlifting"
+        )
+        assert flask_app._channel_whitelisted(
+            "https://www.youtube.com/@gbpowerfed-britishpowerlifting"
+        )
+
 class TestChannelSearch:
     YT_RESULT = json.dumps({
         "title": "Young Ambition Cup II",
@@ -801,6 +812,12 @@ class TestChannelSearch:
         client.post("/login", data={"username": "admin", "password": "adminpass"})
         r = client.get("/api/channel-search?source=aep&q=")
         assert r.status_code == 200
+
+    def test_new_sources_are_valid(self, client):
+        client.post("/login", data={"username": "admin", "password": "adminpass"})
+        for source in ("usapl", "bp", "cpu"):
+            r = client.get(f"/api/channel-search?source={source}&q=")
+            assert r.status_code == 200, f"source={source} returned {r.status_code}"
         assert r.get_json() == []
 
 
