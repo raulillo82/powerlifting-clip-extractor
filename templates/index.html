@@ -17,6 +17,8 @@
       {# Hidden url field — always submitted; populated by selector or manual input #}
       <input type="hidden" id="url" name="url"
              value="{{ form_data.get('url', '') if form_data else '' }}">
+      <input type="hidden" id="source-hidden" name="source">
+      <input type="hidden" id="session-label-hidden" name="session_label">
 
       {# Source selector #}
       <div class="mb-3">
@@ -501,6 +503,8 @@ function onSourceChange() {
   document.getElementById('channel-search-input').value = '';
   document.getElementById('channel-search-results').innerHTML = '';
   urlField.value = '';
+  document.getElementById('source-hidden').value = source;
+  document.getElementById('session-label-hidden').value = '';
 
   if (!source) return;
 
@@ -544,6 +548,7 @@ function _makeRadioGroup(items, groupName, onChange) {
     inp.id = id;
     inp.value = v.url;
     if (v.duration != null) inp.dataset.duration = v.duration;
+    inp.dataset.label = v.title;
     inp.addEventListener('change', () => onChange(inp));
     const lbl = document.createElement('label');
     lbl.className = 'form-check-label';
@@ -571,6 +576,7 @@ function _resetFrom(level) {
     document.getElementById('session-spinner').classList.add('d-none');
     document.getElementById('session-radio-area').classList.add('d-none');
     document.getElementById('url').value = '';
+    document.getElementById('session-label-hidden').value = '';
   }
 }
 
@@ -627,6 +633,7 @@ let _videoDuration = null;  // seconds, set when a session is selected
 
 function _setSelectedUrl(radio, linkContainer) {
   document.getElementById('url').value = radio ? radio.value : '';
+  document.getElementById('session-label-hidden').value = radio ? (radio.dataset.label || '') : '';
   _videoDuration = radio && radio.dataset.duration ? parseFloat(radio.dataset.duration) : null;
   _clearDurationError();
   document.getElementById('session-yt-link')?.remove();

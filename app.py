@@ -339,6 +339,8 @@ def _save_job(job_id: str, job: dict) -> None:
         "job_id":        job_id,
         "user_id":       job.get("user_id"),
         "submitted_url": job.get("submitted_url"),
+        "source":        job.get("source"),
+        "session_label": job.get("session_label"),
         "queued_at":     job.get("queued_at"),
     }))
 
@@ -623,7 +625,9 @@ def start_job():
     job = {"status": "queued", "log": "", "output_dir": str(output_dir),
            "expires_at": None, "queued_at": time.time(), "mode": mode,
            "user_id": current_user.get_id(),
-           "submitted_url": request.form.get("url", "").strip()}
+           "submitted_url": request.form.get("url", "").strip(),
+           "source": request.form.get("source", "").strip(),
+           "session_label": request.form.get("session_label", "").strip()}
     jobs[job_id] = job
     _save_job(job_id, job)
     _job_queue.put((job_id, run_kwargs, mode))
