@@ -7,6 +7,19 @@
 # Prerequisites on the target host (install once manually with zypper):
 #   sudo zypper install -y python3 python3-pip git nginx yt-dlp ffmpeg
 #
+# Sudo permissions required (playbook uses become: true for nginx tasks only):
+#   The user running the playbook needs sudo access for:
+#     - copying files to /etc/nginx/conf.d/
+#     - systemctl enable/start/reload nginx
+#   Option A — full sudo (simplest, same as RPi5):
+#     Run visudo and ensure: raul ALL=(ALL) ALL
+#   Option B — minimal passwordless sudo for nginx only:
+#     raul ALL=(ALL) NOPASSWD: /usr/bin/cp /etc/nginx/conf.d/*, \
+#       /usr/bin/systemctl start nginx, /usr/bin/systemctl enable nginx, \
+#       /usr/bin/systemctl reload nginx
+#   Real deploy (prompts for sudo password with option A):
+#     ansible-playbook -i inventory.yml deploy.yml -l rpi4 --ask-become-pass
+#
 # Before running for failover:
 #   1. Copy secret.key from RPi5:
 #      scp raspberrypi5:~/powerlifting-clip-extractor/secret.key \
