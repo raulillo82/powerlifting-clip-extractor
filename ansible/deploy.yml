@@ -1,0 +1,159 @@
+---
+# Deploys the app to a target host (RPi5 or RPi4).
+#
+# Usage:
+#   ansible-playbook -i inventory.yml deploy.yml -l rpi4
+#
+# Prerequisites on the target host (install once manually with zypper):
+#   sudo zypper install -y python3 python3-pip git nginx yt-dlp ffmpeg
+#
+# Before running for failover:
+#   1. Copy secret.key from RPi5:
+#      scp raspberrypi5:~/powerlifting-clip-extractor/secret.key \
+#          raspberrypi4:~/powerlifting-clip-extractor/secret.key
+#   2. Copy users.db from RPi5:
+#      scp raspberrypi5:~/powerlifting-clip-extractor/users.db \
+#          raspberrypi4:~/powerlifting-clip-extractor/users.db
+#   3. Copy SSL certs from RPi5:
+#      sudo scp -r raspberrypi5:/etc/nginx/ssl /etc/nginx/ssl
+#   4. Update DNS (DuckDNS) to point to the RPi4 IP.
+
+- name: Deploy Powerlifting Clip Extractor
+  hosts: all
+  vars:
+    service_name: powerlifting
+    gunicorn_bind: "127.0.0.1:5000"
+    nginx_conf: /etc/nginx/conf.d/powerlifting.conf
+    domain: raulillo82.duckdns.org
+
+  tasks:
+
+    - name: Verify Python 3 version
+      command: python3 --version
+      register: py_version
+      changed_when: false
+
+    - name: Show Python version
+      debug:
+        msg: "{{ py_version.stdout }} — expected 3.13.x"
+
+    - name: Clone or update repository
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_dir }}"
+        version: main
+        update: true
+        force: false
+
+    - name: Create virtual environment if absent
+      command: python3 -m venv "{{ app_dir }}/venv"
+      args:
+        creates: "{{ app_dir }}/venv/bin/activate"
+
+    - name: Install Python requirements
+      pip:
+        requirements: "{{ app_dir }}/requirements.txt"
+        virtualenv: "{{ app_dir }}/venv"
+        state: present
+
+    - name: Initialise database (idempotent)
+      command: "{{ app_dir }}/venv/bin/python3 -c 'from db import init_db; init_db()'"
+      args:
+        chdir: "{{ app_dir }}"
+      changed_when: false
+
+    - name: Create systemd user service directory
+      file:
+        path: /home/{{ ansible_user }}/.config/systemd/user
+        state: directory
+        mode: "0755"
+
+    - name: Deploy systemd user service
+      copy:
+        dest: /home/{{ ansible_user }}/.config/systemd/user/{{ service_name }}.service
+        content: |
+          [Unit]
+          Description=Powerlifting Clip Extractor (gunicorn)
+          After=network.target
+
+          [Service]
+          WorkingDirectory={{ app_dir }}
+          ExecStart={{ app_dir }}/venv/bin/gunicorn \
+              --workers 1 --threads 4 \
+              --bind {{ gunicorn_bind }} \
+              --timeout 600 \
+              app:app
+          Restart=on-failure
+          RestartSec=5
+
+          [Install]
+          WantedBy=default.target
+      notify: Restart app
+
+    - name: Enable systemd linger (start services at boot without login)
+      command: loginctl enable-linger {{ ansible_user }}
+      changed_when: false
+
+    - name: Enable and start service
+      systemd:
+        name: "{{ service_name }}"
+        enabled: true
+        state: started
+        scope: user
+        daemon_reload: true
+
+    - name: Deploy nginx config
+      become: true
+      copy:
+        dest: "{{ nginx_conf }}"
+        content: |
+          server {
+              listen 80;
+              server_name {{ domain }};
+              return 301 https://$host$request_uri;
+          }
+
+          server {
+              listen 443 ssl;
+              server_name {{ domain }};
+
+              ssl_certificate     /etc/nginx/ssl/raulillo82.crt;
+              ssl_certificate_key /etc/nginx/ssl/raulillo82.key;
+              ssl_protocols       TLSv1.2 TLSv1.3;
+              ssl_ciphers         HIGH:!aNULL:!MD5;
+
+              client_max_body_size 20M;
+
+              location / {
+                  proxy_pass         http://{{ gunicorn_bind }};
+                  proxy_set_header   Host              $host;
+                  proxy_set_header   X-Real-IP         $remote_addr;
+                  proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+                  proxy_set_header   X-Forwarded-Proto $scheme;
+                  proxy_read_timeout 600;
+                  proxy_send_timeout 600;
+              }
+          }
+      notify: Reload nginx
+
+    - name: Ensure nginx is enabled and running
+      become: true
+      systemd:
+        name: nginx
+        enabled: true
+        state: started
+
+  handlers:
+
+    - name: Restart app
+      systemd:
+        name: "{{ service_name }}"
+        state: restarted
+        scope: user
+        daemon_reload: true
+
+    - name: Reload nginx
+      become: true
+      systemd:
+        name: nginx
+        state: reloaded
