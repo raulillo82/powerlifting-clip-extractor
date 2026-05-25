@@ -819,3 +819,66 @@ class TestChannelSearch:
             r = client.get(f"/api/channel-search?source={source}&q=")
             assert r.status_code == 200, f"source={source} returned {r.status_code}"
         assert r.get_json() == []
+
+
+class TestHistory:
+    def test_history_returns_200(self, client):
+        assert client.get("/history").status_code == 200
+
+    def test_history_empty_for_new_user(self, client, tmp_path, monkeypatch):
+        monkeypatch.setattr(flask_app, "Path", lambda p: tmp_path / p if p == "lifts" else __import__("pathlib").Path(p))
+        r = client.get("/history")
+        assert r.status_code == 200
+
+    def test_history_shows_own_jobs(self, client, tmp_path):
+        lifts = tmp_path / "lifts"
+        job_dir = lifts / "abcd1234"
+        job_dir.mkdir(parents=True)
+        import time as _time
+        status = {
+            "job_id": "abcd1234deadbeef",
+            "status": "done",
+            "log": "",
+            "output_dir": str(job_dir),
+            "expires_at": _time.time() + 3600,
+            "mode": "full",
+            "user_id": "1",
+            "submitted_url": "https://www.youtube.com/watch?v=test",
+            "queued_at": _time.time(),
+            "expired": False,
+        }
+        (job_dir / "status.json").write_text(__import__("json").dumps(status))
+        with __import__("unittest.mock", fromlist=["patch"]).patch(
+            "app.Path", side_effect=lambda p: tmp_path / p if p == "lifts" else __import__("pathlib").Path(p)
+        ):
+            r = client.get("/history")
+        assert r.status_code == 200
+        assert b"youtube.com" in r.data
+
+    def test_history_excludes_other_users_jobs(self, client, tmp_path):
+        lifts = tmp_path / "lifts"
+        job_dir = lifts / "other1234"
+        job_dir.mkdir(parents=True)
+        status = {
+            "job_id": "other1234deadbeef",
+            "status": "done",
+            "log": "",
+            "output_dir": str(job_dir),
+            "expires_at": None,
+            "mode": "full",
+            "user_id": "999",
+            "submitted_url": "https://www.youtube.com/watch?v=other",
+            "queued_at": 0,
+        }
+        (job_dir / "status.json").write_text(__import__("json").dumps(status))
+        with __import__("unittest.mock", fromlist=["patch"]).patch(
+            "app.Path", side_effect=lambda p: tmp_path / p if p == "lifts" else __import__("pathlib").Path(p)
+        ):
+            r = client.get("/history")
+        assert b"watch?v=other" not in r.data
+
+    def test_history_requires_login(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(flask_app.app, "config", {**flask_app.app.config, "TESTING": True})
+        with flask_app.app.test_client() as c:
+            r = c.get("/history", follow_redirects=False)
+        assert r.status_code in (302, 401)

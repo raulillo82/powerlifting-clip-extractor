@@ -49,13 +49,14 @@
 | ✅ | Rate limiting (Flask-Limiter): `/register` 3/15 min, `/run` 1/2 min por usuario, `/login` 20/min | — |
 | ✅ | Despliegue en producción (RPi5, nginx, gunicorn, HTTPS) | — |
 | ✅ | **Modo un solo levantamiento** (1 tiempo, 1 movimiento; audio original / solo música / mezclado) | — |
-| ✅ | Tests automatizados (98 tests, CI) | — |
 | ✅ | Entorno staging en RPi5 (`/staging/`): badge STAGING, acceso admin solo, exención de rate limiting | — |
 | ✅ | Buscador por nombre dentro del canal (para competiciones fuera de playlist) | — |
 | ✅ | Progreso de descarga en tiempo real (ticker cada 5 s) | — |
 | ✅ | Música por defecto al 50%; filtrado de vídeos privados/eliminados del cascade | — |
 | ✅ | Link de YouTube junto a la sesión seleccionada; navegación hacia atrás en el cascade | — |
-| ✅ | Tests automatizados (112 tests, CI) | — |
+| ✅ | Nuevas federaciones en el cascade: USAPL, British Powerlifting, CPU (solo afiliadas IPF) | — |
+| ✅ | Historial de extracciones (`/history`): últimos 20 jobs con estado y link de descarga | — |
+| ✅ | Tests automatizados (117 tests, CI) | — |
 | 🔲 | **Estadísticas** (panel en `/admin/stats`) | Claude |
 |    | ↳ Mapa de calor por ciudad — España con Canarias por defecto, opción mapamundi | |
 |    | ↳ Geolocalización IP → ciudad con base de datos local (MaxMind GeoLite2) | |
@@ -416,9 +417,9 @@ venv/bin/pip install -r requirements.txt pytest
 #### Tests
 
 ```bash
-venv/bin/python3 -m pytest          # todos los tests (112)
+venv/bin/python3 -m pytest          # todos los tests (117)
 venv/bin/python3 -m pytest test_extract_lifts.py   # solo lógica de extracción (41)
-venv/bin/python3 -m pytest test_app.py             # solo rutas web y autenticación (71)
+venv/bin/python3 -m pytest test_app.py             # solo rutas web y autenticación (76)
 ```
 
 El hook de pre-commit ejecuta ambos ficheros automáticamente antes de cada commit. Usa el Python del venv si existe, o el del sistema si no.
@@ -481,13 +482,14 @@ En los tests, el rate limiting se desactiva en el fixture `client` mediante `mon
 | ✅ | Rate limiting (Flask-Limiter): `/register` 3/15 min, `/run` 1/2 min per user, `/login` 20/min | — |
 | ✅ | Production deployment (RPi5, nginx, gunicorn, HTTPS) | — |
 | ✅ | **Single lift mode** (1 timestamp, 1 movement; original / music-only / mixed audio) | — |
-| ✅ | Automated tests (98 tests, CI) | — |
 | ✅ | Staging environment on RPi5 (`/staging/`): STAGING badge, admin-only access, rate limit exemption | — |
 | ✅ | In-channel search (for competitions not in any playlist) | — |
 | ✅ | Real-time download progress ticker (every 5 s) | — |
 | ✅ | Music default 50%; private/deleted video filtering in cascade | — |
 | ✅ | YouTube link next to selected session; cascade back-navigation fix | — |
-| ✅ | Automated tests (112 tests, CI) | — |
+| ✅ | New federations in cascade: USAPL, British Powerlifting, CPU (IPF affiliates only) | — |
+| ✅ | Job history page (`/history`): last 20 jobs with status and download link | — |
+| ✅ | Automated tests (117 tests, CI) | — |
 | 🔲 | **Statistics** (panel at `/admin/stats`) | Claude |
 |    | ↳ City heatmap — Spain + Canary Islands by default, world map option | |
 |    | ↳ IP → city geolocation with local database (MaxMind GeoLite2) | |
@@ -848,9 +850,9 @@ venv/bin/pip install -r requirements.txt pytest
 #### Tests
 
 ```bash
-venv/bin/python3 -m pytest          # all tests (112)
+venv/bin/python3 -m pytest          # all tests (117)
 venv/bin/python3 -m pytest test_extract_lifts.py   # extraction logic only (41)
-venv/bin/python3 -m pytest test_app.py             # web routes and auth only (71)
+venv/bin/python3 -m pytest test_app.py             # web routes and auth only (76)
 ```
 
 The pre-commit hook runs both files automatically before each commit, using the venv Python if it exists.

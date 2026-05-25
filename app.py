@@ -337,10 +337,16 @@ def _save_job(job_id: str, job: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({
         "status":     job["status"],
-        "log":        job["log"],
-        "output_dir": job["output_dir"],
-        "expires_at": job.get("expires_at"),
-        "mode":       job.get("mode", "full"),
+        "log":           job["log"],
+        "output_dir":    job["output_dir"],
+        "expires_at":    job.get("expires_at"),
+        "mode":          job.get("mode", "full"),
+        "job_id":        job_id,
+        "user_id":       job.get("user_id"),
+        "submitted_url": job.get("submitted_url"),
+        "source":        job.get("source"),
+        "session_label": job.get("session_label"),
+        "queued_at":     job.get("queued_at"),
     }))
 
 
@@ -622,7 +628,11 @@ def start_job():
 
     mode = run_kwargs.pop("_mode", "full")
     job = {"status": "queued", "log": "", "output_dir": str(output_dir),
-           "expires_at": None, "queued_at": time.time(), "mode": mode}
+           "expires_at": None, "queued_at": time.time(), "mode": mode,
+           "user_id": current_user.get_id(),
+           "submitted_url": request.form.get("url", "").strip(),
+           "source": request.form.get("source", "").strip(),
+           "session_label": request.form.get("session_label", "").strip()}
     jobs[job_id] = job
     _save_job(job_id, job)
     _job_queue.put((job_id, run_kwargs, mode))
@@ -673,6 +683,31 @@ def download_zip(job_id: str):
     safe_name = current_user.display_name.replace(" ", "_")
     return send_file(buf, mimetype="application/zip", as_attachment=True,
                      download_name=f"{safe_name}.zip")
+
+
+@app.route("/history")
+@login_required
+def history():
+    lifts_root = Path("lifts")
+    now = time.time()
+    my_jobs = []
+    if lifts_root.exists():
+        for job_dir in lifts_root.iterdir():
+            if not job_dir.is_dir():
+                continue
+            status_file = job_dir / "status.json"
+            if not status_file.exists():
+                continue
+            try:
+                data = json.loads(status_file.read_text())
+            except Exception:
+                continue
+            if str(data.get("user_id")) != current_user.get_id():
+                continue
+            data["expired"] = bool(data.get("expires_at") and now > data["expires_at"])
+            my_jobs.append(data)
+    my_jobs.sort(key=lambda d: d.get("queued_at") or 0, reverse=True)
+    return render_template("history.html", jobs=my_jobs[:20])
 
 
 if __name__ == "__main__":
