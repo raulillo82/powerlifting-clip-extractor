@@ -247,7 +247,7 @@ El panel `/admin/stats` incluye un mapa Leaflet con la ciudad de origen de cada 
 2. Coloca el archivo en `~/powerlifting-clip-extractor/GeoLite2-City.mmdb`.
 3. Añade el bind mount al servicio (ver paso 4).
 
-Sin el archivo el panel carga igualmente; el mapa aparece vacío. MaxMind publica actualizaciones el primer martes de cada mes.
+Sin el archivo el panel carga igualmente; el mapa aparece vacío. MaxMind publica actualizaciones el primer martes de cada mes — el playbook Ansible despliega automáticamente un systemd timer que descarga la nueva versión esa misma madrugada.
 
 #### 4. Servicio systemd con Podman
 
@@ -714,7 +714,7 @@ The `/admin/stats` panel includes a Leaflet map showing the city of origin for e
 2. Place the file at `~/powerlifting-clip-extractor/GeoLite2-City.mmdb`.
 3. Add the bind mount to your service unit (see step 4).
 
-The panel works without the file — the map simply appears empty. MaxMind publishes updates on the first Tuesday of every month.
+The panel works without the file — the map simply appears empty. MaxMind publishes updates on the first Tuesday of every month — the Ansible playbook automatically deploys a systemd timer that downloads the new version overnight.
 
 #### 4. Podman systemd user service
 
