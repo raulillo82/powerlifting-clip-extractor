@@ -1059,3 +1059,209 @@ class TestGeoip:
         monkeypatch.setattr(geoip, "_reader", None)
         monkeypatch.setattr(geoip, "_reader_tried", False)
         assert geoip.lookup("8.8.8.8") == {}
+
+
+# ── /feedback ─────────────────────────────────────────────────────────────────
+
+def _make_user(conn, username, is_admin=0):
+    conn.execute(
+        "INSERT INTO users (username, display_name, password_hash, is_admin)"
+        " VALUES (?, ?, ?, ?)",
+        (username, username.replace("_", " ").title(),
+         generate_password_hash("pass"), is_admin),
+    )
+    conn.commit()
+    return conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()["id"]
+
+
+def _login_as(tmp_path, monkeypatch, username, is_admin=0):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+    db.init_db()
+    import limiter as limiter_mod
+    flask_app.app.config["TESTING"] = True
+    monkeypatch.setattr(limiter_mod.limiter, "enabled", False)
+    with db.get_db() as conn:
+        _make_user(conn, username, is_admin)
+    c = flask_app.app.test_client()
+    c.post("/login", data={"username": username, "password": "pass"})
+    return c
+
+
+_MOCK_ISSUE = {"number": 42, "html_url": "https://github.com/test/repo/issues/42"}
+
+
+class TestFeedback:
+    def test_page_returns_200(self, client):
+        assert client.get("/feedback").status_code == 200
+
+    def test_requires_login(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        flask_app.app.config["TESTING"] = True
+        with flask_app.app.test_client() as c:
+            r = c.get("/feedback", follow_redirects=False)
+        assert r.status_code == 302
+
+    def test_submit_creates_db_row(self, client):
+        with patch("github_issues.create_issue", return_value=_MOCK_ISSUE):
+            r = client.post("/feedback",
+                            data={"body": "Estaría bien poder elegir el intento"},
+                            follow_redirects=False)
+        assert r.status_code == 302
+        rows = db.get_feedback_for_user(1)
+        assert len(rows) == 1
+        assert rows[0]["issue_number"] == 42
+        assert rows[0]["status"] == "open"
+
+    def test_empty_body_returns_400(self, client):
+        r = client.post("/feedback", data={"body": ""})
+        assert r.status_code == 400
+
+    def test_body_too_long_returns_400(self, client):
+        r = client.post("/feedback", data={"body": "x" * 2001})
+        assert r.status_code == 400
+
+    def test_github_error_shows_error_no_db_row(self, client):
+        with patch("github_issues.create_issue", side_effect=RuntimeError("API error")):
+            r = client.post("/feedback", data={"body": "Texto de prueba"})
+        assert r.status_code == 502
+        assert db.get_feedback_for_user(1) == []
+
+    def test_panel_shows_own_only(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        import limiter as limiter_mod
+        flask_app.app.config["TESTING"] = True
+        monkeypatch.setattr(limiter_mod.limiter, "enabled", False)
+        with db.get_db() as conn:
+            uid_a = _make_user(conn, "user_a")
+            uid_b = _make_user(conn, "user_b")
+        db.add_feedback(uid_a, 10, "https://gh/10", "Feedback de A", "excerpt a")
+        db.add_feedback(uid_b, 11, "https://gh/11", "Feedback de B", "excerpt b")
+        with flask_app.app.test_client() as c:
+            c.post("/login", data={"username": "user_a", "password": "pass"})
+            r = c.get("/feedback")
+        assert b"Feedback de A" in r.data
+        assert b"Feedback de B" not in r.data
+
+
+class TestAdminFeedback:
+    def test_shows_all_feedbacks(self, client):
+        with db.get_db() as conn:
+            uid_a = _make_user(conn, "user_a")
+            uid_b = _make_user(conn, "user_b")
+        db.add_feedback(uid_a, 10, "https://gh/10", "Feedback de A", "excerpt a")
+        db.add_feedback(uid_b, 11, "https://gh/11", "Feedback de B", "excerpt b")
+        r = client.get("/admin/feedback")
+        assert r.status_code == 200
+        assert b"Feedback de A" in r.data
+        assert b"Feedback de B" in r.data
+
+    def test_requires_admin(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        import limiter as limiter_mod
+        flask_app.app.config["TESTING"] = True
+        monkeypatch.setattr(limiter_mod.limiter, "enabled", False)
+        with db.get_db() as conn:
+            _make_user(conn, "normaluser", is_admin=0)
+        with flask_app.app.test_client() as c:
+            c.post("/login", data={"username": "normaluser", "password": "pass"})
+            r = c.get("/admin/feedback", follow_redirects=False)
+        assert r.status_code == 302
+
+    def test_filter_by_status(self, client):
+        with db.get_db() as conn:
+            uid = _make_user(conn, "user_a")
+        db.add_feedback(uid, 10, "https://gh/10", "Open feedback", "excerpt")
+        db.add_feedback(uid, 11, "https://gh/11", "Closed feedback", "excerpt")
+        db.update_feedback_from_github(11, "closed", "[]")
+        r = client.get("/admin/feedback?status=open")
+        assert b"Open feedback" in r.data
+        assert b"Closed feedback" not in r.data
+
+
+class TestGithubWebhook:
+    def _make_sig(self, body: bytes, secret: str) -> str:
+        import hashlib
+        import hmac as hmac_mod
+        return "sha256=" + hmac_mod.new(secret.encode(), body, hashlib.sha256).hexdigest()
+
+    def _post_webhook(self, client, monkeypatch, secret, issue_number, action,
+                      state_reason=None, labels=None):
+        import github_issues as gi
+        monkeypatch.setattr(gi, "_SECRET_PATH",
+                            type("P", (), {"read_text": lambda s: secret})())
+        issue = {"number": issue_number, "labels": [{"name": l} for l in (labels or [])]}
+        if state_reason:
+            issue["state_reason"] = state_reason
+        payload = json.dumps({"action": action, "issue": issue}).encode()
+        sig = self._make_sig(payload, secret)
+        return client.post("/webhook/github", data=payload,
+                           content_type="application/json",
+                           headers={"X-GitHub-Event": "issues",
+                                    "X-Hub-Signature-256": sig})
+
+    def test_updates_status_on_close(self, client, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        with db.get_db() as conn:
+            uid = _make_user(conn, "user_a")
+        db.add_feedback(uid, 99, "https://gh/99", "Test feedback", "excerpt")
+        r = self._post_webhook(client, monkeypatch, "testsecret", 99, "closed",
+                               labels=["user-feedback", "bug"])
+        assert r.status_code == 204
+        assert db.get_feedback_for_user(uid)[0]["status"] == "closed"
+
+    def test_updates_status_not_planned(self, client, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        with db.get_db() as conn:
+            uid = _make_user(conn, "user_a")
+        db.add_feedback(uid, 99, "https://gh/99", "Test feedback", "excerpt")
+        r = self._post_webhook(client, monkeypatch, "testsecret", 99, "closed",
+                               state_reason="not_planned")
+        assert r.status_code == 204
+        assert db.get_feedback_for_user(uid)[0]["status"] == "wontfix"
+
+    def test_updates_status_duplicate(self, client, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        with db.get_db() as conn:
+            uid = _make_user(conn, "user_a")
+        db.add_feedback(uid, 99, "https://gh/99", "Test feedback", "excerpt")
+        r = self._post_webhook(client, monkeypatch, "testsecret", 99, "closed",
+                               state_reason="duplicate")
+        assert r.status_code == 204
+        assert db.get_feedback_for_user(uid)[0]["status"] == "duplicate"
+
+    def test_rejects_bad_signature(self, client, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        secret = "testsecret"
+        import github_issues as gi
+        monkeypatch.setattr(gi, "_SECRET_PATH",
+                            type("P", (), {"read_text": lambda s: secret})())
+        payload = b'{"action": "closed", "issue": {"number": 1, "labels": []}}'
+        r = client.post("/webhook/github",
+                        data=payload,
+                        content_type="application/json",
+                        headers={"X-GitHub-Event": "issues",
+                                 "X-Hub-Signature-256": "sha256=badvalue"})
+        assert r.status_code == 400
+
+    def test_ignores_non_issue_events(self, client, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        secret = "testsecret"
+        import github_issues as gi
+        monkeypatch.setattr(gi, "_SECRET_PATH",
+                            type("P", (), {"read_text": lambda s: secret})())
+        payload = b'{"action": "created"}'
+        sig = self._make_sig(payload, secret)
+        r = client.post("/webhook/github",
+                        data=payload,
+                        content_type="application/json",
+                        headers={"X-GitHub-Event": "pull_request",
+                                 "X-Hub-Signature-256": sig})
+        assert r.status_code == 204

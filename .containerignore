@@ -3,6 +3,8 @@ lifts/
 users.db
 secret.key
 GeoLite2-City.mmdb
+github_pat.key
+webhook_secret.key
 __pycache__/
 *.pyc
 .git/

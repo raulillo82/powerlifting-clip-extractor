@@ -22,13 +22,16 @@ import uuid
 import zipfile
 from pathlib import Path
 
-from flask import Flask, jsonify, redirect, render_template, request, send_file, url_for
+from altcha import verify_solution_v1
+from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import current_user, login_required
 
 from auth import auth_bp, login_manager
 from admin import admin_bp
 import geoip
-from db import get_staging_access, init_db, record_job_stat
+import github_issues
+from db import (add_feedback, get_feedback_for_user, get_staging_access,
+                init_db, record_job_stat, update_feedback_from_github)
 from extract_lifts import parse_timestamp, run, run_single
 from limiter import limiter
 
@@ -40,6 +43,14 @@ def _datetimeformat(ts: int) -> str:
     import datetime
     d = datetime.datetime.fromtimestamp(ts)
     return f"{d.day:02d}/{d.month:02d} {d.hour:02d}:{d.minute:02d}"
+
+
+@app.template_filter("fromjson")
+def _fromjson(s: str):
+    try:
+        return json.loads(s)
+    except Exception:
+        return []
 
 
 # Persist secret key across restarts so sessions survive server reloads
@@ -73,8 +84,9 @@ def _inject_staging():
 def _staging_gate():
     if not os.environ.get("STAGING"):
         return
-    # Let auth routes through so users can log in and out
-    if request.endpoint and request.endpoint.startswith("auth."):
+    # Let auth routes and the webhook through unauthenticated
+    if request.endpoint and (request.endpoint.startswith("auth.") or
+                             request.endpoint == "github_webhook"):
         return
     if not current_user.is_authenticated:
         return redirect(url_for("auth.login"))
@@ -700,6 +712,93 @@ def download_zip(job_id: str):
     safe_name = current_user.display_name.replace(" ", "_")
     return send_file(buf, mimetype="application/zip", as_attachment=True,
                      download_name=f"{safe_name}.zip")
+
+
+def _make_issue_title(subject: str, body: str) -> str:
+    if subject.strip():
+        return subject.strip()
+    text = body.strip()
+    if len(text) <= 60:
+        return text
+    return text[:60].rsplit(" ", 1)[0] + "…"
+
+
+@app.route("/feedback", methods=["GET", "POST"])
+@login_required
+def feedback():
+    user_id = int(current_user.get_id())
+
+    if request.method == "POST":
+        body_text = request.form.get("body", "").strip()
+        subject = request.form.get("subject", "").strip()[:80]
+
+        error = None
+        if not body_text:
+            error = "fb.error.empty"
+        elif len(body_text) > 2000:
+            error = "fb.error.toolong"
+
+        if error is None and not app.config.get("TESTING"):
+            key = app.secret_key
+            altcha_key = key.hex() if isinstance(key, bytes) else key
+            ok, _ = verify_solution_v1(request.form.get("altcha", ""), altcha_key,
+                                       check_expires=False)
+            if not ok:
+                feedbacks = get_feedback_for_user(user_id)
+                return render_template("feedback.html", feedbacks=feedbacks,
+                                       error_captcha=True), 400
+
+        if error:
+            feedbacks = get_feedback_for_user(user_id)
+            return render_template("feedback.html", feedbacks=feedbacks,
+                                   error=error), 400
+
+        title = _make_issue_title(subject, body_text)
+        try:
+            issue = github_issues.create_issue(title, body_text)
+        except Exception:
+            feedbacks = get_feedback_for_user(user_id)
+            return render_template("feedback.html", feedbacks=feedbacks,
+                                   error="fb.error.github"), 502
+
+        excerpt = body_text[:100] + ("…" if len(body_text) > 100 else "")
+        add_feedback(user_id, issue["number"], issue["html_url"], title, excerpt)
+        return redirect(url_for("feedback"))
+
+    feedbacks = get_feedback_for_user(user_id)
+    return render_template("feedback.html", feedbacks=feedbacks)
+
+
+@app.route("/webhook/github", methods=["POST"])
+def github_webhook():
+    body = request.get_data()
+    sig = request.headers.get("X-Hub-Signature-256", "")
+    if not github_issues.verify_signature(body, sig):
+        abort(400)
+
+    if request.headers.get("X-GitHub-Event") != "issues":
+        return "", 204
+
+    payload = request.get_json(silent=True) or {}
+    action = payload.get("action", "")
+    issue = payload.get("issue", {})
+    issue_number = issue.get("number")
+
+    if issue_number and action in ("closed", "reopened", "labeled", "unlabeled"):
+        if action == "closed":
+            state_reason = issue.get("state_reason") or "completed"
+            if state_reason == "not_planned":
+                status = "wontfix"
+            elif state_reason == "duplicate":
+                status = "duplicate"
+            else:
+                status = "closed"
+        else:
+            status = "open"
+        labels = [lbl["name"] for lbl in issue.get("labels", [])]
+        update_feedback_from_github(issue_number, status, json.dumps(labels))
+
+    return "", 204
 
 
 @app.route("/history")

@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <h2 class="mb-0" data-i18n="admin.fb.title">Todo el feedback</h2>
+  <div class="btn-group btn-group-sm" role="group">
+    <a href="{{ url_for('admin.feedback') }}"
+       class="btn btn-outline-secondary {% if not status_filter %}active{% endif %}"
+       data-i18n="admin.fb.filter.all">Todos</a>
+    <a href="{{ url_for('admin.feedback', status='open') }}"
+       class="btn btn-outline-secondary {% if status_filter == 'open' %}active{% endif %}"
+       data-i18n="admin.fb.filter.open">Abiertos</a>
+    <a href="{{ url_for('admin.feedback', status='closed') }}"
+       class="btn btn-outline-secondary {% if status_filter == 'closed' %}active{% endif %}"
+       data-i18n="admin.fb.filter.closed">Implementados</a>
+  </div>
+</div>
+
+{% if not feedbacks %}
+  <p class="text-muted" data-i18n="admin.fb.empty">Aún no hay feedback.</p>
+{% else %}
+<div class="table-responsive">
+  <table class="table table-sm align-middle">
+    <thead>
+      <tr>
+        <th data-i18n="admin.fb.col.user">Usuario</th>
+        <th data-i18n="fb.col.title">Asunto</th>
+        <th data-i18n="fb.col.status">Estado</th>
+        <th data-i18n="fb.col.labels">Etiquetas</th>
+        <th data-i18n="fb.col.link">Enlace</th>
+        <th data-i18n="fb.col.date">Fecha</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for fb in feedbacks %}
+    {% set user_labels = fb.labels | fromjson | reject('equalto', 'user-feedback') | list %}
+    <tr>
+      <td class="small fw-semibold text-nowrap">{{ fb.display_name }}</td>
+      <td class="small" style="max-width:280px">
+        <span class="text-truncate d-inline-block" style="max-width:100%">{{ fb.title }}</span>
+      </td>
+      <td>
+        {% if fb.status == 'closed' %}
+          <span class="badge bg-success" data-i18n="fb.status.closed">Implementado</span>
+        {% elif fb.status == 'wontfix' %}
+          <span class="badge bg-secondary" data-i18n="fb.status.wontfix">Sin planear</span>
+        {% elif fb.status == 'duplicate' %}
+          <span class="badge bg-warning text-dark" data-i18n="fb.status.duplicate">Duplicado</span>
+        {% else %}
+          <span class="badge bg-primary" data-i18n="fb.status.open">Abierto</span>
+        {% endif %}
+      </td>
+      <td>
+        {% for lbl in user_labels %}
+          <span class="badge bg-secondary me-1">{{ lbl }}</span>
+        {% endfor %}
+      </td>
+      <td>
+        <a href="{{ fb.issue_url }}" target="_blank" rel="noopener" class="text-decoration-none">↗</a>
+      </td>
+      <td class="text-muted small text-nowrap">{{ (fb.submitted_at | int) | datetimeformat }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% endblock %}

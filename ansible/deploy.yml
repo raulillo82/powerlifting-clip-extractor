@@ -81,6 +81,47 @@
         mode: "0600"
       changed_when: false
 
+    - name: Check for github_pat.key (needed for feedback → GitHub issues)
+      stat:
+        path: "{{ app_dir }}/github_pat.key"
+      register: github_pat_stat
+
+    - name: Warn if github_pat.key missing (feedback form will return error without it)
+      debug:
+        msg: >
+          github_pat.key not found at {{ app_dir }}/github_pat.key.
+          Create a fine-grained GitHub PAT with issues:write on this repo and save it there (chmod 600).
+      when: not github_pat_stat.stat.exists
+
+    - name: Check for webhook_secret.key (needed to verify GitHub webhook events)
+      stat:
+        path: "{{ app_dir }}/webhook_secret.key"
+      register: webhook_secret_stat
+
+    - name: Warn if webhook_secret.key missing (webhook endpoint will reject all events)
+      debug:
+        msg: >
+          webhook_secret.key not found at {{ app_dir }}/webhook_secret.key.
+          Generate with: openssl rand -hex 32 > {{ app_dir }}/webhook_secret.key && chmod 600 {{ app_dir }}/webhook_secret.key
+          Then configure the same value as the GitHub webhook secret.
+      when: not webhook_secret_stat.stat.exists
+
+    - name: Create empty github_pat.key placeholder (for bind mount)
+      file:
+        path: "{{ app_dir }}/github_pat.key"
+        state: touch
+        mode: "0600"
+      changed_when: false
+      when: not github_pat_stat.stat.exists
+
+    - name: Create empty webhook_secret.key placeholder (for bind mount)
+      file:
+        path: "{{ app_dir }}/webhook_secret.key"
+        state: touch
+        mode: "0600"
+      changed_when: false
+      when: not webhook_secret_stat.stat.exists
+
     - name: Initialise database (idempotent)
       command: >
         podman run --rm
@@ -144,6 +185,8 @@
               -v {{ app_dir }}/secret.key:/app/secret.key:Z \
               -v {{ app_dir }}/lifts:/app/lifts:Z \
               -v {{ app_dir }}/GeoLite2-City.mmdb:/app/GeoLite2-City.mmdb:Z \
+              -v {{ app_dir }}/github_pat.key:/app/github_pat.key:Z \
+              -v {{ app_dir }}/webhook_secret.key:/app/webhook_secret.key:Z \
               {{ image_name }}
           ExecStop=/usr/bin/podman stop {{ service_name }}
           Restart=always
@@ -166,6 +209,17 @@
         daemon_reload: true
       ignore_errors: "{{ ansible_check_mode }}"
 
+    - name: Ensure nginx log directory exists
+      become: true
+      ignore_errors: "{{ ansible_check_mode }}"
+      tags: nginx
+      file:
+        path: /var/log/nginx
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
     - name: Deploy nginx config
       become: true
       ignore_errors: "{{ ansible_check_mode }}"
@@ -173,6 +227,16 @@
       copy:
         dest: "{{ nginx_conf }}"
         content: |
+          upstream app_prod {
+              server 127.0.0.1:5000;
+              keepalive 8;
+          }
+
+          upstream app_staging {
+              server 127.0.0.1:5001;
+              keepalive 8;
+          }
+
           server {
               listen 80;
               server_name {{ domain }};
@@ -189,24 +253,31 @@
               ssl_ciphers         HIGH:!aNULL:!MD5;
 
               client_max_body_size 20M;
+              access_log /var/log/nginx/powerlifting.log;
 
               location /staging/ {
-                  proxy_pass         http://127.0.0.1:5001/;
+                  proxy_pass         http://app_staging/;
+                  proxy_http_version 1.1;
+                  proxy_set_header   Connection "";
                   proxy_set_header   Host              $host;
                   proxy_set_header   X-Real-IP         $remote_addr;
                   proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
                   proxy_set_header   X-Forwarded-Proto $scheme;
                   proxy_set_header   X-Forwarded-Prefix /staging;
+                  proxy_connect_timeout 5s;
                   proxy_read_timeout 600;
                   proxy_send_timeout 600;
               }
 
               location / {
-                  proxy_pass         http://127.0.0.1:5000;
+                  proxy_pass         http://app_prod;
+                  proxy_http_version 1.1;
+                  proxy_set_header   Connection "";
                   proxy_set_header   Host              $host;
                   proxy_set_header   X-Real-IP         $remote_addr;
                   proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
                   proxy_set_header   X-Forwarded-Proto $scheme;
+                  proxy_connect_timeout 5s;
                   proxy_read_timeout 600;
                   proxy_send_timeout 600;
               }

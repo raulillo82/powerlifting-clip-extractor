@@ -47,6 +47,20 @@
         mode: "0600"
       changed_when: false
 
+    - name: Create empty github_pat.key placeholder (staging uses same key as prod if present)
+      file:
+        path: "{{ staging_dir }}/github_pat.key"
+        state: touch
+        mode: "0600"
+      changed_when: false
+
+    - name: Create empty webhook_secret.key placeholder
+      file:
+        path: "{{ staging_dir }}/webhook_secret.key"
+        state: touch
+        mode: "0600"
+      changed_when: false
+
     - name: Check for GeoLite2-City.mmdb (needed for /admin/stats geolocation)
       stat:
         path: "{{ staging_dir }}/GeoLite2-City.mmdb"
@@ -101,6 +115,8 @@
               -v {{ staging_dir }}/secret.key:/app/secret.key:Z \
               -v {{ staging_dir }}/lifts:/app/lifts:Z \
               -v {{ staging_dir }}/GeoLite2-City.mmdb:/app/GeoLite2-City.mmdb:Z \
+              -v {{ staging_dir }}/github_pat.key:/app/github_pat.key:Z \
+              -v {{ staging_dir }}/webhook_secret.key:/app/webhook_secret.key:Z \
               {{ image_name }}
           ExecStop=/usr/bin/podman stop {{ service_name }}
           Restart=always

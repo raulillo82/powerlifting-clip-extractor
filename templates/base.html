@@ -20,11 +20,12 @@
       {% if is_staging %}<span class="badge bg-warning text-dark ms-1">STAGING</span>{% endif %}
       <div class="d-flex align-items-center gap-2">
         {% if current_user.is_authenticated %}
-        <span class="text-white-50 small">Hola, {{ current_user.display_name }}</span>
+        <span class="text-white-50 small{% if current_user.is_admin %} d-none d-sm-inline{% endif %}">Hola, {{ current_user.display_name }}</span>
         <a href="{{ url_for('history') }}" class="btn btn-sm btn-outline-light border-0 py-0" data-i18n="nav.history">Historial</a>
+        <a href="{{ url_for('admin.feedback') if current_user.is_admin else url_for('feedback') }}" class="btn btn-sm btn-outline-light border-0 py-0" data-i18n="nav.feedback">Feedback</a>
         {% if current_user.is_admin %}
         <a href="{{ url_for('admin.index') }}" class="btn btn-sm btn-outline-light border-0 py-0">Admin</a>
-        <a href="{{ url_for('admin.stats') }}" class="btn btn-sm btn-outline-light border-0 py-0" data-i18n="nav.stats">Stats</a>
+        <a href="{{ url_for('admin.stats') }}" class="btn btn-sm btn-outline-light border-0 py-0 d-none d-sm-inline-flex" data-i18n="nav.stats">Stats</a>
         {% endif %}
         <a href="{{ url_for('auth.logout') }}" class="btn btn-sm btn-outline-light border-0 py-0" data-i18n="nav.logout">Salir</a>
         <div class="vr bg-secondary mx-1"></div>
@@ -232,6 +233,35 @@
       'hist.download':         'Download',
       'hist.view':             'View status',
       'hist.custom_url':       'Custom URL',
+      // ── feedback ──
+      'nav.feedback':          'Feedback',
+      'fb.title':              'Send feedback',
+      'fb.subject':            'Subject (optional)',
+      'fb.subject.ph':         'Brief title...',
+      'fb.body':               'Description',
+      'fb.body.ph':            'What would you improve or what is broken?',
+      'fb.submit':             'Submit',
+      'fb.captcha_error':      'Verification failed. Please try again.',
+      'fb.error.empty':        'Please enter a description.',
+      'fb.error.toolong':      'Text is too long (max 2000 characters).',
+      'fb.error.github':       'Error creating the issue on GitHub. Please try again.',
+      'fb.yours':              'Your submissions',
+      'fb.empty':              'No submissions yet.',
+      'fb.col.title':          'Subject',
+      'fb.col.status':         'Status',
+      'fb.col.labels':         'Labels',
+      'fb.col.link':           'Link',
+      'fb.col.date':           'Date',
+      'fb.status.open':        'Open',
+      'fb.status.closed':      'Implemented',
+      'fb.status.wontfix':     'Not planned',
+      'fb.status.duplicate':   'Duplicate',
+      'admin.fb.title':        'All feedback',
+      'admin.fb.col.user':     'User',
+      'admin.fb.empty':        'No feedback yet.',
+      'admin.fb.filter.all':   'All',
+      'admin.fb.filter.open':  'Open',
+      'admin.fb.filter.closed':'Implemented',
       // ── stats ──
       'nav.stats':             'Stats',
       'stats.title':           'Statistics',
@@ -438,6 +468,35 @@
       'hist.download':         'Descargar',
       'hist.view':             'Ver estado',
       'hist.custom_url':       'URL personalizada',
+      // ── feedback ──
+      'nav.feedback':          'Feedback',
+      'fb.title':              'Enviar feedback',
+      'fb.subject':            'Asunto (opcional)',
+      'fb.subject.ph':         'Título breve...',
+      'fb.body':               'Descripción',
+      'fb.body.ph':            '¿Qué mejorarías o qué falla?',
+      'fb.submit':             'Enviar',
+      'fb.captcha_error':      'Verificación fallida. Inténtalo de nuevo.',
+      'fb.error.empty':        'Por favor escribe algo.',
+      'fb.error.toolong':      'El texto es demasiado largo (máx. 2000 caracteres).',
+      'fb.error.github':       'Error al crear el issue en GitHub. Inténtalo de nuevo.',
+      'fb.yours':              'Tus envíos anteriores',
+      'fb.empty':              'Aún no tienes envíos.',
+      'fb.col.title':          'Asunto',
+      'fb.col.status':         'Estado',
+      'fb.col.labels':         'Etiquetas',
+      'fb.col.link':           'Enlace',
+      'fb.col.date':           'Fecha',
+      'fb.status.open':        'Abierto',
+      'fb.status.closed':      'Implementado',
+      'fb.status.wontfix':     'Sin planear',
+      'fb.status.duplicate':   'Duplicado',
+      'admin.fb.title':        'Todo el feedback',
+      'admin.fb.col.user':     'Usuario',
+      'admin.fb.empty':        'Aún no hay feedback.',
+      'admin.fb.filter.all':   'Todos',
+      'admin.fb.filter.open':  'Abiertos',
+      'admin.fb.filter.closed':'Implementados',
       // ── stats ──
       'nav.stats':             'Stats',
       'stats.title':           'Estadísticas',

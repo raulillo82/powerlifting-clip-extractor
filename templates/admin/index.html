@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="d-flex align-items-center gap-3 mb-4">
+<div class="d-flex align-items-center gap-3 mb-4 flex-wrap">
   <h2 class="mb-0" data-i18n="admin.title">Panel de administración</h2>
   <span class="badge bg-secondary fs-6">{{ users|length }} <span data-i18n="admin.users_count">usuario(s)</span></span>
   {% if is_staging %}
@@ -8,6 +8,7 @@
   {% else %}
   <a href="/staging/" class="btn btn-sm btn-outline-warning" target="_blank" data-i18n="admin.btn.staging">Staging ↗</a>
   {% endif %}
+  <a href="{{ url_for('admin.stats') }}" class="btn btn-sm btn-outline-secondary d-sm-none" data-i18n="nav.stats">Stats</a>
 </div>
 
 {% if users %}
