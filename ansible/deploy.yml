@@ -43,6 +43,7 @@
 
     - name: Ensure podman is installed
       become: true
+      ignore_errors: "{{ ansible_check_mode }}"
       zypper:
         name: podman
         state: present
