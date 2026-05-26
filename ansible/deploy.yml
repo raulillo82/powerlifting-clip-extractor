@@ -330,10 +330,10 @@
           tar -xzf "$TMP/GeoLite2-City.tar.gz" -C "$TMP"
           MMDB=$(find "$TMP" -name 'GeoLite2-City.mmdb' | head -1)
           cp "$MMDB" ~/powerlifting-clip-extractor/GeoLite2-City.mmdb
-          cp "$MMDB" ~/powerlifting-clip-extractor-staging/GeoLite2-City.mmdb
           echo "Instalado: $(du -h ~/powerlifting-clip-extractor/GeoLite2-City.mmdb | cut -f1)"
+          [ -d ~/powerlifting-clip-extractor-staging ] && cp "$MMDB" ~/powerlifting-clip-extractor-staging/GeoLite2-City.mmdb && echo "Copiado también a staging."
           systemctl --user restart powerlifting
-          systemctl --user restart powerlifting-staging
+          systemctl --user is-active powerlifting-staging &>/dev/null && systemctl --user restart powerlifting-staging
           echo "Contenedores reiniciados."
 
     - name: Deploy geoip-update systemd service
