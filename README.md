@@ -56,16 +56,10 @@
 | ✅ | Link de YouTube junto a la sesión seleccionada; navegación hacia atrás en el cascade | — |
 | ✅ | Nuevas federaciones en el cascade: USAPL, British Powerlifting, CPU (solo afiliadas IPF) | — |
 | ✅ | Historial de extracciones (`/history`): últimos 20 jobs con estado y link de descarga | — |
-| ✅ | Tests automatizados (120 tests, CI) | — |
+| ✅ | Tests automatizados (133 tests, CI) | — |
 | ✅ | Contenedor Podman (imagen OCI reproducible, base OpenSUSE Tumbleweed) | — |
 | ✅ | Ansible playbook para despliegue y failover RPi5↔RPi4 | — |
-| 🔲 | **Estadísticas** (panel en `/admin/stats`) | Claude |
-|    | ↳ Mapa de calor por ciudad — España con Canarias por defecto, opción mapamundi | |
-|    | ↳ Geolocalización IP → ciudad con base de datos local (MaxMind GeoLite2) | |
-|    | ↳ Hora del día, día de la semana, nº de jobs en cola al enviar | |
-|    | ↳ URL del vídeo solo si el canal está en la whitelist (AEP, IPF…) — ya implementado | |
-|    | ↳ Tasa de éxito/error, tiempo medio de extracción, uso de música | |
-|    | ↳ Sin FK a usuarios — datos anónimos (base: interés legítimo RGPD) | |
+| ✅ | **Panel de estadísticas** (`/admin/stats`) — mapa Leaflet por ciudad (GeoLite2), gráficos Chart.js (éxito/error, música, federaciones, modo, hora del día), filtro 7/30/90d/todo, cola en tiempo real | — |
 
 Extrae levantamientos individuales de un vídeo de competición de powerlifting en YouTube y genera un vídeo combinado compatible con Instagram con sentadilla, press de banca y peso muerto apilados verticalmente.
 
@@ -245,6 +239,16 @@ La imagen usa OpenSUSE Tumbleweed como base e instala `yt-dlp`, `ffmpeg` y todas
 
 `secret.key` y `users.db` se generan automáticamente al arrancar la app por primera vez y se almacenan **fuera del contenedor**, en el directorio del repositorio. `lifts/` también se monta desde el host. **No los subas al repositorio** (ya están en `.gitignore`).
 
+#### 3b. Geolocalización IP (opcional — panel de estadísticas)
+
+El panel `/admin/stats` incluye un mapa Leaflet con la ciudad de origen de cada job. Para activarlo:
+
+1. Regístrate gratis en [MaxMind](https://www.maxmind.com/en/geolite2/signup) y descarga **GeoLite2 City** (formato MMDB).
+2. Coloca el archivo en `~/powerlifting-clip-extractor/GeoLite2-City.mmdb`.
+3. Añade el bind mount al servicio (ver paso 4).
+
+Sin el archivo el panel carga igualmente; el mapa aparece vacío. MaxMind publica actualizaciones el primer martes de cada mes — el playbook Ansible despliega automáticamente un systemd timer que descarga la nueva versión esa misma madrugada.
+
 #### 4. Servicio systemd con Podman
 
 Crea `~/.config/systemd/user/powerlifting.service`:
@@ -264,6 +268,7 @@ ExecStart=/usr/bin/podman run \
     -v /home/TU_USUARIO/powerlifting-clip-extractor/users.db:/app/users.db:Z \
     -v /home/TU_USUARIO/powerlifting-clip-extractor/secret.key:/app/secret.key:Z \
     -v /home/TU_USUARIO/powerlifting-clip-extractor/lifts:/app/lifts:Z \
+    -v /home/TU_USUARIO/powerlifting-clip-extractor/GeoLite2-City.mmdb:/app/GeoLite2-City.mmdb:Z \
     localhost/powerlifting:latest
 ExecStop=/usr/bin/podman stop powerlifting
 Restart=always
@@ -446,9 +451,9 @@ venv/bin/pip install -r requirements.txt pytest
 #### Tests
 
 ```bash
-venv/bin/python3 -m pytest          # todos los tests (117)
+venv/bin/python3 -m pytest          # todos los tests (133)
 venv/bin/python3 -m pytest test_extract_lifts.py   # solo lógica de extracción (41)
-venv/bin/python3 -m pytest test_app.py             # solo rutas web y autenticación (76)
+venv/bin/python3 -m pytest test_app.py             # solo rutas web y autenticación (92)
 ```
 
 El hook de pre-commit ejecuta ambos ficheros automáticamente antes de cada commit. Usa el Python del venv si existe, o el del sistema si no.
@@ -518,16 +523,10 @@ En los tests, el rate limiting se desactiva en el fixture `client` mediante `mon
 | ✅ | YouTube link next to selected session; cascade back-navigation fix | — |
 | ✅ | New federations in cascade: USAPL, British Powerlifting, CPU (IPF affiliates only) | — |
 | ✅ | Job history page (`/history`): last 20 jobs with status and download link | — |
-| ✅ | Automated tests (120 tests, CI) | — |
+| ✅ | Automated tests (133 tests, CI) | — |
 | ✅ | Podman container (reproducible OCI image, OpenSUSE Tumbleweed base) | — |
 | ✅ | Ansible playbook for deployment and RPi5↔RPi4 failover | — |
-| 🔲 | **Statistics** (panel at `/admin/stats`) | Claude |
-|    | ↳ City heatmap — Spain + Canary Islands by default, world map option | |
-|    | ↳ IP → city geolocation with local database (MaxMind GeoLite2) | |
-|    | ↳ Time of day, day of week, number of jobs in queue at submission | |
-|    | ↳ Video URL only if channel is whitelisted (AEP, IPF…) — logic already in place | |
-|    | ↳ Success/error rate, average extraction time, music usage | |
-|    | ↳ No FK to users — anonymous data (basis: legitimate interest GDPR) | |
+| ✅ | **Statistics panel** (`/admin/stats`) — Leaflet city map (GeoLite2), Chart.js charts (success/error, music, federations, mode, time of day), 7/30/90d/all filter, live queue snapshot | — |
 
 Extracts individual lifts from a YouTube powerlifting competition and creates an Instagram-compatible combined video with squat, bench and deadlift stacked vertically.
 
@@ -707,6 +706,16 @@ The image uses OpenSUSE Tumbleweed as its base and installs `yt-dlp`, `ffmpeg` a
 
 `secret.key` and `users.db` are generated automatically on first start and stored **outside the container**, in the repository directory. `lifts/` is also mounted from the host. **Do not commit them** (already in `.gitignore`).
 
+#### 3b. IP geolocation (optional — statistics panel)
+
+The `/admin/stats` panel includes a Leaflet map showing the city of origin for each job. To enable it:
+
+1. Sign up for a free account at [MaxMind](https://www.maxmind.com/en/geolite2/signup) and download **GeoLite2 City** (MMDB format).
+2. Place the file at `~/powerlifting-clip-extractor/GeoLite2-City.mmdb`.
+3. Add the bind mount to your service unit (see step 4).
+
+The panel works without the file — the map simply appears empty. MaxMind publishes updates on the first Tuesday of every month — the Ansible playbook automatically deploys a systemd timer that downloads the new version overnight.
+
 #### 4. Podman systemd user service
 
 Create `~/.config/systemd/user/powerlifting.service`:
@@ -726,6 +735,7 @@ ExecStart=/usr/bin/podman run \
     -v /home/YOUR_USER/powerlifting-clip-extractor/users.db:/app/users.db:Z \
     -v /home/YOUR_USER/powerlifting-clip-extractor/secret.key:/app/secret.key:Z \
     -v /home/YOUR_USER/powerlifting-clip-extractor/lifts:/app/lifts:Z \
+    -v /home/YOUR_USER/powerlifting-clip-extractor/GeoLite2-City.mmdb:/app/GeoLite2-City.mmdb:Z \
     localhost/powerlifting:latest
 ExecStop=/usr/bin/podman stop powerlifting
 Restart=always
@@ -908,9 +918,9 @@ venv/bin/pip install -r requirements.txt pytest
 #### Tests
 
 ```bash
-venv/bin/python3 -m pytest          # all tests (117)
+venv/bin/python3 -m pytest          # all tests (133)
 venv/bin/python3 -m pytest test_extract_lifts.py   # extraction logic only (41)
-venv/bin/python3 -m pytest test_app.py             # web routes and auth only (76)
+venv/bin/python3 -m pytest test_app.py             # web routes and auth only (92)
 ```
 
 The pre-commit hook runs both files automatically before each commit, using the venv Python if it exists.
