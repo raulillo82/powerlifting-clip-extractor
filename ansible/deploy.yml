@@ -222,6 +222,85 @@
         enabled: true
         state: started
 
+    - name: Ensure ~/.local/bin exists
+      file:
+        path: /home/{{ ansible_user }}/.local/bin
+        state: directory
+        mode: "0755"
+
+    - name: Check for ~/.maxmind_key (needed for GeoLite2 auto-update)
+      stat:
+        path: /home/{{ ansible_user }}/.maxmind_key
+      register: maxmind_key_stat
+
+    - name: Warn if ~/.maxmind_key missing (geoip-update timer will fail without it)
+      debug:
+        msg: >
+          ~/.maxmind_key not found. Create it with your MaxMind license key (chmod 600)
+          so the geoip-update timer can refresh GeoLite2-City.mmdb automatically.
+      when: not maxmind_key_stat.stat.exists
+
+    - name: Deploy GeoLite2 update script
+      copy:
+        dest: /home/{{ ansible_user }}/.local/bin/geoip-update.sh
+        mode: "0755"
+        content: |
+          #!/bin/bash
+          set -euo pipefail
+          LICENSE_KEY=$(cat ~/.maxmind_key | tr -d '[:space:]')
+          TMP=$(mktemp -d)
+          cleanup() { rm -rf "$TMP"; }
+          trap cleanup EXIT
+          echo "Descargando GeoLite2-City.mmdb..."
+          curl -sL --fail \
+            "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-City&license_key=${LICENSE_KEY}&suffix=tar.gz" \
+            -o "$TMP/GeoLite2-City.tar.gz"
+          tar -xzf "$TMP/GeoLite2-City.tar.gz" -C "$TMP"
+          MMDB=$(find "$TMP" -name 'GeoLite2-City.mmdb' | head -1)
+          cp "$MMDB" ~/powerlifting-clip-extractor/GeoLite2-City.mmdb
+          cp "$MMDB" ~/powerlifting-clip-extractor-staging/GeoLite2-City.mmdb
+          echo "Instalado: $(du -h ~/powerlifting-clip-extractor/GeoLite2-City.mmdb | cut -f1)"
+          systemctl --user restart powerlifting
+          systemctl --user restart powerlifting-staging
+          echo "Contenedores reiniciados."
+
+    - name: Deploy geoip-update systemd service
+      copy:
+        dest: /home/{{ ansible_user }}/.config/systemd/user/geoip-update.service
+        content: |
+          [Unit]
+          Description=Update GeoLite2-City.mmdb from MaxMind
+
+          [Service]
+          Type=oneshot
+          ExecStart=%h/.local/bin/geoip-update.sh
+          StandardOutput=journal
+          StandardError=journal
+
+    - name: Deploy geoip-update systemd timer (first Tuesday of each month at 03:00)
+      copy:
+        dest: /home/{{ ansible_user }}/.config/systemd/user/geoip-update.timer
+        content: |
+          [Unit]
+          Description=Refresh GeoLite2-City.mmdb on the first Tuesday of each month
+
+          [Timer]
+          OnCalendar=Tue *-*-1..7 03:00:00
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+      notify: Reload geoip timer
+
+    - name: Enable geoip-update timer
+      systemd:
+        name: geoip-update.timer
+        enabled: true
+        state: started
+        scope: user
+        daemon_reload: true
+      ignore_errors: "{{ ansible_check_mode }}"
+
   handlers:
 
     - name: Restart app
@@ -238,3 +317,11 @@
       systemd:
         name: nginx
         state: reloaded
+
+    - name: Reload geoip timer
+      systemd:
+        name: geoip-update.timer
+        state: started
+        scope: user
+        daemon_reload: true
+      ignore_errors: "{{ ansible_check_mode }}"
