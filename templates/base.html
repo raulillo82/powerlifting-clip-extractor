@@ -20,7 +20,7 @@
       {% if is_staging %}<span class="badge bg-warning text-dark ms-1">STAGING</span>{% endif %}
       <div class="d-flex align-items-center gap-2">
         {% if current_user.is_authenticated %}
-        <span class="text-white-50 small d-none d-sm-inline">Hola, {{ current_user.display_name }}</span>
+        <span class="text-white-50 small{% if current_user.is_admin %} d-none d-sm-inline{% endif %}">Hola, {{ current_user.display_name }}</span>
         <a href="{{ url_for('history') }}" class="btn btn-sm btn-outline-light border-0 py-0" data-i18n="nav.history">Historial</a>
         <a href="{{ url_for('feedback') }}" class="btn btn-sm btn-outline-light border-0 py-0" data-i18n="nav.feedback">Feedback</a>
         {% if current_user.is_admin %}
