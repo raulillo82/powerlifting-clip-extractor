@@ -27,7 +27,8 @@ from flask_login import current_user, login_required
 
 from auth import auth_bp, login_manager
 from admin import admin_bp
-from db import get_staging_access, init_db
+import geoip
+from db import get_staging_access, init_db, record_job_stat
 from extract_lifts import parse_timestamp, run, run_single
 from limiter import limiter
 
@@ -445,6 +446,7 @@ class _LiveLog(io.StringIO):
 
 def _worker(job_id: str, job: dict, run_kwargs: dict, mode: str = "full") -> None:
     buf = _LiveLog(job_id, job)
+    started_at = time.time()
     try:
         with contextlib.redirect_stdout(buf):
             if mode == "single":
@@ -468,6 +470,20 @@ def _worker(job_id: str, job: dict, run_kwargs: dict, mode: str = "full") -> Non
     finally:
         job["log"] = buf.getvalue()
         _save_job(job_id, job)
+        geo = job.get("_geo") or {}
+        record_job_stat(
+            submitted_at=job.get("queued_at", started_at),
+            started_at=started_at,
+            finished_at=time.time(),
+            status=job["status"],
+            source=job.get("source") or None,
+            mode=job.get("mode") or None,
+            has_music=1 if run_kwargs.get("music_source") else 0,
+            city=geo.get("city"),
+            country_code=geo.get("country_code"),
+            latitude=geo.get("lat"),
+            longitude=geo.get("lng"),
+        )
 
 
 # ── Form parsing ───────────────────────────────────────────────────────────────
@@ -632,7 +648,8 @@ def start_job():
            "user_id": current_user.get_id(),
            "submitted_url": request.form.get("url", "").strip(),
            "source": request.form.get("source", "").strip(),
-           "session_label": request.form.get("session_label", "").strip()}
+           "session_label": request.form.get("session_label", "").strip(),
+           "_geo": geoip.lookup(request.remote_addr)}
     jobs[job_id] = job
     _save_job(job_id, job)
     _job_queue.put((job_id, run_kwargs, mode))

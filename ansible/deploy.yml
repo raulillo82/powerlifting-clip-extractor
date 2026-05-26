@@ -104,6 +104,27 @@
       register: users_db_real
       changed_when: false
 
+    - name: Check for GeoLite2-City.mmdb (needed for /admin/stats geolocation)
+      stat:
+        path: "{{ app_dir }}/GeoLite2-City.mmdb"
+      register: geoip_stat
+
+    - name: Warn if GeoLite2-City.mmdb missing (geo stats disabled until downloaded)
+      debug:
+        msg: >
+          GeoLite2-City.mmdb not found at {{ app_dir }}/GeoLite2-City.mmdb.
+          Download GeoLite2 City (MMDB format) from https://www.maxmind.com/en/geolite2/signup
+          and place it there to enable geolocation in /admin/stats.
+      when: not geoip_stat.stat.exists
+
+    - name: Create empty GeoLite2-City.mmdb placeholder (for bind mount)
+      file:
+        path: "{{ app_dir }}/GeoLite2-City.mmdb"
+        state: touch
+        mode: "0644"
+      changed_when: false
+      when: not geoip_stat.stat.exists
+
     - name: Deploy systemd user service
       copy:
         dest: /home/{{ ansible_user }}/.config/systemd/user/{{ service_name }}.service
@@ -122,6 +143,7 @@
               -v {{ users_db_real.stdout }}:/app/users.db:Z \
               -v {{ app_dir }}/secret.key:/app/secret.key:Z \
               -v {{ app_dir }}/lifts:/app/lifts:Z \
+              -v {{ app_dir }}/GeoLite2-City.mmdb:/app/GeoLite2-City.mmdb:Z \
               {{ image_name }}
           ExecStop=/usr/bin/podman stop {{ service_name }}
           Restart=always
@@ -167,6 +189,17 @@
               ssl_ciphers         HIGH:!aNULL:!MD5;
 
               client_max_body_size 20M;
+
+              location /staging/ {
+                  proxy_pass         http://127.0.0.1:5001/;
+                  proxy_set_header   Host              $host;
+                  proxy_set_header   X-Real-IP         $remote_addr;
+                  proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+                  proxy_set_header   X-Forwarded-Proto $scheme;
+                  proxy_set_header   X-Forwarded-Prefix /staging;
+                  proxy_read_timeout 600;
+                  proxy_send_timeout 600;
+              }
 
               location / {
                   proxy_pass         http://127.0.0.1:5000;

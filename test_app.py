@@ -921,3 +921,141 @@ class TestCaptcha:
         with db_mod.get_db() as conn:
             count = conn.execute("SELECT COUNT(*) FROM users WHERE is_admin=0").fetchone()[0]
         assert count == 0
+
+
+# ── job_stats DB layer ────────────────────────────────────────────────────────
+
+class TestJobStats:
+    def test_record_and_retrieve(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        now = time.time()
+        db.record_job_stat(
+            submitted_at=now - 10, started_at=now - 8, finished_at=now,
+            status="done", source="aep", mode="full", has_music=1,
+        )
+        stats = db.get_stats(days=30)
+        assert stats["summary"]["total"] == 1
+        assert stats["summary"]["success"] == 1
+        assert stats["by_source"][0]["source"] == "aep"
+        assert stats["by_music"][0]["has_music"] == 1
+
+    def test_filter_by_days_excludes_old(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        now = time.time()
+        db.record_job_stat(submitted_at=now - 10 * 86400, started_at=None,
+                           finished_at=None, status="done")
+        db.record_job_stat(submitted_at=now - 1 * 86400, started_at=None,
+                           finished_at=None, status="error")
+        stats = db.get_stats(days=7)
+        assert stats["summary"]["total"] == 1
+        assert stats["summary"]["success"] == 0
+
+    def test_get_stats_all_time(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        now = time.time()
+        db.record_job_stat(submitted_at=now - 100 * 86400, started_at=None,
+                           finished_at=None, status="done")
+        stats = db.get_stats(days=None)
+        assert stats["summary"]["total"] == 1
+
+    def test_by_hour_has_24_entries(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        stats = db.get_stats(days=30)
+        assert len(stats["by_hour"]) == 24
+
+    def test_worker_records_stat_on_success(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        job = {"status": "running", "log": "", "output_dir": str(tmp_path),
+               "queued_at": time.time(), "mode": "full", "source": "ipf", "_geo": {}}
+        job_id = "stattest1"
+        flask_app.jobs[job_id] = job
+        with patch("app.run"), patch("app._save_job"), \
+             patch("app._resolve_channel_url", return_value=""):
+            flask_app._worker(job_id, job, {"url": "u", "music_source": ""}, "full")
+        with db.get_db() as conn:
+            row = conn.execute("SELECT * FROM job_stats").fetchone()
+        assert row["status"] == "done"
+        assert row["source"] == "ipf"
+        assert row["has_music"] == 0
+
+    def test_worker_records_stat_on_error(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        job = {"status": "running", "log": "", "output_dir": str(tmp_path),
+               "queued_at": time.time(), "mode": "single", "source": "aep", "_geo": {}}
+        job_id = "stattest2"
+        flask_app.jobs[job_id] = job
+        with patch("app.run", side_effect=Exception("boom")), \
+             patch("app._save_job"), \
+             patch("app._resolve_channel_url", return_value=""):
+            flask_app._worker(job_id, job, {"url": "u", "music_source": "song"}, "full")
+        with db.get_db() as conn:
+            row = conn.execute("SELECT * FROM job_stats").fetchone()
+        assert row["status"] == "error"
+        assert row["has_music"] == 1
+
+
+# ── /admin/stats ──────────────────────────────────────────────────────────────
+
+class TestStatsPage:
+    def test_admin_gets_200(self, client):
+        assert client.get("/admin/stats").status_code == 200
+
+    def test_filter_7d(self, client):
+        assert client.get("/admin/stats?days=7").status_code == 200
+
+    def test_filter_all_time(self, client):
+        assert client.get("/admin/stats?days=0").status_code == 200
+
+    def test_requires_admin(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        with db.get_db() as conn:
+            conn.execute(
+                "INSERT INTO users (username, display_name, password_hash, is_admin)"
+                " VALUES (?, ?, ?, 0)",
+                ("user1", "User One", generate_password_hash("pass")),
+            )
+            conn.commit()
+        import limiter as limiter_mod
+        flask_app.app.config["TESTING"] = True
+        monkeypatch.setattr(limiter_mod.limiter, "enabled", False)
+        with flask_app.app.test_client() as c:
+            c.post("/login", data={"username": "user1", "password": "pass"})
+            r = c.get("/admin/stats", follow_redirects=False)
+        assert r.status_code == 302
+
+    def test_page_renders_with_data(self, client, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        db.record_job_stat(submitted_at=time.time() - 3600, started_at=time.time() - 3590,
+                           finished_at=time.time() - 100, status="done",
+                           source="aep", mode="full", has_music=0)
+        r = client.get("/admin/stats")
+        assert r.status_code == 200
+        assert "Estadísticas".encode() in r.data
+
+
+# ── geoip ─────────────────────────────────────────────────────────────────────
+
+class TestGeoip:
+    def test_lookup_no_db(self, tmp_path, monkeypatch):
+        import geoip
+        monkeypatch.setattr(geoip, "_GEOIP_PATH", str(tmp_path / "nonexistent.mmdb"))
+        monkeypatch.setattr(geoip, "_reader", None)
+        monkeypatch.setattr(geoip, "_reader_tried", False)
+        assert geoip.lookup("8.8.8.8") == {}
+
+    def test_lookup_invalid_file(self, tmp_path, monkeypatch):
+        import geoip
+        bad = tmp_path / "bad.mmdb"
+        bad.write_bytes(b"not a real database")
+        monkeypatch.setattr(geoip, "_GEOIP_PATH", str(bad))
+        monkeypatch.setattr(geoip, "_reader", None)
+        monkeypatch.setattr(geoip, "_reader_tried", False)
+        assert geoip.lookup("8.8.8.8") == {}
