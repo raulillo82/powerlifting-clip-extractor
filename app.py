@@ -84,8 +84,9 @@ def _inject_staging():
 def _staging_gate():
     if not os.environ.get("STAGING"):
         return
-    # Let auth routes through so users can log in and out
-    if request.endpoint and request.endpoint.startswith("auth."):
+    # Let auth routes and the webhook through unauthenticated
+    if request.endpoint and (request.endpoint.startswith("auth.") or
+                             request.endpoint == "github_webhook"):
         return
     if not current_user.is_authenticated:
         return redirect(url_for("auth.login"))
