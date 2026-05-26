@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2 class="mb-4" data-i18n="fb.title">Enviar feedback</h2>
+
+{% if error %}
+<div class="alert alert-danger" data-i18n="{{ error }}">Error.</div>
+{% endif %}
+{% if error_captcha %}
+<div class="alert alert-danger" data-i18n="fb.captcha_error">Verificación fallida. Inténtalo de nuevo.</div>
+{% endif %}
+
+<div class="card mb-5">
+  <div class="card-body">
+    <form method="POST">
+      <div class="mb-3">
+        <label class="form-label" data-i18n="fb.subject">Asunto (opcional)</label>
+        <input type="text" name="subject" class="form-control" maxlength="80"
+               data-i18n-placeholder="fb.subject.ph" placeholder="Título breve...">
+      </div>
+      <div class="mb-3">
+        <label class="form-label" data-i18n="fb.body">Descripción</label>
+        <textarea name="body" class="form-control" rows="5" maxlength="2000" required
+                  data-i18n-placeholder="fb.body.ph"
+                  placeholder="¿Qué mejorarías o qué falla?"></textarea>
+      </div>
+      <div class="mb-3">
+        <altcha-widget challengeurl="{{ url_for('auth.captcha_challenge') }}"
+                       hidelogo hidefooter></altcha-widget>
+      </div>
+      <button type="submit" class="btn btn-primary" data-i18n="fb.submit">Enviar</button>
+    </form>
+  </div>
+</div>
+
+<h4 class="mb-3" data-i18n="fb.yours">Tus envíos anteriores</h4>
+
+{% if not feedbacks %}
+  <p class="text-muted" data-i18n="fb.empty">Aún no tienes envíos.</p>
+{% else %}
+<div class="table-responsive">
+  <table class="table table-sm align-middle">
+    <thead>
+      <tr>
+        <th data-i18n="fb.col.excerpt">Extracto</th>
+        <th data-i18n="fb.col.status">Estado</th>
+        <th data-i18n="fb.col.labels">Etiquetas</th>
+        <th data-i18n="fb.col.link">Enlace</th>
+        <th data-i18n="fb.col.date">Fecha</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for fb in feedbacks %}
+    {% set user_labels = fb.labels | fromjson | reject('equalto', 'user-feedback') | list %}
+    <tr>
+      <td class="text-muted small" style="max-width:260px">
+        <span class="text-truncate d-inline-block" style="max-width:100%">{{ fb.body_excerpt }}</span>
+      </td>
+      <td>
+        {% if fb.status == 'closed' %}
+          <span class="badge bg-success" data-i18n="fb.status.closed">Implementado</span>
+        {% else %}
+          <span class="badge bg-primary" data-i18n="fb.status.open">Abierto</span>
+        {% endif %}
+      </td>
+      <td>
+        {% for lbl in user_labels %}
+          <span class="badge bg-secondary me-1">{{ lbl }}</span>
+        {% endfor %}
+      </td>
+      <td>
+        <a href="{{ fb.issue_url }}" target="_blank" rel="noopener" class="text-decoration-none">↗</a>
+      </td>
+      <td class="text-muted small text-nowrap">{{ (fb.submitted_at | int) | datetimeformat }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="https://cdn.jsdelivr.net/npm/altcha/dist/altcha.min.js"
+        crossorigin="anonymous" async></script>
+{% endblock %}

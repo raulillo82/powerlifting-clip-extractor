@@ -47,6 +47,18 @@ def init_db() -> None:
                 longitude     REAL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS feedback (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                issue_number INTEGER NOT NULL,
+                issue_url    TEXT NOT NULL,
+                body_excerpt TEXT NOT NULL,
+                submitted_at REAL NOT NULL,
+                status       TEXT NOT NULL DEFAULT 'open',
+                labels       TEXT NOT NULL DEFAULT '[]'
+            )
+        """)
         conn.commit()
 
 
@@ -164,6 +176,50 @@ def get_stats(days: int | None) -> dict:
         "by_hour": by_hour,
         "by_city": [dict(r) for r in by_city],
     }
+
+
+def add_feedback(user_id: int, issue_number: int, issue_url: str, body_excerpt: str) -> int:
+    with get_db() as conn:
+        cur = conn.execute("""
+            INSERT INTO feedback (user_id, issue_number, issue_url, body_excerpt, submitted_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (user_id, issue_number, issue_url, body_excerpt, time.time()))
+        conn.commit()
+        return cur.lastrowid
+
+
+def get_feedback_for_user(user_id: int) -> list:
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT * FROM feedback WHERE user_id = ? ORDER BY submitted_at DESC
+        """, (user_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_all_feedback(status: str | None = None) -> list:
+    with get_db() as conn:
+        if status:
+            rows = conn.execute("""
+                SELECT f.*, u.display_name
+                FROM feedback f JOIN users u ON f.user_id = u.id
+                WHERE f.status = ?
+                ORDER BY f.submitted_at DESC
+            """, (status,)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT f.*, u.display_name
+                FROM feedback f JOIN users u ON f.user_id = u.id
+                ORDER BY f.submitted_at DESC
+            """).fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_feedback_from_github(issue_number: int, status: str, labels_json: str) -> None:
+    with get_db() as conn:
+        conn.execute("""
+            UPDATE feedback SET status = ?, labels = ? WHERE issue_number = ?
+        """, (status, labels_json, issue_number))
+        conn.commit()
 
 
 def get_all_staging_access() -> dict[int, float]:

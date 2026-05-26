@@ -81,6 +81,47 @@
         mode: "0600"
       changed_when: false
 
+    - name: Check for github_pat.key (needed for feedback → GitHub issues)
+      stat:
+        path: "{{ app_dir }}/github_pat.key"
+      register: github_pat_stat
+
+    - name: Warn if github_pat.key missing (feedback form will return error without it)
+      debug:
+        msg: >
+          github_pat.key not found at {{ app_dir }}/github_pat.key.
+          Create a fine-grained GitHub PAT with issues:write on this repo and save it there (chmod 600).
+      when: not github_pat_stat.stat.exists
+
+    - name: Check for webhook_secret.key (needed to verify GitHub webhook events)
+      stat:
+        path: "{{ app_dir }}/webhook_secret.key"
+      register: webhook_secret_stat
+
+    - name: Warn if webhook_secret.key missing (webhook endpoint will reject all events)
+      debug:
+        msg: >
+          webhook_secret.key not found at {{ app_dir }}/webhook_secret.key.
+          Generate with: openssl rand -hex 32 > {{ app_dir }}/webhook_secret.key && chmod 600 {{ app_dir }}/webhook_secret.key
+          Then configure the same value as the GitHub webhook secret.
+      when: not webhook_secret_stat.stat.exists
+
+    - name: Create empty github_pat.key placeholder (for bind mount)
+      file:
+        path: "{{ app_dir }}/github_pat.key"
+        state: touch
+        mode: "0600"
+      changed_when: false
+      when: not github_pat_stat.stat.exists
+
+    - name: Create empty webhook_secret.key placeholder (for bind mount)
+      file:
+        path: "{{ app_dir }}/webhook_secret.key"
+        state: touch
+        mode: "0600"
+      changed_when: false
+      when: not webhook_secret_stat.stat.exists
+
     - name: Initialise database (idempotent)
       command: >
         podman run --rm
@@ -144,6 +185,8 @@
               -v {{ app_dir }}/secret.key:/app/secret.key:Z \
               -v {{ app_dir }}/lifts:/app/lifts:Z \
               -v {{ app_dir }}/GeoLite2-City.mmdb:/app/GeoLite2-City.mmdb:Z \
+              -v {{ app_dir }}/github_pat.key:/app/github_pat.key:Z \
+              -v {{ app_dir }}/webhook_secret.key:/app/webhook_secret.key:Z \
               {{ image_name }}
           ExecStop=/usr/bin/podman stop {{ service_name }}
           Restart=always

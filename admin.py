@@ -3,7 +3,7 @@ import time
 
 from flask import Blueprint, redirect, render_template, request, url_for
 from auth import admin_required
-from db import get_all_staging_access, get_db, get_stats, grant_staging_access, revoke_staging_access
+from db import get_all_feedback, get_all_staging_access, get_db, get_stats, grant_staging_access, revoke_staging_access
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -80,6 +80,15 @@ def staging_grant(user_id):
 def staging_revoke(user_id):
     revoke_staging_access(user_id)
     return redirect(url_for("admin.index"))
+
+
+@admin_bp.route("/feedback")
+@admin_required
+def feedback():
+    status_filter = request.args.get("status", "")
+    feedbacks = get_all_feedback(status_filter or None)
+    return render_template("admin/feedback.html",
+                           feedbacks=feedbacks, status_filter=status_filter)
 
 
 @admin_bp.route("/stats")
