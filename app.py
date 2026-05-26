@@ -649,7 +649,7 @@ def start_job():
            "submitted_url": request.form.get("url", "").strip(),
            "source": request.form.get("source", "").strip(),
            "session_label": request.form.get("session_label", "").strip(),
-           "_geo": geoip.lookup(request.remote_addr)}
+           "_geo": geoip.lookup(request.headers.get("X-Real-IP", request.remote_addr))}
     jobs[job_id] = job
     _save_job(job_id, job)
     _job_queue.put((job_id, run_kwargs, mode))

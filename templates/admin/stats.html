@@ -4,12 +4,12 @@
 
   {# ── Header + filtro ─────────────────────────────────────────────────────── #}
   <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
-    <h2 class="mb-0">Estadísticas</h2>
+    <h2 class="mb-0" data-i18n="stats.title">Estadísticas</h2>
     <div class="btn-group btn-group-sm" role="group" aria-label="Período">
-      <a href="?days=7"  class="btn btn-outline-secondary{% if days == 7  %} active{% endif %}">7 días</a>
-      <a href="?days=30" class="btn btn-outline-secondary{% if days == 30 %} active{% endif %}">30 días</a>
-      <a href="?days=90" class="btn btn-outline-secondary{% if days == 90 %} active{% endif %}">90 días</a>
-      <a href="?days=0"  class="btn btn-outline-secondary{% if days == 0  %} active{% endif %}">Todo</a>
+      <a href="?days=7"  class="btn btn-outline-secondary{% if days == 7  %} active{% endif %}" data-i18n="stats.period.7d">7 días</a>
+      <a href="?days=30" class="btn btn-outline-secondary{% if days == 30 %} active{% endif %}" data-i18n="stats.period.30d">30 días</a>
+      <a href="?days=90" class="btn btn-outline-secondary{% if days == 90 %} active{% endif %}" data-i18n="stats.period.90d">90 días</a>
+      <a href="?days=0"  class="btn btn-outline-secondary{% if days == 0  %} active{% endif %}" data-i18n="stats.period.all">Todo</a>
     </div>
   </div>
 
@@ -19,7 +19,7 @@
       <div class="card text-center h-100">
         <div class="card-body py-4">
           <div class="display-5 fw-bold">{{ data.summary.total }}</div>
-          <div class="text-muted small mt-1">Jobs totales</div>
+          <div class="text-muted small mt-1" data-i18n="stats.total">Jobs totales</div>
         </div>
       </div>
     </div>
@@ -33,7 +33,7 @@
           {% else %}
           <div class="display-5 fw-bold text-muted">—</div>
           {% endif %}
-          <div class="text-muted small mt-1">Tasa de éxito</div>
+          <div class="text-muted small mt-1" data-i18n="stats.success_rate">Tasa de éxito</div>
         </div>
       </div>
     </div>
@@ -42,12 +42,12 @@
         <div class="card-body py-4">
           {% if data.summary.avg_duration %}
           <div class="display-5 fw-bold">
-            {{ (data.summary.avg_duration / 60) | round(1) }}<small class="fs-5 fw-normal"> min</small>
+            {{ (data.summary.avg_duration / 60) | round(1) }}<small class="fs-5 fw-normal" data-i18n="stats.lbl.min"> min</small>
           </div>
           {% else %}
           <div class="display-5 fw-bold text-muted">—</div>
           {% endif %}
-          <div class="text-muted small mt-1">Tiempo medio</div>
+          <div class="text-muted small mt-1" data-i18n="stats.avg_time">Tiempo medio</div>
         </div>
       </div>
     </div>
@@ -55,7 +55,10 @@
       <div class="card text-center h-100">
         <div class="card-body py-4">
           <div class="display-5 fw-bold">{{ live.running + live.queued }}</div>
-          <div class="text-muted small mt-1">{{ live.running }} en curso · {{ live.queued }} en cola</div>
+          <div class="text-muted small mt-1" id="queueLabel"
+               data-running="{{ live.running }}" data-queued="{{ live.queued }}">
+            {{ live.running }} en curso · {{ live.queued }} en cola
+          </div>
         </div>
       </div>
     </div>
@@ -63,7 +66,7 @@
 
   {# ── Mapa Leaflet ─────────────────────────────────────────────────────────── #}
   <div class="card mb-4">
-    <div class="card-header fw-semibold">Localización</div>
+    <div class="card-header fw-semibold" data-i18n="stats.card.location">Localización</div>
     <div class="card-body p-0">
       <div id="map" style="height:360px; border-radius:0 0 .375rem .375rem"></div>
     </div>
@@ -73,7 +76,7 @@
   <div class="row g-3 mb-4">
     <div class="col-md-6">
       <div class="card h-100">
-        <div class="card-header fw-semibold">Éxito / Error</div>
+        <div class="card-header fw-semibold" data-i18n="stats.card.status">Éxito / Error</div>
         <div class="card-body d-flex justify-content-center align-items-center" style="min-height:220px">
           <canvas id="chartStatus" style="max-height:200px"></canvas>
         </div>
@@ -81,7 +84,7 @@
     </div>
     <div class="col-md-6">
       <div class="card h-100">
-        <div class="card-header fw-semibold">Música</div>
+        <div class="card-header fw-semibold" data-i18n="stats.card.music">Música</div>
         <div class="card-body d-flex justify-content-center align-items-center" style="min-height:220px">
           <canvas id="chartMusic" style="max-height:200px"></canvas>
         </div>
@@ -93,7 +96,7 @@
   <div class="row g-3 mb-4">
     <div class="col-md-6">
       <div class="card h-100">
-        <div class="card-header fw-semibold">Por federación</div>
+        <div class="card-header fw-semibold" data-i18n="stats.card.sources">Por federación</div>
         <div class="card-body">
           <canvas id="chartSources"></canvas>
         </div>
@@ -101,7 +104,7 @@
     </div>
     <div class="col-md-6">
       <div class="card h-100">
-        <div class="card-header fw-semibold">Modo</div>
+        <div class="card-header fw-semibold" data-i18n="stats.card.mode">Modo</div>
         <div class="card-body d-flex justify-content-center align-items-center" style="min-height:220px">
           <canvas id="chartMode" style="max-height:200px"></canvas>
         </div>
@@ -111,7 +114,7 @@
 
   {# ── Hora del día ─────────────────────────────────────────────────────────── #}
   <div class="card mb-4">
-    <div class="card-header fw-semibold">Hora del día (hora local)</div>
+    <div class="card-header fw-semibold" data-i18n="stats.card.hours">Hora del día (hora local)</div>
     <div class="card-body">
       <canvas id="chartHours"></canvas>
     </div>
@@ -128,8 +131,13 @@
 <script>
 const stats = {{ data | tojson }};
 
-// ── Mapa Leaflet ───────────────────────────────────────────────────────────────
+// ── Queue label (needs T, built on first onLangChange call) ───────────────────
+function _updateQueueLabel(T) {
+  const el = document.getElementById('queueLabel');
+  if (el) el.textContent = el.dataset.running + ' ' + T('stats.running') + ' · ' + el.dataset.queued + ' ' + T('stats.queued');
+}
 
+// ── Mapa Leaflet ───────────────────────────────────────────────────────────────
 const mapEl = document.getElementById('map');
 if (stats.by_city && stats.by_city.length > 0) {
   const map = L.map('map').setView([40.4, -3.7], 4);
@@ -147,19 +155,16 @@ if (stats.by_city && stats.by_city.length > 0) {
   mapEl.style.display = 'flex';
   mapEl.style.alignItems = 'center';
   mapEl.style.justifyContent = 'center';
-  mapEl.innerHTML = '<span class="text-muted">Sin datos de localización aún</span>';
+  // placeholder updated by onLangChange once T is available
+  mapEl.innerHTML = '<span class="text-muted" id="mapEmpty"></span>';
 }
 
 // ── Chart.js helpers ──────────────────────────────────────────────────────────
-
 function makeDonut(id, labels, data, colors) {
   new Chart(document.getElementById(id), {
     type: 'doughnut',
     data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 1 }] },
-    options: {
-      plugins: { legend: { position: 'bottom' } },
-      cutout: '62%'
-    }
+    options: { plugins: { legend: { position: 'bottom' } }, cutout: '62%' }
   });
 }
 
@@ -174,39 +179,58 @@ function makeBar(id, labels, data, color) {
   });
 }
 
-// ── Éxito / Error ──────────────────────────────────────────────────────────────
-;(function() {
-  const m = {};
-  stats.by_status.forEach(d => m[d.status] = d.n);
-  makeDonut('chartStatus', ['Éxito', 'Error'], [m['done'] || 0, m['error'] || 0], ['#198754', '#dc3545']);
-})();
+// ── Charts built once, with the active language at page load ──────────────────
+let _chartsBuilt = false;
+function onLangChange(T) {
+  _updateQueueLabel(T);
 
-// ── Música ─────────────────────────────────────────────────────────────────────
-;(function() {
-  const m = {};
-  stats.by_music.forEach(d => m[d.has_music] = d.n);
-  makeDonut('chartMusic', ['Con música', 'Sin música'], [m[1] || 0, m[0] || 0], ['#0d6efd', '#6c757d']);
-})();
+  const mapEmpty = document.getElementById('mapEmpty');
+  if (mapEmpty) mapEmpty.textContent = T('stats.map.empty');
 
-// ── Federaciones ───────────────────────────────────────────────────────────────
-makeBar('chartSources',
-  stats.by_source.map(d => d.source.toUpperCase()),
-  stats.by_source.map(d => d.n),
-  '#0dcaf0'
-);
+  if (_chartsBuilt) return;
+  _chartsBuilt = true;
 
-// ── Modo ───────────────────────────────────────────────────────────────────────
-;(function() {
-  const m = {};
-  stats.by_mode.forEach(d => m[d.mode] = d.n);
-  makeDonut('chartMode', ['Completo', 'Un levantamiento'], [m['full'] || 0, m['single'] || 0], ['#0dcaf0', '#ffc107']);
-})();
+  // Éxito / Error
+  ;(function() {
+    const m = {};
+    stats.by_status.forEach(d => m[d.status] = d.n);
+    makeDonut('chartStatus',
+      [T('stats.lbl.success'), T('stats.lbl.error')],
+      [m['done'] || 0, m['error'] || 0],
+      ['#198754', '#dc3545']);
+  })();
 
-// ── Hora del día ───────────────────────────────────────────────────────────────
-makeBar('chartHours',
-  Array.from({length: 24}, (_, i) => i + 'h'),
-  stats.by_hour,
-  '#6f42c1'
-);
+  // Música
+  ;(function() {
+    const m = {};
+    stats.by_music.forEach(d => m[d.has_music] = d.n);
+    makeDonut('chartMusic',
+      [T('stats.lbl.with_music'), T('stats.lbl.no_music')],
+      [m[1] || 0, m[0] || 0],
+      ['#0d6efd', '#6c757d']);
+  })();
+
+  // Federaciones
+  makeBar('chartSources',
+    stats.by_source.map(d => d.source.toUpperCase()),
+    stats.by_source.map(d => d.n),
+    '#0dcaf0');
+
+  // Modo
+  ;(function() {
+    const m = {};
+    stats.by_mode.forEach(d => m[d.mode] = d.n);
+    makeDonut('chartMode',
+      [T('stats.lbl.full'), T('stats.lbl.single')],
+      [m['full'] || 0, m['single'] || 0],
+      ['#0dcaf0', '#ffc107']);
+  })();
+
+  // Hora del día
+  makeBar('chartHours',
+    Array.from({length: 24}, (_, i) => i + 'h'),
+    stats.by_hour,
+    '#6f42c1');
+}
 </script>
 {% endblock %}
