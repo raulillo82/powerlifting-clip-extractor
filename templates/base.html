@@ -22,7 +22,7 @@
         {% if current_user.is_authenticated %}
         <span class="text-white-50 small{% if current_user.is_admin %} d-none d-sm-inline{% endif %}">Hola, {{ current_user.display_name }}</span>
         <a href="{{ url_for('history') }}" class="btn btn-sm btn-outline-light border-0 py-0" data-i18n="nav.history">Historial</a>
-        <a href="{{ url_for('feedback') }}" class="btn btn-sm btn-outline-light border-0 py-0" data-i18n="nav.feedback">Feedback</a>
+        <a href="{{ url_for('admin.feedback') if current_user.is_admin else url_for('feedback') }}" class="btn btn-sm btn-outline-light border-0 py-0" data-i18n="nav.feedback">Feedback</a>
         {% if current_user.is_admin %}
         <a href="{{ url_for('admin.index') }}" class="btn btn-sm btn-outline-light border-0 py-0">Admin</a>
         <a href="{{ url_for('admin.stats') }}" class="btn btn-sm btn-outline-light border-0 py-0 d-none d-sm-inline-flex" data-i18n="nav.stats">Stats</a>
