@@ -24,7 +24,7 @@
     <thead>
       <tr>
         <th data-i18n="admin.fb.col.user">Usuario</th>
-        <th data-i18n="fb.col.excerpt">Extracto</th>
+        <th data-i18n="fb.col.title">Asunto</th>
         <th data-i18n="fb.col.status">Estado</th>
         <th data-i18n="fb.col.labels">Etiquetas</th>
         <th data-i18n="fb.col.link">Enlace</th>
@@ -36,8 +36,8 @@
     {% set user_labels = fb.labels | fromjson | reject('equalto', 'user-feedback') | list %}
     <tr>
       <td class="small fw-semibold text-nowrap">{{ fb.display_name }}</td>
-      <td class="text-muted small" style="max-width:280px">
-        <span class="text-truncate d-inline-block" style="max-width:100%">{{ fb.body_excerpt }}</span>
+      <td class="small" style="max-width:280px">
+        <span class="text-truncate d-inline-block" style="max-width:100%">{{ fb.title }}</span>
       </td>
       <td>
         {% if fb.status == 'closed' %}

@@ -1136,8 +1136,8 @@ class TestFeedback:
         with db.get_db() as conn:
             uid_a = _make_user(conn, "user_a")
             uid_b = _make_user(conn, "user_b")
-        db.add_feedback(uid_a, 10, "https://gh/10", "Feedback de A")
-        db.add_feedback(uid_b, 11, "https://gh/11", "Feedback de B")
+        db.add_feedback(uid_a, 10, "https://gh/10", "Feedback de A", "excerpt a")
+        db.add_feedback(uid_b, 11, "https://gh/11", "Feedback de B", "excerpt b")
         with flask_app.app.test_client() as c:
             c.post("/login", data={"username": "user_a", "password": "pass"})
             r = c.get("/feedback")
@@ -1150,8 +1150,8 @@ class TestAdminFeedback:
         with db.get_db() as conn:
             uid_a = _make_user(conn, "user_a")
             uid_b = _make_user(conn, "user_b")
-        db.add_feedback(uid_a, 10, "https://gh/10", "Feedback de A")
-        db.add_feedback(uid_b, 11, "https://gh/11", "Feedback de B")
+        db.add_feedback(uid_a, 10, "https://gh/10", "Feedback de A", "excerpt a")
+        db.add_feedback(uid_b, 11, "https://gh/11", "Feedback de B", "excerpt b")
         r = client.get("/admin/feedback")
         assert r.status_code == 200
         assert b"Feedback de A" in r.data
@@ -1173,8 +1173,8 @@ class TestAdminFeedback:
     def test_filter_by_status(self, client):
         with db.get_db() as conn:
             uid = _make_user(conn, "user_a")
-        db.add_feedback(uid, 10, "https://gh/10", "Open feedback")
-        db.add_feedback(uid, 11, "https://gh/11", "Closed feedback")
+        db.add_feedback(uid, 10, "https://gh/10", "Open feedback", "excerpt")
+        db.add_feedback(uid, 11, "https://gh/11", "Closed feedback", "excerpt")
         db.update_feedback_from_github(11, "closed", "[]")
         r = client.get("/admin/feedback?status=open")
         assert b"Open feedback" in r.data
@@ -1192,7 +1192,7 @@ class TestGithubWebhook:
         db.init_db()
         with db.get_db() as conn:
             uid = _make_user(conn, "user_a")
-        db.add_feedback(uid, 99, "https://gh/99", "Test feedback")
+        db.add_feedback(uid, 99, "https://gh/99", "Test feedback", "excerpt")
 
         secret = "testsecret"
         import github_issues as gi

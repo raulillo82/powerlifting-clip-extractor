@@ -53,12 +53,18 @@ def init_db() -> None:
                 user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 issue_number INTEGER NOT NULL,
                 issue_url    TEXT NOT NULL,
+                title        TEXT NOT NULL DEFAULT '',
                 body_excerpt TEXT NOT NULL,
                 submitted_at REAL NOT NULL,
                 status       TEXT NOT NULL DEFAULT 'open',
                 labels       TEXT NOT NULL DEFAULT '[]'
             )
         """)
+        # Migration: add title column to existing DBs
+        try:
+            conn.execute("ALTER TABLE feedback ADD COLUMN title TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass
         conn.commit()
 
 
@@ -178,12 +184,13 @@ def get_stats(days: int | None) -> dict:
     }
 
 
-def add_feedback(user_id: int, issue_number: int, issue_url: str, body_excerpt: str) -> int:
+def add_feedback(user_id: int, issue_number: int, issue_url: str,
+                 title: str, body_excerpt: str) -> int:
     with get_db() as conn:
         cur = conn.execute("""
-            INSERT INTO feedback (user_id, issue_number, issue_url, body_excerpt, submitted_at)
-            VALUES (?, ?, ?, ?, ?)
-        """, (user_id, issue_number, issue_url, body_excerpt, time.time()))
+            INSERT INTO feedback (user_id, issue_number, issue_url, title, body_excerpt, submitted_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (user_id, issue_number, issue_url, title, body_excerpt, time.time()))
         conn.commit()
         return cur.lastrowid
 

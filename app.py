@@ -761,7 +761,7 @@ def feedback():
                                    error="fb.error.github"), 502
 
         excerpt = body_text[:100] + ("…" if len(body_text) > 100 else "")
-        add_feedback(user_id, issue["number"], issue["html_url"], excerpt)
+        add_feedback(user_id, issue["number"], issue["html_url"], title, excerpt)
         return redirect(url_for("feedback"))
 
     feedbacks = get_feedback_for_user(user_id)
