@@ -59,6 +59,10 @@
       <td>
         {% if fb.status == 'closed' %}
           <span class="badge bg-success" data-i18n="fb.status.closed">Implementado</span>
+        {% elif fb.status == 'wontfix' %}
+          <span class="badge bg-secondary" data-i18n="fb.status.wontfix">Sin planear</span>
+        {% elif fb.status == 'duplicate' %}
+          <span class="badge bg-warning text-dark" data-i18n="fb.status.duplicate">Duplicado</span>
         {% else %}
           <span class="badge bg-primary" data-i18n="fb.status.open">Abierto</span>
         {% endif %}

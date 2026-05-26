@@ -1187,30 +1187,53 @@ class TestGithubWebhook:
         import hmac as hmac_mod
         return "sha256=" + hmac_mod.new(secret.encode(), body, hashlib.sha256).hexdigest()
 
+    def _post_webhook(self, client, monkeypatch, secret, issue_number, action,
+                      state_reason=None, labels=None):
+        import github_issues as gi
+        monkeypatch.setattr(gi, "_SECRET_PATH",
+                            type("P", (), {"read_text": lambda s: secret})())
+        issue = {"number": issue_number, "labels": [{"name": l} for l in (labels or [])]}
+        if state_reason:
+            issue["state_reason"] = state_reason
+        payload = json.dumps({"action": action, "issue": issue}).encode()
+        sig = self._make_sig(payload, secret)
+        return client.post("/webhook/github", data=payload,
+                           content_type="application/json",
+                           headers={"X-GitHub-Event": "issues",
+                                    "X-Hub-Signature-256": sig})
+
     def test_updates_status_on_close(self, client, tmp_path, monkeypatch):
         monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
         db.init_db()
         with db.get_db() as conn:
             uid = _make_user(conn, "user_a")
         db.add_feedback(uid, 99, "https://gh/99", "Test feedback", "excerpt")
-
-        secret = "testsecret"
-        import github_issues as gi
-        monkeypatch.setattr(gi, "_SECRET_PATH",
-                            type("P", (), {"read_text": lambda s: secret})())
-        payload = json.dumps({
-            "action": "closed",
-            "issue": {"number": 99, "labels": [{"name": "user-feedback"}, {"name": "bug"}]},
-        }).encode()
-        sig = self._make_sig(payload, secret)
-        r = client.post("/webhook/github",
-                        data=payload,
-                        content_type="application/json",
-                        headers={"X-GitHub-Event": "issues",
-                                 "X-Hub-Signature-256": sig})
+        r = self._post_webhook(client, monkeypatch, "testsecret", 99, "closed",
+                               labels=["user-feedback", "bug"])
         assert r.status_code == 204
-        rows = db.get_feedback_for_user(uid)
-        assert rows[0]["status"] == "closed"
+        assert db.get_feedback_for_user(uid)[0]["status"] == "closed"
+
+    def test_updates_status_not_planned(self, client, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        with db.get_db() as conn:
+            uid = _make_user(conn, "user_a")
+        db.add_feedback(uid, 99, "https://gh/99", "Test feedback", "excerpt")
+        r = self._post_webhook(client, monkeypatch, "testsecret", 99, "closed",
+                               state_reason="not_planned")
+        assert r.status_code == 204
+        assert db.get_feedback_for_user(uid)[0]["status"] == "wontfix"
+
+    def test_updates_status_duplicate(self, client, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        with db.get_db() as conn:
+            uid = _make_user(conn, "user_a")
+        db.add_feedback(uid, 99, "https://gh/99", "Test feedback", "excerpt")
+        r = self._post_webhook(client, monkeypatch, "testsecret", 99, "closed",
+                               state_reason="duplicate")
+        assert r.status_code == 204
+        assert db.get_feedback_for_user(uid)[0]["status"] == "duplicate"
 
     def test_rejects_bad_signature(self, client, tmp_path, monkeypatch):
         monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")

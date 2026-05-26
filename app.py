@@ -785,7 +785,16 @@ def github_webhook():
     issue_number = issue.get("number")
 
     if issue_number and action in ("closed", "reopened", "labeled", "unlabeled"):
-        status = "closed" if action == "closed" else "open"
+        if action == "closed":
+            state_reason = issue.get("state_reason") or "completed"
+            if state_reason == "not_planned":
+                status = "wontfix"
+            elif state_reason == "duplicate":
+                status = "duplicate"
+            else:
+                status = "closed"
+        else:
+            status = "open"
         labels = [lbl["name"] for lbl in issue.get("labels", [])]
         update_feedback_from_github(issue_number, status, json.dumps(labels))
 
