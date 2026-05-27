@@ -102,7 +102,7 @@
   </div>
 
   {# ── Single lift toggle ── #}
-  {% set is_single = (not form_data) or form_data.get('single_lift') %}
+  {% set is_single = form_data.get('single_lift') if form_data else False %}
   <div class="form-check form-switch mb-3">
     <input class="form-check-input" type="checkbox" role="switch"
            id="single_lift" name="single_lift"

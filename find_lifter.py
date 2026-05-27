@@ -118,7 +118,7 @@ def read_timer(path):
     crop = img.crop((int(w * x0), int(h * y0), int(w * x1), int(h * y1)))
     crop4 = crop.resize((crop.width * TIMER_SCALE, crop.height * TIMER_SCALE), Image.NEAREST)
     text = pytesseract.image_to_string(
-        crop4, config="--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789:").strip()
+        crop4, config="--oem 3 --psm 6 -l spa -c tessedit_char_whitelist=0123456789:").strip()
     m = re.search(r"(\d{1,2}):(\d{2})", text)
     if not m:
         return None
