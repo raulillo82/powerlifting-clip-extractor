@@ -667,10 +667,19 @@ def _build_run_kwargs(form, files, output_dir: Path) -> dict:
     music_start_raw = form.get("music_start", "").strip()
     music_start = float(parse_timestamp(music_start_raw)) if music_start_raw else 0.0
 
+    clip_dur_vals = [form.get(f"clip_duration_{i}", "").strip() for i in range(9)]
+    clip_durations = None
+    if all(clip_dur_vals):
+        try:
+            clip_durations = [max(10, int(v)) for v in clip_dur_vals]
+        except ValueError:
+            clip_durations = None
+
     return dict(
         url=url,
         timestamps=timestamps,
         durations=durations,
+        clip_durations=clip_durations,
         squat_attempt=int(form.get("squat_attempt", 3)),
         bench_attempt=int(form.get("bench_attempt", 3)),
         deadlift_attempt=int(form.get("deadlift_attempt", 3)),

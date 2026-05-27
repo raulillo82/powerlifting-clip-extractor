@@ -6,9 +6,12 @@
   Ajusta los timestamps detectados. Los 9 campos son obligatorios.
 </p>
 
-{% set squat_ts    = ocr_result.squat    or [] %}
-{% set bench_ts    = ocr_result.bench    or [] %}
-{% set deadlift_ts = ocr_result.deadlift or [] %}
+{% set squat_ts       = ocr_result.squat         or [] %}
+{% set bench_ts       = ocr_result.bench         or [] %}
+{% set deadlift_ts    = ocr_result.deadlift      or [] %}
+{% set squat_ends     = ocr_result.squat_ends    or [] %}
+{% set bench_ends     = ocr_result.bench_ends    or [] %}
+{% set deadlift_ends  = ocr_result.deadlift_ends or [] %}
 
 {% if squat_ts|length < 3 or bench_ts|length < 3 or deadlift_ts|length < 3 %}
 <div class="alert alert-warning mb-4" data-i18n="ocr.warn.incomplete">
@@ -22,26 +25,36 @@
   <input type="hidden" name="session_label"   value="{{ job.session_label or '' }}">
   <input type="hidden" name="timestamps_mode" value="paste">
   <input type="hidden" name="timestamps_text" id="timestamps_text_hidden" value="">
-  <input type="hidden" name="duration"        value="60">
   <input type="hidden" name="squat_attempt"   value="3">
   <input type="hidden" name="bench_attempt"   value="3">
   <input type="hidden" name="deadlift_attempt" value="3">
 
   <div class="row g-4 mb-4">
-    {% for mov, label_key, ts_list in [
-        ('squat',    'ocr.squat',    squat_ts),
-        ('bench',    'ocr.bench',    bench_ts),
-        ('deadlift', 'ocr.deadlift', deadlift_ts),
+    {% for mov, label_key, ts_list, end_list in [
+        ('squat',    'ocr.squat',    squat_ts,    squat_ends),
+        ('bench',    'ocr.bench',    bench_ts,    bench_ends),
+        ('deadlift', 'ocr.deadlift', deadlift_ts, deadlift_ends),
     ] %}
+    {% set mov_idx = loop.index0 %}
     <div class="col-md-4">
       <div class="card h-100">
         <div class="card-header fw-semibold" data-i18n="{{ label_key }}">{{ label_key }}</div>
         <div class="card-body">
           {% for i in range(3) %}
           {% set secs = ts_list[i] if i < ts_list|length else none %}
+          {% set end_secs = end_list[i] if i < end_list|length else none %}
+          {% if secs is not none and end_secs is not none %}
+            {% set clip_dur = [[20, (end_secs - secs + 15) | int] | max, 300] | min %}
+          {% else %}
+            {% set clip_dur = 60 %}
+          {% endif %}
+          <input type="hidden" name="clip_duration_{{ mov_idx * 3 + i }}" value="{{ clip_dur }}">
           <div class="mb-3">
-            <label class="form-label small text-muted">Intento {{ i + 1 }}</label>
-            <div class="input-group">
+            <div class="d-flex justify-content-between align-items-baseline">
+              <label class="form-label small text-muted mb-0">Intento {{ i + 1 }}</label>
+              <span class="badge bg-secondary">~{{ clip_dur }}s</span>
+            </div>
+            <div class="input-group mt-1">
               <button type="button" class="btn btn-outline-secondary btn-sm"
                       onclick="adjustTs(this, -5)">−5s</button>
               <input type="text"

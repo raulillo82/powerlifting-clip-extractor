@@ -214,6 +214,11 @@ def groups_to_timestamps(groups):
     return [min(g) for g in groups]
 
 
+def groups_to_ends(groups):
+    """Devuelve el último frame detectado de cada grupo (fin de la repetición)."""
+    return [max(g) for g in groups]
+
+
 def main():
     parser = argparse.ArgumentParser(description="Detecta timestamps de un levantador en vídeo AEP.")
     parser.add_argument("url", help="URL de YouTube del vídeo de competición")
@@ -257,6 +262,7 @@ def main():
     )
     squat_ts = groups_to_timestamps(squat_groups)
     result["squat"] = squat_ts
+    result["squat_ends"] = groups_to_ends(squat_groups)
     err(f"  → sentadilla: {squat_ts}")
 
     # ── 3. Inicio de banca (timer de descanso) ────────────────────────────────
@@ -284,6 +290,7 @@ def main():
     )
     bench_ts = groups_to_timestamps(bench_groups)
     result["bench"] = bench_ts
+    result["bench_ends"] = groups_to_ends(bench_groups)
     err(f"  → banca: {bench_ts}")
 
     # ── 5. Inicio de DL (timer de descanso) ───────────────────────────────────
@@ -310,6 +317,7 @@ def main():
     )
     dl_ts = groups_to_timestamps(dl_groups)
     result["deadlift"] = dl_ts
+    result["deadlift_ends"] = groups_to_ends(dl_groups)
     err(f"  → peso muerto: {dl_ts}")
 
     result["elapsed_s"] = round(time.perf_counter() - t_start, 1)
