@@ -12,6 +12,7 @@ RUN zypper addrepo -cfp 90 \
         yt-dlp \
         ffmpeg \
         tesseract-ocr \
+        tesseract-ocr-traineddata-spa \
     && zypper clean -a
 
 WORKDIR /app

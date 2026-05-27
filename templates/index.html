@@ -473,22 +473,15 @@
 <script>
 function toggleSingleLift() {
   const single = document.getElementById('single_lift').checked;
-  const isOcr  = document.getElementById('ts_mode_ocr')?.checked;
   document.getElementById('full-mode-section').classList.toggle('d-none', single);
   document.getElementById('single-mode-section').classList.toggle('d-none', !single);
   document.querySelectorAll('#full-mode-section input, #full-mode-section textarea, #full-mode-section select')
-    .forEach(el => {
-      if (single) {
-        el.disabled = true;
-      } else if (!isOcr || !el.closest('#manual-ts-area')) {
-        el.disabled = false;
-      }
-    });
+    .forEach(el => { el.disabled = single; });
   document.querySelectorAll('#single-mode-section input, #single-mode-section textarea, #single-mode-section select')
     .forEach(el => { el.disabled = !single; });
   if (single) {
     toggleSingleAudio();
-  } else if (!isOcr) {
+  } else {
     toggleSkipCombined();
   }
 }
