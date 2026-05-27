@@ -24,7 +24,7 @@ Instalación en OpenSUSE Tumbleweed:
         python3-pytesseract python3-Pillow python3-numpy
 """
 
-import sys, argparse, subprocess, time, difflib, re, json, tempfile, unicodedata
+import sys, argparse, subprocess, time, difflib, re, json, unicodedata
 from pathlib import Path
 from PIL import Image
 import numpy as np, pytesseract
@@ -120,8 +120,9 @@ def ocr_banner(path, token):
     ocr_words = [w.strip(".,;:!?-_|/\\\"'()[]{}¡¿") for w in text_cmp.split()]
     ocr_words = [w for w in ocr_words if w]
 
-    # Split token into sub-tokens; ignore very short fragments (truncated names)
-    sub_tokens = [t for t in _normalize(token).split() if len(t) >= 3]
+    # Split token into sub-tokens on spaces AND hyphens (OCR often separates
+    # compound surnames like SANCHEZ-INFANTE into two words).
+    sub_tokens = [t for t in re.split(r'[\s\-]+', _normalize(token)) if len(t) >= 3]
     if not sub_tokens:
         return text, False
 
