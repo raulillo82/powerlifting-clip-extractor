@@ -763,6 +763,10 @@ def start_ocr_job():
         "ocr_apellido": apellido,
         "source": request.form.get("source", "").strip(),
         "session_label": request.form.get("session_label", "").strip(),
+        "music": request.form.get("music", "").strip(),
+        "music_start": request.form.get("music_start", "").strip(),
+        "music_pct": request.form.get("music_pct", "50").strip(),
+        "audio_mode": request.form.get("audio_mode", "original").strip(),
         "_geo": geoip.lookup(request.headers.get("X-Real-IP", request.remote_addr)),
         "ocr_result": None,
     }

@@ -166,7 +166,8 @@ def detect_comp_start(url, work_dir, max_probe_s=360):
 
 def scan_movement(url, work_dir, start_s, max_window_s, token, label, prefix):
     """
-    Scan denso de un bloque de movimiento. Para cuando detecta EARLY_STOP_N grupos.
+    Scan denso de un bloque de movimiento. Para cuando el último de EARLY_STOP_N grupos
+    lleva GROUP_GAP_S sin nuevas detecciones (banner de repetición cerrado).
     Devuelve lista de grupos [[t1, t2, ...], [t1, t2, ...], [t1, t2, ...]].
     """
     err(f"  [{label}] scan desde {start_s // 3600}h{(start_s % 3600) // 60:02d}m "
@@ -199,9 +200,12 @@ def scan_movement(url, work_dir, start_s, max_window_s, token, label, prefix):
                     groups.append(cur)
                     cur = [s]
             groups.append(cur)
-            if len(groups) == EARLY_STOP_N:
-                err(f"  [{label}] early-stop: {EARLY_STOP_N} grupos en frame {i}")
-                break
+
+        # Stop once EARLY_STOP_N groups are identified AND the last group has closed
+        # (GROUP_GAP_S seconds without a new detection = replay banner ended).
+        if len(groups) >= EARLY_STOP_N and hits and (secs - hits[-1]) >= GROUP_GAP_S:
+            err(f"  [{label}] early-stop: {EARLY_STOP_N} grupos cerrados en frame {i}")
+            break
 
     return groups
 

@@ -28,6 +28,10 @@
   <input type="hidden" name="squat_attempt"   value="3">
   <input type="hidden" name="bench_attempt"   value="3">
   <input type="hidden" name="deadlift_attempt" value="3">
+  <input type="hidden" name="audio_mode"      value="{{ job.audio_mode or 'original' }}">
+  <input type="hidden" name="music"           value="{{ job.music or '' }}">
+  <input type="hidden" name="music_start"     value="{{ job.music_start or '' }}">
+  <input type="hidden" name="music_pct"       value="{{ job.music_pct or '50' }}">
 
   <div class="row g-4 mb-4">
     {% for mov, label_key, ts_list, end_list in [
@@ -44,9 +48,9 @@
           {% set secs = ts_list[i] if i < ts_list|length else none %}
           {% set end_secs = end_list[i] if i < end_list|length else none %}
           {% if secs is not none and end_secs is not none %}
-            {% set clip_dur = [[20, (end_secs - secs + 15) | int] | max, 300] | min %}
+            {% set clip_dur = [[90, (end_secs - secs + 8) | int] | max, 300] | min %}
           {% else %}
-            {% set clip_dur = 60 %}
+            {% set clip_dur = 90 %}
           {% endif %}
           <input type="hidden" name="clip_duration_{{ mov_idx * 3 + i }}" value="{{ clip_dur }}">
           <div class="mb-3">
