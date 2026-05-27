@@ -40,6 +40,17 @@
         ('deadlift', 'ocr.deadlift', deadlift_ts, deadlift_ends),
     ] %}
     {% set mov_idx = loop.index0 %}
+    {# Compute average diff of attempts with valid end timestamps for this movement #}
+    {% set ns = namespace(diff_sum=0, diff_count=0) %}
+    {% for j in range(3) %}
+      {% set s = ts_list[j] if j < ts_list|length else none %}
+      {% set e = end_list[j] if j < end_list|length else none %}
+      {% if s is not none and e is not none and e > s %}
+        {% set ns.diff_sum = ns.diff_sum + (e - s) %}
+        {% set ns.diff_count = ns.diff_count + 1 %}
+      {% endif %}
+    {% endfor %}
+    {% set avg_diff = (ns.diff_sum // ns.diff_count) if ns.diff_count > 0 else 52 %}
     <div class="col-md-4">
       <div class="card h-100">
         <div class="card-header fw-semibold" data-i18n="{{ label_key }}">{{ label_key }}</div>
@@ -48,9 +59,13 @@
           {% set secs = ts_list[i] if i < ts_list|length else none %}
           {% set end_secs = end_list[i] if i < end_list|length else none %}
           {% if secs is not none and end_secs is not none %}
-            {% set clip_dur = [[90, (end_secs - secs + 8) | int] | max, 300] | min %}
+            {% if end_secs > secs %}
+              {% set clip_dur = [[45, (end_secs - secs + 8) | int] | max, 300] | min %}
+            {% else %}
+              {% set clip_dur = [[45, (avg_diff + 8) | int] | max, 300] | min %}
+            {% endif %}
           {% else %}
-            {% set clip_dur = 90 %}
+            {% set clip_dur = [[45, (avg_diff + 8) | int] | max, 300] | min %}
           {% endif %}
           <input type="hidden" name="clip_duration_{{ mov_idx * 3 + i }}" value="{{ clip_dur }}">
           <div class="mb-3">
