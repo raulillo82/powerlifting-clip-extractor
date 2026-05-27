@@ -109,7 +109,7 @@
            {% if is_single %}checked{% endif %}
            onchange="toggleSingleLift()">
     <label class="form-check-label fw-semibold" for="single_lift"
-           data-i18n="{{ 'opt.single_lift' if is_single else 'opt.multi_lift' }}">{{ 'Modo un solo levantamiento' if is_single else 'Modo completo' }}</label>
+           data-i18n="{{ 'opt.single_lift' if is_single else 'opt.multi_lift' }}">{{ 'Modo un solo levantamiento' if is_single else 'Modo completo (9 levantamientos)' }}</label>
   </div>
 
   {# ── Full-mode section (hidden in single lift mode) ── #}
@@ -140,7 +140,10 @@
       <div id="ocr-apellido-area" class="d-none mb-3">
         <label class="form-label" for="ocr_apellido" data-i18n="label.ocr.apellido">Apellido</label>
         <input type="text" class="form-control" id="ocr_apellido" name="ocr_apellido"
-               style="max-width:300px" placeholder="Ej: GONZALEZ" disabled>
+               style="max-width:300px" maxlength="22"
+               placeholder="Ej: GONZALEZ FERNANDEZ David"
+               data-i18n-placeholder="ph.ocr.apellido" disabled
+               oninput="normalizeApellido(this)">
         <div class="form-text text-muted" data-i18n="ts.ocr.hint">
           El script buscará los levantamientos de este apellido (~26 min).
         </div>
@@ -198,7 +201,7 @@
   <div class="card mb-3" id="clips-card">
     <div class="card-header fw-semibold" data-i18n="card.clips">Clip settings</div>
     <div class="card-body">
-      <div class="row g-3 mb-3">
+      <div id="duration-row" class="row g-3 mb-3">
         {% for name, i18n_key, has_placeholder, default in [
             ('duration',          'label.duration',     False, '60'),
             ('duration_squat',    'label.dur.squat',    True,  ''),
@@ -471,6 +474,12 @@
 
 {% block scripts %}
 <script>
+function normalizeApellido(el) {
+  const pos = el.selectionStart;
+  el.value = el.value.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+  el.setSelectionRange(pos, pos);
+}
+
 function toggleSingleLift() {
   const single = document.getElementById('single_lift').checked;
   const lbl = document.querySelector('label[for="single_lift"]');
@@ -787,6 +796,7 @@ function onTsInputModeChange() {
   document.getElementById('manual-ts-area').classList.toggle('d-none', isOcr);
   document.getElementById('ocr-apellido-area').classList.toggle('d-none', !isOcr);
   document.getElementById('ocr_apellido').disabled = !isOcr;
+  document.getElementById('duration-row')?.classList.toggle('d-none', isOcr);
 
   // Disable timestamps inputs so they don't get submitted in OCR mode
   document.querySelectorAll('#manual-ts-area input, #manual-ts-area textarea')

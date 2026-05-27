@@ -24,7 +24,7 @@ Instalación en OpenSUSE Tumbleweed:
         python3-pytesseract python3-Pillow python3-numpy
 """
 
-import sys, argparse, subprocess, time, difflib, re, json, tempfile
+import sys, argparse, subprocess, time, difflib, re, json, tempfile, unicodedata
 from pathlib import Path
 from PIL import Image
 import numpy as np, pytesseract
@@ -49,6 +49,11 @@ EARLY_STOP_N     = 3                          # detener el scan al completar N g
 
 def err(msg):
     print(msg, file=sys.stderr, flush=True)
+
+
+def _normalize(text: str) -> str:
+    """Quita tildes y convierte a mayúsculas para comparación robusta."""
+    return unicodedata.normalize("NFD", text).encode("ascii", "ignore").decode("ascii").upper()
 
 
 def extract_frame(url, secs, out):
@@ -88,6 +93,17 @@ def yellow_mask(path):
     return (hh >= lo) & (hh <= hi) & (s >= YELLOW_MIN_S) & (v >= YELLOW_MIN_V)
 
 
+def _token_matches_word(tok, word):
+    """True si tok encaja con word mediante ratio difuso o subconjunto."""
+    if len(word) < max(4, len(tok) - 2):
+        return False
+    if difflib.SequenceMatcher(None, tok, word).ratio() >= FUZZY_RATIO:
+        return True
+    if abs(len(tok) - len(word)) <= 2 and (tok in word or word in tok):
+        return True
+    return False
+
+
 def ocr_banner(path, token):
     ym = yellow_mask(path)
     if ym.sum() < YELLOW_MIN_PX:
@@ -96,18 +112,24 @@ def ocr_banner(path, token):
     bin_arr[ym] = 255
     pil = Image.fromarray(bin_arr).resize(
         (bin_arr.shape[1] * OCR_SCALE, bin_arr.shape[0] * OCR_SCALE), Image.NEAREST)
-    text = pytesseract.image_to_string(
-        pil, config="--oem 3 --psm 6 -l spa").upper().replace("\n", " ").strip()
-    tok = token.upper()
-    for word in text.split():
-        word = word.strip(".,;:!?-_|/\\\"'()[]{}¡¿")
-        if len(word) < max(4, len(tok) - 2):
-            continue
-        if difflib.SequenceMatcher(None, tok, word).ratio() >= FUZZY_RATIO:
-            return text, True
-        if abs(len(tok) - len(word)) <= 2 and (tok in word or word in tok):
-            return text, True
-    return text, False
+    raw = pytesseract.image_to_string(
+        pil, config="--oem 3 --psm 6 -l spa").replace("\n", " ").strip()
+    text = raw.upper()  # for log display
+    text_cmp = _normalize(raw)  # accentless for comparison
+
+    ocr_words = [w.strip(".,;:!?-_|/\\\"'()[]{}¡¿") for w in text_cmp.split()]
+    ocr_words = [w for w in ocr_words if w]
+
+    # Split token into sub-tokens; ignore very short fragments (truncated names)
+    sub_tokens = [t for t in _normalize(token).split() if len(t) >= 3]
+    if not sub_tokens:
+        return text, False
+
+    # All sub-tokens must match at least one OCR word (AND logic)
+    for tok in sub_tokens:
+        if not any(_token_matches_word(tok, w) for w in ocr_words):
+            return text, False
+    return text, True
 
 
 def read_timer(path):
@@ -229,7 +251,7 @@ def main():
 
     work_dir = Path(args.work_dir)
     work_dir.mkdir(parents=True, exist_ok=True)
-    token = args.apellido.upper()
+    token = _normalize(args.apellido)
 
     t_start = time.perf_counter()
     err(f"find_lifter.py — URL: {args.url}  token: {token}")
