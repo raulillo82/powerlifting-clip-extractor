@@ -330,7 +330,7 @@ def make_combined(clips: list[Path], output: Path, preview_width: int = 0) -> No
     ]
     print(f"\n[combined] ⏳ Creando vídeo combinado...")
     sys.stdout.flush()
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
     print("✓ Vídeo combinado listo")
 
 

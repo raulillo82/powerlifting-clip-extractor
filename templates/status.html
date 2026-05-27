@@ -48,6 +48,9 @@
 
 {# ── OCR review ── #}
 {% if ocr_mode %}
+<div id="ocr-running-notice" class="alert alert-info py-2 small mb-3">
+  <span data-i18n="ocr.nav.away">El escaneo OCR dura ~26 min. Puedes cerrar esta pestaña y volver más tarde — el job seguirá corriendo en el servidor.</span>
+</div>
 <div id="ocr-review-section" class="d-none">
   <a href="{{ url_for('ocr_review', job_id=job_id) }}"
      class="btn btn-primary btn-lg px-5" data-i18n="ocr.review.btn">Revisar timestamps</a>
@@ -147,6 +150,7 @@ function renderOcrDone(data) {
   badgeEl.className = 'badge bg-success fs-6';
   if (data.log) updateOcrProgress(data.log);
   progressEl.classList.remove('progress-bar-animated', 'progress-bar-striped');
+  document.getElementById('ocr-running-notice')?.classList.add('d-none');
   if (ocrReviewSection) {
     ocrReviewSection.classList.remove('d-none');
     const expiryEl2 = document.getElementById('ocr-expiry-notice');
@@ -158,6 +162,7 @@ function renderOcrDone(data) {
 }
 
 function renderError() {
+  document.getElementById('ocr-running-notice')?.classList.add('d-none');
   badgeEl.textContent = T('badge.error');
   badgeEl.className = 'badge bg-danger fs-6';
   progressEl.classList.add('bg-danger');

@@ -102,14 +102,14 @@
   </div>
 
   {# ── Single lift toggle ── #}
-  {% set is_single = form_data.get('single_lift') if form_data else False %}
+  {% set is_single = (not form_data) or form_data.get('single_lift') %}
   <div class="form-check form-switch mb-3">
     <input class="form-check-input" type="checkbox" role="switch"
            id="single_lift" name="single_lift"
            {% if is_single %}checked{% endif %}
            onchange="toggleSingleLift()">
     <label class="form-check-label fw-semibold" for="single_lift"
-           data-i18n="opt.single_lift">Modo un solo levantamiento</label>
+           data-i18n="{{ 'opt.single_lift' if is_single else 'opt.multi_lift' }}">{{ 'Modo un solo levantamiento' if is_single else 'Modo completo' }}</label>
   </div>
 
   {# ── Full-mode section (hidden in single lift mode) ── #}
@@ -473,6 +473,9 @@
 <script>
 function toggleSingleLift() {
   const single = document.getElementById('single_lift').checked;
+  const lbl = document.querySelector('label[for="single_lift"]');
+  lbl.dataset.i18n = single ? 'opt.single_lift' : 'opt.multi_lift';
+  lbl.textContent = T(lbl.dataset.i18n);
   document.getElementById('full-mode-section').classList.toggle('d-none', single);
   document.getElementById('single-mode-section').classList.toggle('d-none', !single);
   document.querySelectorAll('#full-mode-section input, #full-mode-section textarea, #full-mode-section select')
