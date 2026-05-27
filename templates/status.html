@@ -197,8 +197,9 @@ function poll() {
     .then(data => {
       lastData = data;
       if (data.log) {
+        const atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 80;
         logEl.textContent = data.log;
-        logEl.scrollTop = logEl.scrollHeight;
+        if (atBottom) logEl.scrollTop = logEl.scrollHeight;
       }
       if (data.status === 'done') {
         progressEl.classList.remove('progress-bar-animated', 'progress-bar-striped');
