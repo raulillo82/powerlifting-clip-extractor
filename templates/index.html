@@ -781,31 +781,9 @@ function onTsInputModeChange() {
   const form = document.getElementById('main-form');
   form.action = isOcr ? form.dataset.ocrAction : form.dataset.normalAction;
 
-  // OCR and single-lift are mutually exclusive — disable the checkbox when OCR is active
-  const singleLiftEl = document.getElementById('single_lift');
-  singleLiftEl.disabled = isOcr;
-  if (isOcr && singleLiftEl.checked) {
-    singleLiftEl.checked = false;
-    toggleSingleLift();
-  }
-
   document.getElementById('manual-ts-area').classList.toggle('d-none', isOcr);
   document.getElementById('ocr-apellido-area').classList.toggle('d-none', !isOcr);
   document.getElementById('ocr_apellido').disabled = !isOcr;
-
-  // Hide/show clip settings and options when OCR is active
-  ['clips-card', 'options-card'].forEach(id => {
-    document.getElementById(id)?.classList.toggle('d-none', isOcr);
-  });
-
-  // Restore combined-music visibility respecting skip_combined / single_lift state
-  if (isOcr) {
-    document.getElementById('combined-music')?.classList.add('d-none');
-  } else if (singleLiftEl.checked) {
-    toggleSingleAudio();
-  } else {
-    toggleSkipCombined();
-  }
 
   // Disable timestamps inputs so they don't get submitted in OCR mode
   document.querySelectorAll('#manual-ts-area input, #manual-ts-area textarea')
