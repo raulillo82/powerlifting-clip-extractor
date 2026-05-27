@@ -291,6 +291,11 @@ def main():
     result["squat_ends"] = groups_to_ends(squat_groups)
     err(f"  → sentadilla: {squat_ts}")
 
+    # Offset del levantador dentro del bloque de sentadilla: se usa para saltar
+    # la parte inicial de banca/DL si el levantador es G2 (lifta tarde en cada ronda).
+    GROUP_OFFSET_MARGIN_S = 300  # 5 min de margen por cambios de orden
+    sq_offset = (squat_ts[0] - comp_start) if squat_ts else 0
+
     # ── 3. Inicio de banca (timer de descanso) ────────────────────────────────
     err("\n=== Fase 3: buscando inicio de banca ===")
     search_from = (max(squat_ts) + 300) if squat_ts else (comp_start + 3600)
@@ -306,10 +311,13 @@ def main():
 
     # ── 4. Banca ─────────────────────────────────────────────────────────────
     err("\n=== Fase 4: banca ===")
+    bench_scan_start = max(bench_start, bench_start + sq_offset - GROUP_OFFSET_MARGIN_S)
+    if bench_scan_start > bench_start:
+        err(f"  [offset G1/G2] sq_offset={sq_offset}s → saltando {bench_scan_start - bench_start}s del bloque de banca")
     bench_groups = scan_movement(
         url, work_dir,
-        start_s=bench_start,
-        max_window_s=90 * 60,
+        start_s=bench_scan_start,
+        max_window_s=90 * 60 - (bench_scan_start - bench_start),
         token=token,
         label="BN",
         prefix="bn",
@@ -333,10 +341,15 @@ def main():
 
     # ── 6. Peso muerto ───────────────────────────────────────────────────────
     err("\n=== Fase 6: peso muerto ===")
+    # Usar el offset de banca si está disponible (más reciente que squat)
+    bn_offset = (bench_ts[0] - bench_start) if bench_ts else sq_offset
+    dl_scan_start = max(dl_start, dl_start + bn_offset - GROUP_OFFSET_MARGIN_S)
+    if dl_scan_start > dl_start:
+        err(f"  [offset G1/G2] bn_offset={bn_offset}s → saltando {dl_scan_start - dl_start}s del bloque de DL")
     dl_groups = scan_movement(
         url, work_dir,
-        start_s=dl_start,
-        max_window_s=60 * 60,
+        start_s=dl_scan_start,
+        max_window_s=60 * 60 - (dl_scan_start - dl_start),
         token=token,
         label="DL",
         prefix="dl",
