@@ -11,6 +11,7 @@ RUN zypper addrepo -cfp 90 \
         python3-pip \
         yt-dlp \
         ffmpeg \
+        tesseract-ocr \
     && zypper clean -a
 
 WORKDIR /app

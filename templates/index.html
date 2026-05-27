@@ -140,7 +140,7 @@
       <div id="ocr-apellido-area" class="d-none mb-3">
         <label class="form-label" for="ocr_apellido" data-i18n="label.ocr.apellido">Apellido</label>
         <input type="text" class="form-control" id="ocr_apellido" name="ocr_apellido"
-               style="max-width:300px" placeholder="Ej: OSUNA" disabled>
+               style="max-width:300px" placeholder="Ej: GONZALEZ" disabled>
         <div class="form-text text-muted" data-i18n="ts.ocr.hint">
           El script buscará los levantamientos de este apellido (~26 min).
         </div>
@@ -473,15 +473,22 @@
 <script>
 function toggleSingleLift() {
   const single = document.getElementById('single_lift').checked;
+  const isOcr  = document.getElementById('ts_mode_ocr')?.checked;
   document.getElementById('full-mode-section').classList.toggle('d-none', single);
   document.getElementById('single-mode-section').classList.toggle('d-none', !single);
   document.querySelectorAll('#full-mode-section input, #full-mode-section textarea, #full-mode-section select')
-    .forEach(el => { el.disabled = single; });
+    .forEach(el => {
+      if (single) {
+        el.disabled = true;
+      } else if (!isOcr || !el.closest('#manual-ts-area')) {
+        el.disabled = false;
+      }
+    });
   document.querySelectorAll('#single-mode-section input, #single-mode-section textarea, #single-mode-section select')
     .forEach(el => { el.disabled = !single; });
   if (single) {
     toggleSingleAudio();
-  } else {
+  } else if (!isOcr) {
     toggleSkipCombined();
   }
 }
@@ -781,14 +788,31 @@ function onTsInputModeChange() {
   const form = document.getElementById('main-form');
   form.action = isOcr ? form.dataset.ocrAction : form.dataset.normalAction;
 
+  // OCR and single-lift are mutually exclusive — disable the checkbox when OCR is active
+  const singleLiftEl = document.getElementById('single_lift');
+  singleLiftEl.disabled = isOcr;
+  if (isOcr && singleLiftEl.checked) {
+    singleLiftEl.checked = false;
+    toggleSingleLift();
+  }
+
   document.getElementById('manual-ts-area').classList.toggle('d-none', isOcr);
   document.getElementById('ocr-apellido-area').classList.toggle('d-none', !isOcr);
   document.getElementById('ocr_apellido').disabled = !isOcr;
 
-  // Hide/show clip settings, options and music when OCR is active
-  ['clips-card', 'options-card', 'combined-music'].forEach(id => {
+  // Hide/show clip settings and options when OCR is active
+  ['clips-card', 'options-card'].forEach(id => {
     document.getElementById(id)?.classList.toggle('d-none', isOcr);
   });
+
+  // Restore combined-music visibility respecting skip_combined / single_lift state
+  if (isOcr) {
+    document.getElementById('combined-music')?.classList.add('d-none');
+  } else if (singleLiftEl.checked) {
+    toggleSingleAudio();
+  } else {
+    toggleSkipCombined();
+  }
 
   // Disable timestamps inputs so they don't get submitted in OCR mode
   document.querySelectorAll('#manual-ts-area input, #manual-ts-area textarea')
