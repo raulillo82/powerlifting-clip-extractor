@@ -1265,3 +1265,168 @@ class TestGithubWebhook:
                         headers={"X-GitHub-Event": "pull_request",
                                  "X-Hub-Signature-256": sig})
         assert r.status_code == 204
+
+
+# ── /run-ocr ──────────────────────────────────────────────────────────────────
+
+OCR_FORM_BASE = {
+    "url":          "https://www.youtube.com/watch?v=test",
+    "ocr_apellido": "OSUNA",
+}
+
+
+class TestRunOcr:
+    def _post(self, client, overrides=None):
+        data = {**OCR_FORM_BASE, **(overrides or {})}
+        with patch("app._save_job"), patch("app._job_queue.put"):
+            return client.post("/run-ocr", data=data, follow_redirects=False)
+
+    def test_valid_form_redirects_to_status(self, client):
+        r = self._post(client)
+        assert r.status_code == 302
+        assert "/status/" in r.headers["Location"]
+
+    def test_valid_form_creates_queued_ocr_job(self, client):
+        self._post(client)
+        assert len(flask_app.jobs) == 1
+        job = next(iter(flask_app.jobs.values()))
+        assert job["status"] == "queued"
+        assert job["mode"] == "ocr"
+
+    def test_missing_url_returns_400(self, client):
+        assert self._post(client, {"url": ""}).status_code == 400
+
+    def test_missing_apellido_returns_400(self, client):
+        assert self._post(client, {"ocr_apellido": ""}).status_code == 400
+
+    def test_queued_job_has_apellido(self, client):
+        self._post(client)
+        job = next(iter(flask_app.jobs.values()))
+        assert job["ocr_apellido"] == "OSUNA"
+
+    def test_queues_with_ocr_mode(self, client):
+        queued = []
+        with patch("app._save_job"), patch("app._job_queue.put", side_effect=queued.append):
+            client.post("/run-ocr", data=OCR_FORM_BASE, follow_redirects=False)
+        assert queued
+        _job_id, _run_kwargs, mode = queued[0]
+        assert mode == "ocr"
+
+
+# ── /ocr/<job_id>/review ──────────────────────────────────────────────────────
+
+OCR_RESULT = {
+    "squat":    [1287, 1795, 2295],
+    "bench":    [5010, 5790, 6570],
+    "deadlift": [9630, 10164, 10698],
+    "comp_start": 1257,
+    "elapsed_s": 1560.0,
+}
+
+
+class TestOcrReview:
+    def _make_ocr_done_job(self, job_id="ocrtestjob"):
+        flask_app.jobs[job_id] = {
+            "status": "ocr_done",
+            "log": "",
+            "output_dir": "lifts/ocrtestj",
+            "expires_at": time.time() + 3600,
+            "mode": "ocr",
+            "user_id": "1",
+            "submitted_url": "https://www.youtube.com/watch?v=test",
+            "source": "aep",
+            "session_label": "Test session",
+            "ocr_result": OCR_RESULT,
+            "ocr_apellido": "OSUNA",
+        }
+        return job_id
+
+    def test_ocr_done_job_returns_200(self, client):
+        job_id = self._make_ocr_done_job()
+        r = client.get(f"/ocr/{job_id}/review")
+        assert r.status_code == 200
+
+    def test_review_page_shows_timestamps(self, client):
+        job_id = self._make_ocr_done_job()
+        r = client.get(f"/ocr/{job_id}/review")
+        assert b"0:21:27" in r.data  # squat[0] = 1287s
+
+    def test_review_page_has_adjust_buttons(self, client):
+        job_id = self._make_ocr_done_job()
+        r = client.get(f"/ocr/{job_id}/review")
+        assert b"\xe2\x88\x925s" in r.data or b"5s" in r.data  # −5s or +5s
+
+    def test_missing_job_returns_404(self, client):
+        with patch("app._load_job", return_value=None):
+            r = client.get("/ocr/nonexistentjob/review")
+        assert r.status_code == 404
+
+    def test_still_running_job_returns_404(self, client):
+        flask_app.jobs["runningjob"] = {
+            "status": "running", "log": "", "output_dir": "x",
+            "expires_at": None, "mode": "ocr", "ocr_result": None,
+        }
+        r = client.get("/ocr/runningjob/review")
+        assert r.status_code == 404
+
+    def test_status_json_includes_ocr_result(self, client):
+        job_id = self._make_ocr_done_job()
+        r = client.get(f"/status/{job_id}/json")
+        data = json.loads(r.data)
+        assert "ocr_result" in data
+        assert data["ocr_result"]["squat"] == OCR_RESULT["squat"]
+
+
+# ── _ocr_worker unit tests ─────────────────────────────────────────────────────
+
+class TestOcrWorker:
+    def _make_job(self, tmp_path):
+        return {
+            "status": "running",
+            "log": "",
+            "output_dir": str(tmp_path / "ocr_job"),
+            "queued_at": time.time(),
+            "mode": "ocr",
+            "source": "aep",
+            "submitted_url": "https://www.youtube.com/watch?v=test",
+            "ocr_apellido": "OSUNA",
+            "_geo": {},
+            "ocr_result": None,
+        }
+
+    def test_ocr_worker_success(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        job = self._make_job(tmp_path)
+        fake_result = json.dumps(OCR_RESULT)
+
+        import subprocess as sp
+        mock_proc = type("P", (), {
+            "stdout": iter([fake_result]),
+            "stderr": iter(["Fase 1: inicio\nFase 6: peso muerto\nTerminado en 100s\n"]),
+            "returncode": 0,
+            "communicate": lambda self: (fake_result, ""),
+        })()
+
+        with patch("app._save_job"), patch("subprocess.Popen", return_value=mock_proc):
+            flask_app._ocr_worker("ocr1", job)
+
+        assert job["status"] == "ocr_done"
+        assert job["ocr_result"]["squat"] == OCR_RESULT["squat"]
+
+    def test_ocr_worker_subprocess_failure(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        job = self._make_job(tmp_path)
+
+        mock_proc = type("P", (), {
+            "stdout": iter([]),
+            "stderr": iter(["Error fatal\n"]),
+            "returncode": 1,
+            "communicate": lambda self: ("", "Error fatal"),
+        })()
+
+        with patch("app._save_job"), patch("subprocess.Popen", return_value=mock_proc):
+            flask_app._ocr_worker("ocr2", job)
+
+        assert job["status"] == "error"

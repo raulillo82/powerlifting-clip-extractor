@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2 class="mb-1" data-i18n="ocr.review.title">Revisar timestamps detectados</h2>
+<p class="text-muted mb-4" data-i18n="ocr.review.hint">
+  Ajusta los timestamps detectados. Los 9 campos son obligatorios.
+</p>
+
+{% set squat_ts    = ocr_result.squat    or [] %}
+{% set bench_ts    = ocr_result.bench    or [] %}
+{% set deadlift_ts = ocr_result.deadlift or [] %}
+
+{% if squat_ts|length < 3 or bench_ts|length < 3 or deadlift_ts|length < 3 %}
+<div class="alert alert-warning mb-4" data-i18n="ocr.warn.incomplete">
+  Algunos movimientos tienen menos de 3 timestamps detectados. Rellena los campos vacíos antes de continuar.
+</div>
+{% endif %}
+
+<form method="post" action="{{ url_for('start_job') }}" id="review-form">
+  <input type="hidden" name="url"             value="{{ job.submitted_url }}">
+  <input type="hidden" name="source"          value="{{ job.source or '' }}">
+  <input type="hidden" name="session_label"   value="{{ job.session_label or '' }}">
+  <input type="hidden" name="timestamps_mode" value="paste">
+  <input type="hidden" name="timestamps_text" id="timestamps_text_hidden" value="">
+  <input type="hidden" name="duration"        value="60">
+  <input type="hidden" name="squat_attempt"   value="3">
+  <input type="hidden" name="bench_attempt"   value="3">
+  <input type="hidden" name="deadlift_attempt" value="3">
+
+  <div class="row g-4 mb-4">
+    {% for mov, label_key, ts_list in [
+        ('squat',    'ocr.squat',    squat_ts),
+        ('bench',    'ocr.bench',    bench_ts),
+        ('deadlift', 'ocr.deadlift', deadlift_ts),
+    ] %}
+    <div class="col-md-4">
+      <div class="card h-100">
+        <div class="card-header fw-semibold" data-i18n="{{ label_key }}">{{ label_key }}</div>
+        <div class="card-body">
+          {% for i in range(3) %}
+          {% set secs = ts_list[i] if i < ts_list|length else none %}
+          <div class="mb-3">
+            <label class="form-label small text-muted">Intento {{ i + 1 }}</label>
+            <div class="input-group">
+              <button type="button" class="btn btn-outline-secondary btn-sm"
+                      onclick="adjustTs(this, -5)">−5s</button>
+              <input type="text"
+                     class="form-control font-monospace text-center{% if secs is none %} is-invalid{% endif %}"
+                     id="ts_{{ mov }}_{{ i }}"
+                     {% if secs is not none %}
+                     data-secs="{{ secs | int }}"
+                     value="{{ '%d:%02d:%02d' | format(secs | int // 3600, (secs | int % 3600) // 60, secs | int % 60) }}"
+                     {% else %}
+                     data-secs=""
+                     value=""
+                     {% endif %}
+                     placeholder="H:MM:SS"
+                     oninput="syncTs(this)">
+              <button type="button" class="btn btn-outline-secondary btn-sm"
+                      onclick="adjustTs(this, 5)">+5s</button>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="d-flex gap-3 align-items-center flex-wrap">
+    <a href="{{ url_for('index') }}" class="btn btn-outline-secondary"
+       data-i18n="ocr.review.retry">Detectar de nuevo</a>
+    <button type="submit" class="btn btn-primary btn-lg px-5"
+            data-i18n="ocr.review.continue"
+            onclick="return buildTimestamps()">Continuar →</button>
+  </div>
+</form>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const TS_ORDER = [
+  ['squat', 0], ['squat', 1], ['squat', 2],
+  ['bench', 0], ['bench', 1], ['bench', 2],
+  ['deadlift', 0], ['deadlift', 1], ['deadlift', 2],
+];
+
+function secsToHms(s) {
+  s = Math.max(0, Math.round(s));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+}
+
+function hmsToSecs(str) {
+  if (!str) return NaN;
+  const parts = str.trim().split(':').map(Number);
+  if (parts.some(isNaN)) return NaN;
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return NaN;
+}
+
+function adjustTs(btn, delta) {
+  const input = btn.parentElement.querySelector('input[type="text"]');
+  const cur = parseFloat(input.dataset.secs);
+  const base = isNaN(cur) ? 0 : cur;
+  const newVal = Math.max(0, base + delta);
+  input.dataset.secs = newVal;
+  input.value = secsToHms(newVal);
+  input.classList.remove('is-invalid');
+}
+
+function syncTs(input) {
+  const s = hmsToSecs(input.value);
+  if (!isNaN(s)) {
+    input.dataset.secs = s;
+    input.classList.remove('is-invalid');
+  }
+}
+
+function buildTimestamps() {
+  const lines = TS_ORDER.map(([mov, i]) => {
+    const el = document.getElementById(`ts_${mov}_${i}`);
+    return el ? el.value.trim() : '';
+  });
+  if (lines.some(l => !l)) {
+    alert('Todos los timestamps son obligatorios. Rellena los campos vacíos.');
+    return false;
+  }
+  document.getElementById('timestamps_text_hidden').value = lines.join('\n');
+  return true;
+}
+</script>
+{% endblock %}

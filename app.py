@@ -15,12 +15,15 @@ import os
 import queue
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import urllib.parse
 import uuid
 import zipfile
 from pathlib import Path
+
+_FIND_LIFTER = Path(__file__).with_name("find_lifter.py")
 
 from altcha import verify_solution_v1
 from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, url_for
@@ -349,7 +352,7 @@ def _save_job(job_id: str, job: dict) -> None:
     path = _status_path(job_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({
-        "status":     job["status"],
+        "status":        job["status"],
         "log":           job["log"],
         "output_dir":    job["output_dir"],
         "expires_at":    job.get("expires_at"),
@@ -360,6 +363,8 @@ def _save_job(job_id: str, job: dict) -> None:
         "source":        job.get("source"),
         "session_label": job.get("session_label"),
         "queued_at":     job.get("queued_at"),
+        "ocr_result":    job.get("ocr_result"),
+        "ocr_apellido":  job.get("ocr_apellido"),
     }))
 
 
@@ -456,7 +461,64 @@ class _LiveLog(io.StringIO):
 
 # ── Worker ─────────────────────────────────────────────────────────────────────
 
+def _ocr_worker(job_id: str, job: dict) -> None:
+    """Execute find_lifter.py as a subprocess, stream stderr to live log."""
+    buf = _LiveLog(job_id, job)
+    started_at = time.time()
+    url = job["submitted_url"]
+    apellido = job.get("ocr_apellido", "")
+    work_dir = Path(job["output_dir"]) / "ocr"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, str(_FIND_LIFTER), url, apellido, "--work-dir", str(work_dir)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        def _drain_stderr() -> None:
+            for line in proc.stderr:
+                buf.write(line)
+
+        drain_t = threading.Thread(target=_drain_stderr, daemon=True)
+        drain_t.start()
+        stdout, _ = proc.communicate()
+        drain_t.join(timeout=5)
+
+        if proc.returncode != 0:
+            raise RuntimeError(f"find_lifter.py falló (exit {proc.returncode})")
+        result = json.loads(stdout.strip())
+        job["ocr_result"] = result
+        job["status"] = "ocr_done"
+        job["expires_at"] = time.time() + EXPIRY_SECONDS
+    except Exception as e:
+        job["status"] = "error"
+        buf.write(f"\nError: {e}\n")
+    finally:
+        job["log"] = buf.getvalue()
+        _save_job(job_id, job)
+        geo = job.get("_geo") or {}
+        record_job_stat(
+            submitted_at=job.get("queued_at", started_at),
+            started_at=started_at,
+            finished_at=time.time(),
+            status=job["status"],
+            source=job.get("source") or None,
+            mode="ocr",
+            has_music=0,
+            city=geo.get("city"),
+            country_code=geo.get("country_code"),
+            latitude=geo.get("lat"),
+            longitude=geo.get("lng"),
+        )
+
+
 def _worker(job_id: str, job: dict, run_kwargs: dict, mode: str = "full") -> None:
+    if mode == "ocr":
+        _ocr_worker(job_id, job)
+        return
+
     buf = _LiveLog(job_id, job)
     started_at = time.time()
     try:
@@ -668,12 +730,57 @@ def start_job():
     return redirect(url_for("status", job_id=job_id))
 
 
+@app.route("/run-ocr", methods=["POST"])
+@login_required
+@limiter.limit("1 per 30 minutes", key_func=lambda: current_user.get_id())
+def start_ocr_job():
+    url = request.form.get("url", "").strip()
+    apellido = request.form.get("ocr_apellido", "").strip()[:60]
+
+    if not url:
+        return render_template("index.html", error="URL de YouTube obligatoria.",
+                               error_field="url", form_data=request.form), 400
+    if not apellido:
+        return render_template("index.html", error="El apellido es obligatorio.",
+                               error_field="ocr_apellido", form_data=request.form), 400
+
+    job_id = uuid.uuid4().hex
+    output_dir = Path("lifts") / job_id[:8]
+    job = {
+        "status": "queued", "log": "", "output_dir": str(output_dir),
+        "expires_at": None, "queued_at": time.time(), "mode": "ocr",
+        "user_id": current_user.get_id(),
+        "submitted_url": url,
+        "ocr_apellido": apellido,
+        "source": request.form.get("source", "").strip(),
+        "session_label": request.form.get("session_label", "").strip(),
+        "_geo": geoip.lookup(request.headers.get("X-Real-IP", request.remote_addr)),
+        "ocr_result": None,
+    }
+    jobs[job_id] = job
+    _save_job(job_id, job)
+    _job_queue.put((job_id, {}, "ocr"))
+    return redirect(url_for("status", job_id=job_id))
+
+
+@app.route("/ocr/<job_id>/review")
+@login_required
+def ocr_review(job_id: str):
+    job = jobs.get(job_id) or _load_job(job_id)
+    if not job or job.get("status") != "ocr_done" or not job.get("ocr_result"):
+        abort(404)
+    return render_template("ocr_review.html", job_id=job_id, job=job,
+                           ocr_result=job["ocr_result"])
+
+
 @app.route("/status/<job_id>")
 @login_required
 def status(job_id: str):
     job = jobs.get(job_id) or _load_job(job_id)
     single_mode = job.get("mode") == "single" if job else False
-    return render_template("status.html", job_id=job_id, single_mode=single_mode)
+    ocr_mode = job.get("mode") == "ocr" if job else False
+    return render_template("status.html", job_id=job_id,
+                           single_mode=single_mode, ocr_mode=ocr_mode)
 
 
 @app.route("/status/<job_id>/json")
@@ -684,12 +791,15 @@ def status_json(job_id: str):
         return jsonify({"error": "not found"}), 404
     jobs[job_id] = job
 
-    return jsonify({
+    resp = {
         "status":     job["status"],
         "log":        job["log"],
         "expires_at": job.get("expires_at"),
         "queue_pos":  _queue_position(job_id),
-    })
+    }
+    if job.get("ocr_result") is not None:
+        resp["ocr_result"] = job["ocr_result"]
+    return jsonify(resp)
 
 
 @app.route("/download/<job_id>/zip")
