@@ -367,6 +367,10 @@ def _save_job(job_id: str, job: dict) -> None:
         "queued_at":     job.get("queued_at"),
         "ocr_result":    job.get("ocr_result"),
         "ocr_apellido":  job.get("ocr_apellido"),
+        "audio_mode":    job.get("audio_mode", "original"),
+        "music":         job.get("music", ""),
+        "music_start":   job.get("music_start", ""),
+        "music_pct":     job.get("music_pct", "50"),
     }))
 
 

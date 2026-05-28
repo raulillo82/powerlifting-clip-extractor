@@ -60,8 +60,10 @@
           {% set end_secs = end_list[i] if i < end_list|length else none %}
           {% if secs is not none and end_secs is not none %}
             {% if end_secs > secs %}
-              {% set clip_dur = [[45, (end_secs - secs + 8) | int] | max, 300] | min %}
+              {# diff > 0: trust the formula (refinement scan improved precision); 20s floor #}
+              {% set clip_dur = [[(end_secs - secs + 8) | int, 300] | min, 20] | max %}
             {% else %}
+              {# diff = 0: use movement average as estimate #}
               {% set clip_dur = [[45, (avg_diff + 8) | int] | max, 300] | min %}
             {% endif %}
           {% else %}

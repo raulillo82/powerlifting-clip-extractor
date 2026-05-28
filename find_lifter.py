@@ -45,6 +45,9 @@ SCAN_STEP_S      = 10                         # step del scan denso
 TIMER_STEP_S     = 60                         # step del scan del timer de descanso
 BREAK_TIMER_MIN  = 120                        # segundos mínimos para considerar timer de descanso
 EARLY_STOP_N     = 3                          # detener el scan al completar N grupos
+REFINE_BEFORE_S  = 12                         # segundos antes de min(g) para refinar inicio
+REFINE_AFTER_S   = 20                         # segundos después de max(g) para refinar fin
+REFINE_STEP_S    = 2                          # step del scan de refinamiento
 
 
 def err(msg):
@@ -236,6 +239,53 @@ def detect_break_timer(url, work_dir, search_from_s, label, prefix):
     return None
 
 
+def refine_group_bounds(url, work_dir, groups, token, label, prefix):
+    """
+    Scan denso (REFINE_STEP_S) alrededor de min(g) y max(g) de cada grupo.
+    Reduce la incertidumbre ±SCAN_STEP_S/2 del scan principal a ±REFINE_STEP_S/2.
+    """
+    refined = []
+    for gi, group in enumerate(groups):
+        g_min, g_max = min(group), max(group)
+        new_min, new_max = g_min, g_max
+
+        # Buscar inicio más temprano: escanear REFINE_BEFORE_S segundos antes de g_min
+        for secs in range(max(0, g_min - REFINE_BEFORE_S), g_min, REFINE_STEP_S):
+            out = work_dir / f"{prefix}_rb{gi}_{secs:06d}.jpg"
+            if not extract_frame(url, secs, out):
+                continue
+            _, found = ocr_banner(out, token)
+            if found:
+                err(f"  [{label}] refine g{gi+1} inicio ✓ {secs}s (era {g_min}s)")
+                new_min = min(new_min, secs)
+
+        # Buscar fin más tardío: escanear hasta REFINE_AFTER_S segundos después de g_max
+        for secs in range(g_max + REFINE_STEP_S, g_max + REFINE_AFTER_S + 1, REFINE_STEP_S):
+            out = work_dir / f"{prefix}_re{gi}_{secs:06d}.jpg"
+            if not extract_frame(url, secs, out):
+                continue
+            _, found = ocr_banner(out, token)
+            if found:
+                err(f"  [{label}] refine g{gi+1} fin ✓ {secs}s (era {g_max}s)")
+                new_max = max(new_max, secs)
+            else:
+                break  # primer miss: el banner ha terminado
+
+        extra = set()
+        if new_min < g_min:
+            extra.add(new_min)
+        if new_max > g_max:
+            extra.add(new_max)
+        refined_group = sorted(set(group) | extra)
+        refined.append(refined_group)
+
+        if new_min != g_min or new_max != g_max:
+            err(f"  [{label}] refine g{gi+1}: [{g_min},{g_max}] → [{new_min},{new_max}]")
+        else:
+            err(f"  [{label}] refine g{gi+1}: sin cambios")
+    return refined
+
+
 def groups_to_timestamps(groups):
     """Devuelve el primer frame de cada grupo (inicio del banner)."""
     return [min(g) for g in groups]
@@ -287,6 +337,7 @@ def main():
         label="SQ",
         prefix="sq",
     )
+    squat_groups = refine_group_bounds(url, work_dir, squat_groups, token, "SQ", "sq")
     squat_ts = groups_to_timestamps(squat_groups)
     result["squat"] = squat_ts
     result["squat_ends"] = groups_to_ends(squat_groups)
@@ -323,6 +374,7 @@ def main():
         label="BN",
         prefix="bn",
     )
+    bench_groups = refine_group_bounds(url, work_dir, bench_groups, token, "BN", "bn")
     bench_ts = groups_to_timestamps(bench_groups)
     result["bench"] = bench_ts
     result["bench_ends"] = groups_to_ends(bench_groups)
@@ -355,6 +407,7 @@ def main():
         label="DL",
         prefix="dl",
     )
+    dl_groups = refine_group_bounds(url, work_dir, dl_groups, token, "DL", "dl")
     dl_ts = groups_to_timestamps(dl_groups)
     result["deadlift"] = dl_ts
     result["deadlift_ends"] = groups_to_ends(dl_groups)
