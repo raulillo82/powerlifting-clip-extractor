@@ -97,19 +97,19 @@
                      oninput="syncTs(this)">
               <button type="button" class="btn btn-outline-secondary btn-sm"
                       onclick="adjustTs(this, 5)">+5s</button>
-            </div>
-            <div class="d-flex gap-1 mt-1">
-              <button type="button" class="btn btn-outline-info btn-sm py-0 flex-fill"
+              <button type="button" class="btn btn-outline-info btn-sm"
                       data-frame-url="{{ url_for('ocr_frame', job_id=job_id, mov=mov, attempt=i, ftype='start') }}"
                       data-mov="{{ mov }}" data-attempt="{{ i }}" data-ftype="start"
-                      onclick="previewFrame(this)">🔍 <span data-i18n="ocr.frame.start">Frame inicial</span></button>
-              <button type="button" class="btn btn-outline-secondary btn-sm py-0"
+                      onclick="previewFrame(this)" title="Frame inicial">🔍</button>
+            </div>
+            <div class="input-group mt-1">
+              <button type="button" class="btn btn-outline-secondary btn-sm"
                       onclick="adjustEnd('{{ mov }}',{{ i }},-5)">−5s</button>
-              <button type="button" class="btn btn-outline-info btn-sm py-0 flex-fill"
+              <button type="button" class="btn btn-outline-info btn-sm flex-grow-1"
                       data-frame-url="{{ url_for('ocr_frame', job_id=job_id, mov=mov, attempt=i, ftype='end') }}"
                       data-mov="{{ mov }}" data-attempt="{{ i }}" data-ftype="end"
                       onclick="previewFrame(this)">🔍 <span data-i18n="ocr.frame.end">Frame final</span></button>
-              <button type="button" class="btn btn-outline-secondary btn-sm py-0"
+              <button type="button" class="btn btn-outline-secondary btn-sm"
                       onclick="adjustEnd('{{ mov }}',{{ i }},+5)">+5s</button>
             </div>
           </div>
