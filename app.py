@@ -815,9 +815,37 @@ def ocr_frame(job_id: str, mov: str, attempt: int, ftype: str):
         abort(404)
     work_dir = Path(job["output_dir"]) / "ocr"
     requested = request.args.get("t", type=int, default=int(ts_list[attempt]))
-    # Find the closest cached frame within 30 s of the requested timestamp
+
+    if request.args.get("exact") == "1":
+        # On-demand extraction at the exact requested timestamp
+        exact_path = work_dir / f"preview_{requested:06d}.jpg"
+        if not exact_path.exists():
+            submitted_url = job.get("submitted_url")
+            if not submitted_url:
+                abort(404)
+            try:
+                r = subprocess.run(
+                    ["yt-dlp", "--get-url",
+                     "-f", "best[height<=720][ext=mp4]/best[height<=720]/best",
+                     submitted_url],
+                    capture_output=True, text=True, timeout=30)
+                stream_url = r.stdout.strip().split("\n")[0] if r.returncode == 0 else None
+                if not stream_url:
+                    abort(404)
+                subprocess.run(
+                    ["ffmpeg", "-ss", str(requested), "-i", stream_url,
+                     "-frames:v", "1", "-q:v", "3", "-vf", "scale=1280:-1",
+                     str(exact_path), "-y"],
+                    capture_output=True, timeout=30)
+            except Exception:
+                abort(404)
+        if not exact_path.exists() or exact_path.stat().st_size == 0:
+            abort(404)
+        return send_file(exact_path.resolve(), mimetype="image/jpeg")
+
+    # Non-exact: find closest cached frame within ±2 s
     _ts_re = _re.compile(r"_(\d{6})\.jpg$")
-    best, best_delta = None, 31
+    best, best_delta = None, 3
     for p in work_dir.glob(f"{prefix}*_*.jpg"):
         m = _ts_re.search(p.name)
         if not m:

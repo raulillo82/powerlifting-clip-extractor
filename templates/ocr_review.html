@@ -135,8 +135,9 @@
         <span class="modal-title small fw-semibold" id="frame-modal-title"></span>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <div class="modal-body p-1 text-center bg-dark">
+      <div class="modal-body p-1 text-center bg-dark position-relative">
         <img id="frame-modal-img" src="" class="img-fluid d-none" alt="">
+        <span id="frame-approx-badge" class="d-none position-absolute top-0 end-0 m-2 badge bg-warning text-dark" style="font-size:.65rem">~aprox</span>
         <p id="frame-modal-err" class="text-secondary my-3 d-none small" data-i18n="ocr.frame.unavailable">Frame no disponible</p>
         <div id="frame-modal-loading" class="text-secondary my-3 small">Cargando…</div>
       </div>
@@ -218,22 +219,23 @@ function previewFrame(btn) {
   const attempt  = parseInt(btn.dataset.attempt);
   const ftype    = btn.dataset.ftype;
 
-  const img     = document.getElementById('frame-modal-img');
-  const err     = document.getElementById('frame-modal-err');
-  const loading = document.getElementById('frame-modal-loading');
-  const title   = document.getElementById('frame-modal-title');
+  const img          = document.getElementById('frame-modal-img');
+  const errEl        = document.getElementById('frame-modal-err');
+  const loading      = document.getElementById('frame-modal-loading');
+  const title        = document.getElementById('frame-modal-title');
+  const approxBadge  = document.getElementById('frame-approx-badge');
 
   title.textContent = `${_MOV_LABELS[mov]} ${attempt + 1} — ${T(ftype === 'start' ? 'ocr.frame.start' : 'ocr.frame.end')}`;
   img.classList.add('d-none');
   img.src = '';
-  err.classList.add('d-none');
+  errEl.classList.add('d-none');
   loading.classList.remove('d-none');
+  loading.textContent = 'Cargando…';
+  approxBadge.classList.add('d-none');
 
   if (!_frameModal) _frameModal = new bootstrap.Modal(document.getElementById('frame-modal'));
   _frameModal.show();
 
-  // Resolve current timestamp to pass as ?t= so the server finds the nearest
-  // cached frame even when the user has adjusted the value with ±5s buttons.
   let currentSecs;
   if (ftype === 'start') {
     const el = document.getElementById(`ts_${mov}_${attempt}`);
@@ -242,11 +244,57 @@ function previewFrame(btn) {
     const el = document.getElementById(`end_${mov}_${attempt}`);
     currentSecs = el ? Math.round(parseFloat(el.dataset.endSecs)) : NaN;
   }
-  const url = isNaN(currentSecs) ? frameUrl : `${frameUrl}?t=${currentSecs}`;
+  if (isNaN(currentSecs)) {
+    loading.classList.add('d-none'); errEl.classList.remove('d-none'); return;
+  }
 
-  img.onload  = () => { loading.classList.add('d-none'); img.classList.remove('d-none'); };
-  img.onerror = () => { loading.classList.add('d-none'); err.classList.remove('d-none'); };
-  img.src = url;
+  const approxUrl = `${frameUrl}?t=${currentSecs}`;
+  const exactUrl  = `${frameUrl}?t=${currentSecs}&exact=1`;
+
+  let phase1Shown = false;
+  let phase2Done  = false;
+
+  // After 1.5 s with nothing yet, update message so user knows it's working
+  const slowTimer = setTimeout(() => {
+    if (!phase1Shown && !phase2Done)
+      loading.textContent = 'Extrayendo frame del v\xeddeo…';
+  }, 1500);
+
+  const finish = () => clearTimeout(slowTimer);
+
+  // Phase 1 — nearest cached frame (fast, may be ±2 s off)
+  const approxImg = new Image();
+  approxImg.onload = () => {
+    if (phase2Done) return;
+    phase1Shown = true;
+    loading.classList.add('d-none');
+    img.src = approxImg.src;
+    img.classList.remove('d-none');
+    approxBadge.classList.remove('d-none');
+  };
+  approxImg.src = approxUrl;
+
+  // Phase 2 — exact on-demand frame (3-5 s, replaces phase 1)
+  const exactImg = new Image();
+  exactImg.onload = () => {
+    phase2Done = true;
+    finish();
+    loading.classList.add('d-none');
+    img.src = exactImg.src;
+    img.classList.remove('d-none');
+    approxBadge.classList.add('d-none');
+    errEl.classList.add('d-none');
+  };
+  exactImg.onerror = () => {
+    phase2Done = true;
+    finish();
+    if (!phase1Shown) {
+      loading.classList.add('d-none');
+      errEl.classList.remove('d-none');
+    }
+    approxBadge.classList.add('d-none');
+  };
+  exactImg.src = exactUrl;
 }
 
 function buildTimestamps() {
