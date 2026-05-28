@@ -366,6 +366,7 @@ def _save_job(job_id: str, job: dict) -> None:
         "session_label": job.get("session_label"),
         "queued_at":     job.get("queued_at"),
         "ocr_result":    job.get("ocr_result"),
+        "ocr_job_id":    job.get("ocr_job_id"),
         "ocr_apellido":  job.get("ocr_apellido"),
         "audio_mode":    job.get("audio_mode", "original"),
         "music":         job.get("music", ""),
@@ -734,6 +735,7 @@ def start_job():
                                form_data=request.form), 400
 
     mode = run_kwargs.pop("_mode", "full")
+    ocr_job_id = request.form.get("ocr_job_id", "").strip() or None
     job = {"status": "queued", "log": "", "output_dir": str(output_dir),
            "expires_at": None, "queued_at": time.time(), "mode": mode,
            "user_id": current_user.get_id(),
@@ -741,6 +743,7 @@ def start_job():
            "submitted_url": request.form.get("url", "").strip(),
            "source": request.form.get("source", "").strip(),
            "session_label": request.form.get("session_label", "").strip(),
+           "ocr_job_id": ocr_job_id,
            "_geo": geoip.lookup(request.headers.get("X-Real-IP", request.remote_addr))}
     jobs[job_id] = job
     _save_job(job_id, job)
@@ -899,12 +902,19 @@ def download_zip(job_id: str):
         return render_template("expired.html"), 410
 
     out_dir = Path(job["output_dir"])
+    safe_name = current_user.display_name.replace(" ", "_")
+
+    # Serve pre-built ZIP if present (e.g. contains extra debug frames)
+    prebuilt = out_dir / "descarga_con_frames.zip"
+    if prebuilt.exists():
+        return send_file(prebuilt.resolve(), mimetype="application/zip",
+                         as_attachment=True, download_name=f"{safe_name}.zip")
+
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
         for f in sorted(out_dir.rglob("*.mp4")):
             zf.write(f, f.relative_to(out_dir))
     buf.seek(0)
-    safe_name = current_user.display_name.replace(" ", "_")
     return send_file(buf, mimetype="application/zip", as_attachment=True,
                      download_name=f"{safe_name}.zip")
 
@@ -1001,7 +1011,9 @@ def github_webhook():
 def history():
     lifts_root = Path("lifts")
     now = time.time()
-    my_jobs = []
+    ocr_jobs: dict = {}
+    dl_jobs: list  = []
+
     if lifts_root.exists():
         for job_dir in lifts_root.iterdir():
             if not job_dir.is_dir():
@@ -1015,10 +1027,56 @@ def history():
                 continue
             if str(data.get("user_id")) != current_user.get_id():
                 continue
+            if not data.get("job_id"):
+                continue
             data["expired"] = bool(data.get("expires_at") and now > data["expires_at"])
-            my_jobs.append(data)
-    my_jobs.sort(key=lambda d: d.get("queued_at") or 0, reverse=True)
-    return render_template("history.html", jobs=my_jobs[:20])
+            if data.get("mode") == "ocr":
+                ocr_jobs[data["job_id"]] = data
+            else:
+                dl_jobs.append(data)
+
+    sessions: dict = {}
+
+    for dl in dl_jobs:
+        ocr_id = dl.get("ocr_job_id")
+        if ocr_id:
+            if ocr_id not in sessions:
+                sessions[ocr_id] = {"ocr_job": ocr_jobs.get(ocr_id), "downloads": []}
+            sessions[ocr_id]["downloads"].append(dl)
+        else:
+            sessions[dl["job_id"]] = {"ocr_job": None, "downloads": [dl]}
+
+    for ocr_id, ocr_job in ocr_jobs.items():
+        if ocr_id not in sessions:
+            sessions[ocr_id] = {"ocr_job": ocr_job, "downloads": []}
+
+    for s in sessions.values():
+        ocr  = s["ocr_job"]
+        dls  = sorted(s["downloads"], key=lambda d: d.get("queued_at") or 0)
+        s["downloads"] = dls
+        latest_dl = dls[-1] if dls else None
+
+        s["ocr_active"]  = bool(ocr and ocr["status"] in ("queued", "running"))
+        s["ocr_ready"]   = bool(ocr and ocr["status"] == "ocr_done" and not ocr.get("expired"))
+        s["ocr_pending"] = s["ocr_ready"] and not dls
+        s["dl_active"]   = bool(latest_dl and latest_dl["status"] in ("queued", "running"))
+        s["has_done_dl"] = any(d["status"] == "done" and not d.get("expired") for d in dls)
+        s["can_reedit"]  = s["ocr_ready"] and not s["dl_active"]
+        s["n_downloads"] = len(dls)
+        s["show_toggle"] = len(dls) > 1 or (len(dls) == 1 and s["can_reedit"])
+
+        label_src = None
+        for candidate in ([ocr] if ocr else []) + list(reversed(dls)):
+            if candidate and candidate.get("session_label"):
+                label_src = candidate
+                break
+        s["label_src"] = label_src or ocr or latest_dl
+
+        times = ([ocr.get("queued_at") or 0] if ocr else []) + [d.get("queued_at") or 0 for d in dls]
+        s["queued_at"] = max(times) if times else 0
+
+    session_list = sorted(sessions.values(), key=lambda s: s["queued_at"], reverse=True)
+    return render_template("history.html", sessions=session_list[:20])
 
 
 if __name__ == "__main__":

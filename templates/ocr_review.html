@@ -20,6 +20,7 @@
 {% endif %}
 
 <form method="post" action="{{ url_for('start_job') }}" id="review-form">
+  <input type="hidden" name="ocr_job_id"      value="{{ job_id }}">
   <input type="hidden" name="url"             value="{{ job.submitted_url }}">
   <input type="hidden" name="source"          value="{{ job.source or '' }}">
   <input type="hidden" name="session_label"   value="{{ job.session_label or '' }}">
