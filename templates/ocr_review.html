@@ -62,13 +62,13 @@
           {% if secs is not none and end_secs is not none %}
             {% if end_secs > secs %}
               {# diff > 0: trust the formula (refinement scan improved precision); 20s floor #}
-              {% set clip_dur = [[(end_secs - secs + 8) | int, 300] | min, 20] | max %}
+              {% set clip_dur = [[(end_secs - secs + 2) | int, 300] | min, 20] | max %}
             {% else %}
               {# diff = 0: use movement average as estimate #}
-              {% set clip_dur = [[45, (avg_diff + 8) | int] | max, 300] | min %}
+              {% set clip_dur = [[45, (avg_diff + 2) | int] | max, 300] | min %}
             {% endif %}
           {% else %}
-            {% set clip_dur = [[45, (avg_diff + 8) | int] | max, 300] | min %}
+            {% set clip_dur = [[45, (avg_diff + 2) | int] | max, 300] | min %}
           {% endif %}
           <input type="hidden" id="dur_{{ mov }}_{{ i }}" name="clip_duration_{{ mov_idx * 3 + i }}" value="{{ clip_dur }}">
           <span class="d-none" id="end_{{ mov }}_{{ i }}"
@@ -208,7 +208,7 @@ function adjustEnd(mov, attempt, delta) {
   const newEnd    = parseFloat(endEl.dataset.endSecs) + delta;
   if (newEnd <= startSecs) return;
   endEl.dataset.endSecs = newEnd;
-  const dur = Math.max(20, Math.min(300, Math.round(newEnd - startSecs + 8)));
+  const dur = Math.max(20, Math.min(300, Math.round(newEnd - startSecs + 2)));
   if (durEl)  durEl.value       = dur;
   if (badge)  badge.textContent = `~${dur}s`;
 }
