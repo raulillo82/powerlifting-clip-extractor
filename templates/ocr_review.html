@@ -79,33 +79,31 @@
               <label class="form-label small text-muted mb-0"><span data-i18n="label.attempt">Intento</span> {{ i + 1 }}</label>
               <span class="badge bg-secondary" id="badge_{{ mov }}_{{ i }}">~{{ clip_dur }}s</span>
             </div>
-            <div class="input-group mt-1">
+            <input type="text"
+                   class="form-control font-monospace text-center mt-1{% if secs is none %} is-invalid{% endif %}"
+                   id="ts_{{ mov }}_{{ i }}"
+                   {% if secs is not none %}
+                   data-secs="{{ secs | int }}"
+                   data-orig-secs="{{ secs | int }}"
+                   value="{{ '%d:%02d:%02d' | format(secs | int // 3600, (secs | int % 3600) // 60, secs | int % 60) }}"
+                   {% else %}
+                   data-secs=""
+                   value=""
+                   {% endif %}
+                   placeholder="H:MM:SS"
+                   oninput="syncTs(this)">
+            <div class="mt-1" style="display:grid;grid-template-columns:auto 1fr auto;gap:.25rem">
               <button type="button" class="btn btn-outline-secondary btn-sm"
-                      onclick="adjustTs(this, -5)">−5s</button>
-              <input type="text"
-                     class="form-control font-monospace text-center{% if secs is none %} is-invalid{% endif %}"
-                     id="ts_{{ mov }}_{{ i }}"
-                     {% if secs is not none %}
-                     data-secs="{{ secs | int }}"
-                     data-orig-secs="{{ secs | int }}"
-                     value="{{ '%d:%02d:%02d' | format(secs | int // 3600, (secs | int % 3600) // 60, secs | int % 60) }}"
-                     {% else %}
-                     data-secs=""
-                     value=""
-                     {% endif %}
-                     placeholder="H:MM:SS"
-                     oninput="syncTs(this)">
-              <button type="button" class="btn btn-outline-secondary btn-sm"
-                      onclick="adjustTs(this, 5)">+5s</button>
+                      onclick="adjustTsById('ts_{{ mov }}_{{ i }}',-5)">−5s</button>
               <button type="button" class="btn btn-outline-info btn-sm"
                       data-frame-url="{{ url_for('ocr_frame', job_id=job_id, mov=mov, attempt=i, ftype='start') }}"
                       data-mov="{{ mov }}" data-attempt="{{ i }}" data-ftype="start"
-                      onclick="previewFrame(this)" title="Frame inicial">🔍</button>
-            </div>
-            <div class="input-group mt-1">
+                      onclick="previewFrame(this)">🔍 <span data-i18n="ocr.frame.start">Frame inicial</span></button>
               <button type="button" class="btn btn-outline-secondary btn-sm"
                       onclick="adjustEnd('{{ mov }}',{{ i }},-5)">−5s</button>
-              <button type="button" class="btn btn-outline-info btn-sm flex-grow-1"
+              <button type="button" class="btn btn-outline-secondary btn-sm"
+                      onclick="adjustTsById('ts_{{ mov }}_{{ i }}',+5)">+5s</button>
+              <button type="button" class="btn btn-outline-info btn-sm"
                       data-frame-url="{{ url_for('ocr_frame', job_id=job_id, mov=mov, attempt=i, ftype='end') }}"
                       data-mov="{{ mov }}" data-attempt="{{ i }}" data-ftype="end"
                       onclick="previewFrame(this)">🔍 <span data-i18n="ocr.frame.end">Frame final</span></button>
@@ -175,6 +173,11 @@ function hmsToSecs(str) {
 
 function adjustTs(btn, delta) {
   const input = btn.parentElement.querySelector('input[type="text"]');
+  adjustTsById(input.id, delta);
+}
+
+function adjustTsById(id, delta) {
+  const input = document.getElementById(id);
   const cur = parseFloat(input.dataset.secs);
   const base = isNaN(cur) ? 0 : cur;
   const newVal = Math.max(0, base + delta);
