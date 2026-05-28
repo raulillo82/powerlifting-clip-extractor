@@ -142,9 +142,26 @@ def read_timer(path):
     w, h = img.size
     x0, y0, x1, y1 = TIMER_CROP
     crop = img.crop((int(w * x0), int(h * y0), int(w * x1), int(h * y1)))
+
+    # Aislar caja roja del timer (números blancos sobre fondo rojo AEP)
+    arr = np.array(crop)
+    red_mask = (arr[:, :, 0] > 120) & (arr[:, :, 1] < 80) & (arr[:, :, 2] < 80)
+    if red_mask.sum() > 200:
+        rows = np.where(red_mask.any(axis=1))[0]
+        cols = np.where(red_mask.any(axis=0))[0]
+        pad = 4
+        r0 = max(0, rows[0] - pad)
+        r1 = min(arr.shape[0] - 1, rows[-1] + pad)
+        c0 = max(0, cols[0] - pad)
+        c1 = min(arr.shape[1] - 1, cols[-1] + pad)
+        crop = Image.fromarray(arr[r0:r1 + 1, c0:c1 + 1])
+        psm = 7
+    else:
+        psm = 6
+
     crop4 = crop.resize((crop.width * TIMER_SCALE, crop.height * TIMER_SCALE), Image.NEAREST)
     text = pytesseract.image_to_string(
-        crop4, config="--oem 3 --psm 6 -l spa -c tessedit_char_whitelist=0123456789:").strip()
+        crop4, config=f"--oem 3 --psm {psm} -l spa -c tessedit_char_whitelist=0123456789:").strip()
     m = re.search(r"(\d{1,2}):(\d{2})", text)
     if not m:
         return None
