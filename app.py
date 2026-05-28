@@ -505,19 +505,20 @@ def _ocr_worker(job_id: str, job: dict) -> None:
         job["log"] = buf.getvalue()
         _save_job(job_id, job)
         geo = job.get("_geo") or {}
-        record_job_stat(
-            submitted_at=job.get("queued_at", started_at),
-            started_at=started_at,
-            finished_at=time.time(),
-            status=job["status"],
-            source=job.get("source") or None,
-            mode="ocr",
-            has_music=0,
-            city=geo.get("city"),
-            country_code=geo.get("country_code"),
-            latitude=geo.get("lat"),
-            longitude=geo.get("lng"),
-        )
+        if not job.get("is_admin"):
+            record_job_stat(
+                submitted_at=job.get("queued_at", started_at),
+                started_at=started_at,
+                finished_at=time.time(),
+                status=job["status"],
+                source=job.get("source") or None,
+                mode="ocr",
+                has_music=0,
+                city=geo.get("city"),
+                country_code=geo.get("country_code"),
+                latitude=geo.get("lat"),
+                longitude=geo.get("lng"),
+            )
 
 
 def _worker(job_id: str, job: dict, run_kwargs: dict, mode: str = "full") -> None:
@@ -551,19 +552,20 @@ def _worker(job_id: str, job: dict, run_kwargs: dict, mode: str = "full") -> Non
         job["log"] = buf.getvalue()
         _save_job(job_id, job)
         geo = job.get("_geo") or {}
-        record_job_stat(
-            submitted_at=job.get("queued_at", started_at),
-            started_at=started_at,
-            finished_at=time.time(),
-            status=job["status"],
-            source=job.get("source") or None,
-            mode=job.get("mode") or None,
-            has_music=1 if run_kwargs.get("music_source") else 0,
-            city=geo.get("city"),
-            country_code=geo.get("country_code"),
-            latitude=geo.get("lat"),
-            longitude=geo.get("lng"),
-        )
+        if not job.get("is_admin"):
+            record_job_stat(
+                submitted_at=job.get("queued_at", started_at),
+                started_at=started_at,
+                finished_at=time.time(),
+                status=job["status"],
+                source=job.get("source") or None,
+                mode=job.get("mode") or None,
+                has_music=1 if run_kwargs.get("music_source") else 0,
+                city=geo.get("city"),
+                country_code=geo.get("country_code"),
+                latitude=geo.get("lat"),
+                longitude=geo.get("lng"),
+            )
 
 
 # ── Form parsing ───────────────────────────────────────────────────────────────
@@ -735,6 +737,7 @@ def start_job():
     job = {"status": "queued", "log": "", "output_dir": str(output_dir),
            "expires_at": None, "queued_at": time.time(), "mode": mode,
            "user_id": current_user.get_id(),
+           "is_admin": current_user.is_admin,
            "submitted_url": request.form.get("url", "").strip(),
            "source": request.form.get("source", "").strip(),
            "session_label": request.form.get("session_label", "").strip(),
@@ -765,6 +768,7 @@ def start_ocr_job():
         "status": "queued", "log": "", "output_dir": str(output_dir),
         "expires_at": None, "queued_at": time.time(), "mode": "ocr",
         "user_id": current_user.get_id(),
+        "is_admin": current_user.is_admin,
         "submitted_url": url,
         "ocr_apellido": apellido,
         "source": request.form.get("source", "").strip(),
