@@ -372,7 +372,12 @@ def main():
 
     # ── 3. Inicio de banca (timer de descanso) ────────────────────────────────
     err("\n=== Fase 3: buscando inicio de banca ===")
-    search_from = (max(squat_ts) + 300) if squat_ts else (comp_start + 3600)
+    if len(squat_ts) >= 2:
+        avg_gap_sq = (squat_ts[1] - squat_ts[0] + squat_ts[-1] - squat_ts[-2]) / 2
+        search_from = int(comp_start + avg_gap_sq * 6)
+        err(f"  [timer] avg_gap_sq={avg_gap_sq:.0f}s → buscando desde {search_from}s ({search_from//3600}h{(search_from%3600)//60:02d}m)")
+    else:
+        search_from = (max(squat_ts) + 300) if squat_ts else (comp_start + 3600)
     bench_start = detect_break_timer(url, work_dir, search_from, "SQ→BN", "brk_sq")
     if bench_start is None:
         # Fallback: estimar desde duración del grupo de sentadilla
@@ -407,7 +412,12 @@ def main():
 
     # ── 5. Inicio de DL (timer de descanso) ───────────────────────────────────
     err("\n=== Fase 5: buscando inicio de peso muerto ===")
-    search_from_dl = (max(bench_ts) + 300) if bench_ts else (bench_start + 3600)
+    if len(bench_ts) >= 2:
+        avg_gap_bn = (bench_ts[1] - bench_ts[0] + bench_ts[-1] - bench_ts[-2]) / 2
+        search_from_dl = int(bench_start + avg_gap_bn * 6)
+        err(f"  [timer] avg_gap_bn={avg_gap_bn:.0f}s → buscando desde {search_from_dl}s ({search_from_dl//3600}h{(search_from_dl%3600)//60:02d}m)")
+    else:
+        search_from_dl = (max(bench_ts) + 300) if bench_ts else (bench_start + 3600)
     dl_start = detect_break_timer(url, work_dir, search_from_dl, "BN→DL", "brk_bn")
     if dl_start is None:
         if len(bench_ts) >= 2:
