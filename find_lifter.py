@@ -120,7 +120,7 @@ def ocr_banner(path, token):
     text = raw.upper()  # for log display
     text_cmp = _normalize(raw)  # accentless for comparison
 
-    ocr_words = [w.strip(".,;:!?-_|/\\\"'()[]{}¡¿") for w in text_cmp.split()]
+    ocr_words = [w.strip(".,;:!?-_|/\\\"'()[]{}¡¿") for w in re.split(r'[\s\-]+', text_cmp)]
     ocr_words = [w for w in ocr_words if w]
 
     # Split token into sub-tokens on spaces AND hyphens (OCR often separates
