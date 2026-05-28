@@ -84,6 +84,7 @@
                      id="ts_{{ mov }}_{{ i }}"
                      {% if secs is not none %}
                      data-secs="{{ secs | int }}"
+                     data-orig-secs="{{ secs | int }}"
                      value="{{ '%d:%02d:%02d' | format(secs | int // 3600, (secs | int % 3600) // 60, secs | int % 60) }}"
                      {% else %}
                      data-secs=""
@@ -188,14 +189,24 @@ function previewFrame(jobId, mov, attempt, ftype) {
   const loading = document.getElementById('frame-modal-loading');
   const title   = document.getElementById('frame-modal-title');
 
-  title.textContent = `${_MOV_LABELS[mov]} ${attempt + 1} — ${ftype === 'start' ? 'inicio' : 'fin'}`;
+  title.textContent = `${_MOV_LABELS[mov]} ${attempt + 1} — ${ftype === 'start' ? 'frame inicial' : 'frame final'}`;
   img.classList.add('d-none');
+  img.src = '';
   err.classList.add('d-none');
   loading.classList.remove('d-none');
-  img.src = '';
 
   if (!_frameModal) _frameModal = new bootstrap.Modal(document.getElementById('frame-modal'));
   _frameModal.show();
+
+  // Frame inicial: no disponible si el timestamp ha sido ajustado manualmente
+  if (ftype === 'start') {
+    const input = document.getElementById(`ts_${mov}_${attempt}`);
+    if (input && parseFloat(input.dataset.secs) !== parseInt(input.dataset.origSecs)) {
+      loading.classList.add('d-none');
+      err.classList.remove('d-none');
+      return;
+    }
+  }
 
   img.onload  = () => { loading.classList.add('d-none'); img.classList.remove('d-none'); };
   img.onerror = () => { loading.classList.add('d-none'); err.classList.remove('d-none'); };
