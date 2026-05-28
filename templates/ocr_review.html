@@ -235,9 +235,12 @@ function previewFrame(btn) {
   // No disponible si el timestamp fue ajustado manualmente
   const isAdjusted = ftype === 'start'
     ? (() => { const el = document.getElementById(`ts_${mov}_${attempt}`);
-               return el && parseFloat(el.dataset.secs) !== parseInt(el.dataset.origSecs); })()
+               if (!el) return false;
+               const curr = Math.round(hmsToSecs(el.value.trim()));
+               return isNaN(curr) || curr !== parseInt(el.dataset.origSecs); })()
     : (() => { const el = document.getElementById(`end_${mov}_${attempt}`);
-               return el && parseFloat(el.dataset.endSecs) !== parseInt(el.dataset.origEndSecs); })();
+               if (!el || el.dataset.endSecs === '') return false;
+               return Math.round(parseFloat(el.dataset.endSecs)) !== Math.round(parseFloat(el.dataset.origEndSecs)); })();
   if (isAdjusted) {
     loading.classList.add('d-none');
     err.classList.remove('d-none');
