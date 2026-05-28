@@ -25,6 +25,7 @@ Instalación en OpenSUSE Tumbleweed:
 """
 
 import sys, argparse, subprocess, time, difflib, re, json, unicodedata
+from datetime import datetime
 from pathlib import Path
 from PIL import Image
 import numpy as np, pytesseract
@@ -51,7 +52,8 @@ REFINE_STEP_S    = 2                          # step del scan de refinamiento
 
 
 def err(msg):
-    print(msg, file=sys.stderr, flush=True)
+    ts = datetime.now().astimezone().strftime('%H:%M:%S %Z')
+    print(f'[{ts}] {msg}', file=sys.stderr, flush=True)
 
 
 def _normalize(text: str) -> str:
