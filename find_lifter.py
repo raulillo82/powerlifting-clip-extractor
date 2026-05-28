@@ -56,6 +56,11 @@ def err(msg):
     print(f'[{ts}] {msg}', file=sys.stderr, flush=True)
 
 
+def _hms(secs):
+    s = int(secs)
+    return f"{s // 3600}h{(s % 3600) // 60:02d}m{s % 60:02d}s"
+
+
 def _normalize(text: str) -> str:
     """Quita tildes y convierte a mayúsculas para comparación robusta."""
     return unicodedata.normalize("NFD", text).encode("ascii", "ignore").decode("ascii").upper()
@@ -74,7 +79,8 @@ def _hsv_hue(arr):
     mx = np.maximum(np.maximum(r, g), b)
     mn = np.minimum(np.minimum(r, g), b)
     d = mx - mn
-    s = np.where(mx == 0, 0, d / mx * 255)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        s = np.where(mx == 0, 0, d / mx * 255)
     v = mx
     hh = np.zeros_like(r)
     mr = (mx == r) & (d != 0)
@@ -178,10 +184,10 @@ def detect_comp_start(url, work_dir, max_probe_s=360):
         if not extract_frame(url, probe, out):
             continue
         t = read_timer(out)
-        err(f"  [comp_start] @{probe}s → timer={t!r}")
+        err(f"  [comp_start] @{probe}s ({_hms(probe)}) → timer={t!r}")
         if t is not None and 30 < t < 7200:
             comp_start = probe + t
-            err(f"  [comp_start] → {comp_start}s ({comp_start // 60}m{comp_start % 60:02d}s)")
+            err(f"  [comp_start] → {comp_start}s ({_hms(comp_start)})")
             return comp_start
     err("  [comp_start] timer no legible — usando 0s como fallback")
     return 0
@@ -251,8 +257,7 @@ def detect_break_timer(url, work_dir, search_from_s, label, prefix):
         err(f"  [{label}] {ts}  timer={t!r}")
         if t is not None and t > BREAK_TIMER_MIN:
             next_start = secs + t
-            err(f"  [{label}] timer descanso = {t}s → next_start = {next_start}s "
-                f"({next_start // 3600}h{(next_start % 3600) // 60:02d}m{next_start % 60:02d}s)")
+            err(f"  [{label}] timer descanso = {t}s ({_hms(t)}) → next_start = {next_start}s ({_hms(next_start)})")
             return next_start
     err(f"  [{label}] timer no encontrado")
     return None
@@ -275,7 +280,7 @@ def refine_group_bounds(url, work_dir, groups, token, label, prefix):
                 continue
             _, found = ocr_banner(out, token)
             if found:
-                err(f"  [{label}] refine g{gi+1} inicio ✓ {secs}s (era {g_min}s)")
+                err(f"  [{label}] refine intento {gi+1} inicio ✓ {secs}s ({_hms(secs)}) (era {g_min}s / {_hms(g_min)})")
                 new_min = min(new_min, secs)
 
         # Buscar fin más tardío: escanear hasta REFINE_AFTER_S segundos después de g_max
@@ -285,7 +290,7 @@ def refine_group_bounds(url, work_dir, groups, token, label, prefix):
                 continue
             _, found = ocr_banner(out, token)
             if found:
-                err(f"  [{label}] refine g{gi+1} fin ✓ {secs}s (era {g_max}s)")
+                err(f"  [{label}] refine intento {gi+1} fin ✓ {secs}s ({_hms(secs)}) (era {g_max}s / {_hms(g_max)})")
                 new_max = max(new_max, secs)
             else:
                 break  # primer miss: el banner ha terminado
@@ -299,9 +304,9 @@ def refine_group_bounds(url, work_dir, groups, token, label, prefix):
         refined.append(refined_group)
 
         if new_min != g_min or new_max != g_max:
-            err(f"  [{label}] refine g{gi+1}: [{g_min},{g_max}] → [{new_min},{new_max}]")
+            err(f"  [{label}] refine intento {gi+1}: [{g_min}s/{_hms(g_min)}, {g_max}s/{_hms(g_max)}] → [{new_min}s/{_hms(new_min)}, {new_max}s/{_hms(new_max)}]")
         else:
-            err(f"  [{label}] refine g{gi+1}: sin cambios")
+            err(f"  [{label}] refine intento {gi+1}: sin cambios")
     return refined
 
 
@@ -329,6 +334,14 @@ def main():
 
     t_start = time.perf_counter()
     err(f"find_lifter.py — URL: {args.url}  token: {token}")
+    err("Leyenda líneas de scan OCR:")
+    err("  [MOV nnn] pos  marca  ms  texto")
+    err("  MOV   = SQ/BN/DL (sentadilla / banca / peso muerto)")
+    err("  nnn   = nº de frame analizado en el scan actual")
+    err("  pos   = posición en el vídeo (h:m:s)")
+    err("  marca = ✓ HIT: banner del levantador detectado  ·: no detectado")
+    err("  ms    = tiempo de procesado OCR (Tesseract) por frame")
+    err("  texto = primeros 50 caracteres leídos por OCR")
 
     # URL directa del stream
     err("\nObteniendo URL stream...")
@@ -370,14 +383,14 @@ def main():
     GROUP_OFFSET_MARGIN_S = 300  # margen de 5 min para variaciones de orden dentro del grupo
     sq_offset = (squat_ts[0] - comp_start) if squat_ts else 0
     is_g2 = sq_offset > G2_THRESHOLD_S
-    err(f"  [grupo] sq_offset={sq_offset}s → {'G2' if is_g2 else 'G1'}")
+    err(f"  [grupo] sq_offset={sq_offset}s ({_hms(sq_offset)}) → {'G2' if is_g2 else 'G1'}")
 
     # ── 3. Inicio de banca (timer de descanso) ────────────────────────────────
     err("\n=== Fase 3: buscando inicio de banca ===")
     if len(squat_ts) >= 2:
         avg_gap_sq = (squat_ts[1] - squat_ts[0] + squat_ts[-1] - squat_ts[-2]) / 2
         search_from = int(comp_start + avg_gap_sq * 6)
-        err(f"  [timer] avg_gap_sq={avg_gap_sq:.0f}s → buscando desde {search_from}s ({search_from//3600}h{(search_from%3600)//60:02d}m)")
+        err(f"  [timer] avg_gap_sq={avg_gap_sq:.0f}s ({_hms(avg_gap_sq)}) → buscando desde {search_from}s ({_hms(search_from)})")
     else:
         search_from = (max(squat_ts) + 300) if squat_ts else (comp_start + 3600)
     bench_start = detect_break_timer(url, work_dir, search_from, "SQ→BN", "brk_sq")
@@ -386,7 +399,7 @@ def main():
         if len(squat_ts) >= 2:
             group_dur = max(squat_ts) - comp_start
             bench_start = max(squat_ts) + group_dur + 600
-            err(f"  Fallback bench_start estimado: {bench_start}s")
+            err(f"  Fallback bench_start estimado: {bench_start}s ({_hms(bench_start)})")
         else:
             err("  ERROR: no se puede estimar bench_start"); sys.exit(1)
 
@@ -394,7 +407,7 @@ def main():
     err("\n=== Fase 4: banca ===")
     if is_g2:
         bench_scan_start = max(bench_start, bench_start + sq_offset - GROUP_OFFSET_MARGIN_S)
-        err(f"  [G2] sq_offset={sq_offset}s → saltando {bench_scan_start - bench_start}s del bloque de banca")
+        err(f"  [G2] sq_offset={sq_offset}s ({_hms(sq_offset)}) → saltando {bench_scan_start - bench_start}s ({_hms(bench_scan_start - bench_start)}) del bloque de banca")
     else:
         bench_scan_start = bench_start
         err(f"  [G1] escaneando desde el inicio del bloque de banca")
@@ -417,7 +430,7 @@ def main():
     if len(bench_ts) >= 2:
         avg_gap_bn = (bench_ts[1] - bench_ts[0] + bench_ts[-1] - bench_ts[-2]) / 2
         search_from_dl = int(bench_start + avg_gap_bn * 6)
-        err(f"  [timer] avg_gap_bn={avg_gap_bn:.0f}s → buscando desde {search_from_dl}s ({search_from_dl//3600}h{(search_from_dl%3600)//60:02d}m)")
+        err(f"  [timer] avg_gap_bn={avg_gap_bn:.0f}s ({_hms(avg_gap_bn)}) → buscando desde {search_from_dl}s ({_hms(search_from_dl)})")
     else:
         search_from_dl = (max(bench_ts) + 300) if bench_ts else (bench_start + 3600)
     dl_start = detect_break_timer(url, work_dir, search_from_dl, "BN→DL", "brk_bn")
@@ -425,7 +438,7 @@ def main():
         if len(bench_ts) >= 2:
             group_dur = max(bench_ts) - bench_start
             dl_start = max(bench_ts) + group_dur + 600
-            err(f"  Fallback dl_start estimado: {dl_start}s")
+            err(f"  Fallback dl_start estimado: {dl_start}s ({_hms(dl_start)})")
         else:
             err("  ERROR: no se puede estimar dl_start"); sys.exit(1)
 
@@ -436,7 +449,7 @@ def main():
     is_g2_bn  = bn_offset > G2_THRESHOLD_S
     if is_g2_bn:
         dl_scan_start = max(dl_start, dl_start + bn_offset - GROUP_OFFSET_MARGIN_S)
-        err(f"  [G2] bn_offset={bn_offset}s → saltando {dl_scan_start - dl_start}s del bloque de DL")
+        err(f"  [G2] bn_offset={bn_offset}s ({_hms(bn_offset)}) → saltando {dl_scan_start - dl_start}s ({_hms(dl_scan_start - dl_start)}) del bloque de DL")
     else:
         dl_scan_start = dl_start
         err(f"  [G1] escaneando desde el inicio del bloque de DL")
@@ -455,7 +468,7 @@ def main():
     err(f"  → peso muerto: {dl_ts}")
 
     result["elapsed_s"] = round(time.perf_counter() - t_start, 1)
-    err(f"\nTerminado en {result['elapsed_s']}s ({result['elapsed_s'] / 60:.1f} min)")
+    err(f"\nTerminado en {result['elapsed_s']}s ({_hms(result['elapsed_s'])})")
 
     print(json.dumps(result, indent=2))
 
