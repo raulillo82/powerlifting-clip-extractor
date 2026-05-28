@@ -73,7 +73,7 @@
           <input type="hidden" name="clip_duration_{{ mov_idx * 3 + i }}" value="{{ clip_dur }}">
           <div class="mb-3">
             <div class="d-flex justify-content-between align-items-baseline">
-              <label class="form-label small text-muted mb-0">Intento {{ i + 1 }}</label>
+              <label class="form-label small text-muted mb-0"><span data-i18n="label.attempt">Intento</span> {{ i + 1 }}</label>
               <span class="badge bg-secondary">~{{ clip_dur }}s</span>
             </div>
             <div class="input-group mt-1">
@@ -96,9 +96,9 @@
             </div>
             <div class="d-flex gap-1 mt-1">
               <button type="button" class="btn btn-outline-info btn-sm py-0 flex-fill"
-                      onclick="previewFrame('{{ job_id }}','{{ mov }}',{{ i }},'start')">▶ inicio</button>
+                      onclick="previewFrame('{{ job_id }}','{{ mov }}',{{ i }},'start')">🔍 <span data-i18n="ocr.frame.start">Frame inicial</span></button>
               <button type="button" class="btn btn-outline-info btn-sm py-0 flex-fill"
-                      onclick="previewFrame('{{ job_id }}','{{ mov }}',{{ i }},'end')">fin ◀</button>
+                      onclick="previewFrame('{{ job_id }}','{{ mov }}',{{ i }},'end')">🔍 <span data-i18n="ocr.frame.end">Frame final</span></button>
             </div>
           </div>
           {% endfor %}
