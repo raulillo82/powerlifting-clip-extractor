@@ -814,7 +814,7 @@ def ocr_frame(job_id: str, mov: str, attempt: int, ftype: str):
     candidates = list(work_dir.glob(f"{prefix}*_{secs:06d}.jpg"))
     if not candidates:
         abort(404)
-    return send_file(candidates[0], mimetype="image/jpeg")
+    return send_file(candidates[0].resolve(), mimetype="image/jpeg")
 
 
 @app.route("/status/<job_id>")
