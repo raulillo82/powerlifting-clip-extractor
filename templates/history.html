@@ -131,7 +131,7 @@
               {% elif dl.status == 'error' %}
                 <span class="badge bg-danger" data-i18n="hist.status.error">Error</span>
               {% endif %}
-              {% if not dl.expired %}
+              {% if not dl.expired and dl.status not in ['queued', 'running'] %}
                 <a href="{{ url_for('status', job_id=dl.job_id) }}"
                    class="btn btn-sm btn-outline-secondary" data-i18n="hist.view">Ver estado</a>
               {% endif %}
