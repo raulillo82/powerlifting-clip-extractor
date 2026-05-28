@@ -629,6 +629,15 @@
   <script>
   applyLang(localStorage.getItem('lang') || 'en');
 
+  document.querySelectorAll('time[data-ts]').forEach(el => {
+    const d = new Date(parseInt(el.dataset.ts));
+    el.textContent =
+      String(d.getDate()).padStart(2,'0') + '/' +
+      String(d.getMonth()+1).padStart(2,'0') + ' ' +
+      String(d.getHours()).padStart(2,'0') + ':' +
+      String(d.getMinutes()).padStart(2,'0');
+  });
+
   const _nav = document.querySelector('.navbar');
   document.body.style.paddingTop = _nav.offsetHeight + 'px';
 

@@ -44,8 +44,10 @@ app = Flask(__name__)
 @app.template_filter("datetimeformat")
 def _datetimeformat(ts: int) -> str:
     import datetime
-    d = datetime.datetime.fromtimestamp(ts)
-    return f"{d.day:02d}/{d.month:02d} {d.hour:02d}:{d.minute:02d}"
+    from markupsafe import Markup
+    d = datetime.datetime.fromtimestamp(ts, datetime.timezone.utc)
+    fallback = f"{d.day:02d}/{d.month:02d} {d.hour:02d}:{d.minute:02d}"
+    return Markup(f'<time data-ts="{int(ts) * 1000}">{fallback}</time>')
 
 
 @app.template_filter("fromjson")
