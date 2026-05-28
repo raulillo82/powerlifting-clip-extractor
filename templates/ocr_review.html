@@ -94,6 +94,12 @@
               <button type="button" class="btn btn-outline-secondary btn-sm"
                       onclick="adjustTs(this, 5)">+5s</button>
             </div>
+            <div class="d-flex gap-1 mt-1">
+              <button type="button" class="btn btn-outline-info btn-sm py-0 flex-fill"
+                      onclick="previewFrame('{{ job_id }}','{{ mov }}',{{ i }},'start')">▶ inicio</button>
+              <button type="button" class="btn btn-outline-info btn-sm py-0 flex-fill"
+                      onclick="previewFrame('{{ job_id }}','{{ mov }}',{{ i }},'end')">fin ◀</button>
+            </div>
           </div>
           {% endfor %}
         </div>
@@ -110,6 +116,23 @@
             onclick="return buildTimestamps()">Continuar →</button>
   </div>
 </form>
+
+<!-- Frame preview modal -->
+<div class="modal fade" id="frame-modal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <span class="modal-title small fw-semibold" id="frame-modal-title"></span>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-1 text-center bg-dark">
+        <img id="frame-modal-img" src="" class="img-fluid d-none" alt="">
+        <p id="frame-modal-err" class="text-secondary my-3 d-none small">Frame no disponible</p>
+        <div id="frame-modal-loading" class="text-secondary my-3 small">Cargando…</div>
+      </div>
+    </div>
+  </div>
+</div>
 
 {% endblock %}
 
@@ -154,6 +177,29 @@ function syncTs(input) {
     input.dataset.secs = s;
     input.classList.remove('is-invalid');
   }
+}
+
+const _MOV_LABELS = {squat: 'Sentadilla', bench: 'Banca', deadlift: 'Peso muerto'};
+let _frameModal = null;
+
+function previewFrame(jobId, mov, attempt, ftype) {
+  const img     = document.getElementById('frame-modal-img');
+  const err     = document.getElementById('frame-modal-err');
+  const loading = document.getElementById('frame-modal-loading');
+  const title   = document.getElementById('frame-modal-title');
+
+  title.textContent = `${_MOV_LABELS[mov]} ${attempt + 1} — ${ftype === 'start' ? 'inicio' : 'fin'}`;
+  img.classList.add('d-none');
+  err.classList.add('d-none');
+  loading.classList.remove('d-none');
+  img.src = '';
+
+  if (!_frameModal) _frameModal = new bootstrap.Modal(document.getElementById('frame-modal'));
+  _frameModal.show();
+
+  img.onload  = () => { loading.classList.add('d-none'); img.classList.remove('d-none'); };
+  img.onerror = () => { loading.classList.add('d-none'); err.classList.remove('d-none'); };
+  img.src = `/ocr/${jobId}/frame/${mov}/${attempt}/${ftype}`;
 }
 
 function buildTimestamps() {

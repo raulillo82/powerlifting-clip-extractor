@@ -792,6 +792,31 @@ def ocr_review(job_id: str):
                            ocr_result=job["ocr_result"])
 
 
+_OCR_MOV_PREFIX = {"squat": "sq", "bench": "bn", "deadlift": "dl"}
+
+
+@app.route("/ocr/<job_id>/frame/<mov>/<int:attempt>/<ftype>")
+@login_required
+def ocr_frame(job_id: str, mov: str, attempt: int, ftype: str):
+    job = jobs.get(job_id) or _load_job(job_id)
+    if not job or not job.get("ocr_result"):
+        abort(404)
+    result = job["ocr_result"]
+    key = mov if ftype == "start" else f"{mov}_ends"
+    ts_list = result.get(key) or []
+    if attempt >= len(ts_list):
+        abort(404)
+    secs = int(ts_list[attempt])
+    prefix = _OCR_MOV_PREFIX.get(mov)
+    if not prefix:
+        abort(404)
+    work_dir = Path(job["output_dir"]) / "ocr"
+    candidates = list(work_dir.glob(f"{prefix}*_{secs:06d}.jpg"))
+    if not candidates:
+        abort(404)
+    return send_file(candidates[0], mimetype="image/jpeg")
+
+
 @app.route("/status/<job_id>")
 @login_required
 def status(job_id: str):
