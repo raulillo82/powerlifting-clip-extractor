@@ -100,9 +100,9 @@
                       data-mov="{{ mov }}" data-attempt="{{ i }}" data-ftype="start"
                       onclick="previewFrame(this)">🔍 <span data-i18n="ocr.frame.start">Frame inicial</span></button>
               <button type="button" class="btn btn-outline-secondary btn-sm"
-                      onclick="adjustEnd('{{ mov }}',{{ i }},-5)">−5s</button>
-              <button type="button" class="btn btn-outline-secondary btn-sm"
                       onclick="adjustTsById('ts_{{ mov }}_{{ i }}',+5)">+5s</button>
+              <button type="button" class="btn btn-outline-secondary btn-sm"
+                      onclick="adjustEnd('{{ mov }}',{{ i }},-5)">−5s</button>
               <button type="button" class="btn btn-outline-info btn-sm"
                       data-frame-url="{{ url_for('ocr_frame', job_id=job_id, mov=mov, attempt=i, ftype='end') }}"
                       data-mov="{{ mov }}" data-attempt="{{ i }}" data-ftype="end"
@@ -137,7 +137,7 @@
       </div>
       <div class="modal-body p-1 text-center bg-dark">
         <img id="frame-modal-img" src="" class="img-fluid d-none" alt="">
-        <p id="frame-modal-err" class="text-secondary my-3 d-none small">Frame no disponible</p>
+        <p id="frame-modal-err" class="text-secondary my-3 d-none small" data-i18n="ocr.frame.unavailable">Frame no disponible</p>
         <div id="frame-modal-loading" class="text-secondary my-3 small">Cargando…</div>
       </div>
     </div>
@@ -223,7 +223,7 @@ function previewFrame(btn) {
   const loading = document.getElementById('frame-modal-loading');
   const title   = document.getElementById('frame-modal-title');
 
-  title.textContent = `${_MOV_LABELS[mov]} ${attempt + 1} — ${ftype === 'start' ? 'frame inicial' : 'frame final'}`;
+  title.textContent = `${_MOV_LABELS[mov]} ${attempt + 1} — ${T(ftype === 'start' ? 'ocr.frame.start' : 'ocr.frame.end')}`;
   img.classList.add('d-none');
   img.src = '';
   err.classList.add('d-none');
