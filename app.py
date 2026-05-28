@@ -859,7 +859,7 @@ def download_zip(job_id: str):
 
     out_dir = Path(job["output_dir"])
     buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
         for f in sorted(out_dir.rglob("*.mp4")):
             zf.write(f, f.relative_to(out_dir))
     buf.seek(0)
