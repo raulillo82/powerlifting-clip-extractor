@@ -70,11 +70,14 @@
           {% else %}
             {% set clip_dur = [[45, (avg_diff + 8) | int] | max, 300] | min %}
           {% endif %}
-          <input type="hidden" name="clip_duration_{{ mov_idx * 3 + i }}" value="{{ clip_dur }}">
+          <input type="hidden" id="dur_{{ mov }}_{{ i }}" name="clip_duration_{{ mov_idx * 3 + i }}" value="{{ clip_dur }}">
+          <span class="d-none" id="end_{{ mov }}_{{ i }}"
+                data-end-secs="{{ end_secs | int if end_secs is not none else '' }}"
+                data-orig-end-secs="{{ end_secs | int if end_secs is not none else '' }}"></span>
           <div class="mb-3">
             <div class="d-flex justify-content-between align-items-baseline">
               <label class="form-label small text-muted mb-0"><span data-i18n="label.attempt">Intento</span> {{ i + 1 }}</label>
-              <span class="badge bg-secondary">~{{ clip_dur }}s</span>
+              <span class="badge bg-secondary" id="badge_{{ mov }}_{{ i }}">~{{ clip_dur }}s</span>
             </div>
             <div class="input-group mt-1">
               <button type="button" class="btn btn-outline-secondary btn-sm"
@@ -97,9 +100,17 @@
             </div>
             <div class="d-flex gap-1 mt-1">
               <button type="button" class="btn btn-outline-info btn-sm py-0 flex-fill"
-                      onclick="previewFrame('{{ job_id }}','{{ mov }}',{{ i }},'start')">🔍 <span data-i18n="ocr.frame.start">Frame inicial</span></button>
+                      data-frame-url="{{ url_for('ocr_frame', job_id=job_id, mov=mov, attempt=i, ftype='start') }}"
+                      data-mov="{{ mov }}" data-attempt="{{ i }}" data-ftype="start"
+                      onclick="previewFrame(this)">🔍 <span data-i18n="ocr.frame.start">Frame inicial</span></button>
+              <button type="button" class="btn btn-outline-secondary btn-sm py-0"
+                      onclick="adjustEnd('{{ mov }}',{{ i }},-5)">−5s</button>
               <button type="button" class="btn btn-outline-info btn-sm py-0 flex-fill"
-                      onclick="previewFrame('{{ job_id }}','{{ mov }}',{{ i }},'end')">🔍 <span data-i18n="ocr.frame.end">Frame final</span></button>
+                      data-frame-url="{{ url_for('ocr_frame', job_id=job_id, mov=mov, attempt=i, ftype='end') }}"
+                      data-mov="{{ mov }}" data-attempt="{{ i }}" data-ftype="end"
+                      onclick="previewFrame(this)">🔍 <span data-i18n="ocr.frame.end">Frame final</span></button>
+              <button type="button" class="btn btn-outline-secondary btn-sm py-0"
+                      onclick="adjustEnd('{{ mov }}',{{ i }},+5)">+5s</button>
             </div>
           </div>
           {% endfor %}
@@ -183,7 +194,27 @@ function syncTs(input) {
 const _MOV_LABELS = {squat: 'Sentadilla', bench: 'Banca', deadlift: 'Peso muerto'};
 let _frameModal = null;
 
-function previewFrame(jobId, mov, attempt, ftype) {
+function adjustEnd(mov, attempt, delta) {
+  const endEl   = document.getElementById(`end_${mov}_${attempt}`);
+  const startEl = document.getElementById(`ts_${mov}_${attempt}`);
+  const durEl   = document.getElementById(`dur_${mov}_${attempt}`);
+  const badge   = document.getElementById(`badge_${mov}_${attempt}`);
+  if (!endEl || !startEl) return;
+  const startSecs = parseFloat(startEl.dataset.secs);
+  const newEnd    = parseFloat(endEl.dataset.endSecs) + delta;
+  if (newEnd <= startSecs) return;
+  endEl.dataset.endSecs = newEnd;
+  const dur = Math.max(20, Math.min(300, Math.round(newEnd - startSecs + 8)));
+  if (durEl)  durEl.value       = dur;
+  if (badge)  badge.textContent = `~${dur}s`;
+}
+
+function previewFrame(btn) {
+  const frameUrl = btn.dataset.frameUrl;
+  const mov      = btn.dataset.mov;
+  const attempt  = parseInt(btn.dataset.attempt);
+  const ftype    = btn.dataset.ftype;
+
   const img     = document.getElementById('frame-modal-img');
   const err     = document.getElementById('frame-modal-err');
   const loading = document.getElementById('frame-modal-loading');
@@ -198,19 +229,21 @@ function previewFrame(jobId, mov, attempt, ftype) {
   if (!_frameModal) _frameModal = new bootstrap.Modal(document.getElementById('frame-modal'));
   _frameModal.show();
 
-  // Frame inicial: no disponible si el timestamp ha sido ajustado manualmente
-  if (ftype === 'start') {
-    const input = document.getElementById(`ts_${mov}_${attempt}`);
-    if (input && parseFloat(input.dataset.secs) !== parseInt(input.dataset.origSecs)) {
-      loading.classList.add('d-none');
-      err.classList.remove('d-none');
-      return;
-    }
+  // No disponible si el timestamp fue ajustado manualmente
+  const isAdjusted = ftype === 'start'
+    ? (() => { const el = document.getElementById(`ts_${mov}_${attempt}`);
+               return el && parseFloat(el.dataset.secs) !== parseInt(el.dataset.origSecs); })()
+    : (() => { const el = document.getElementById(`end_${mov}_${attempt}`);
+               return el && parseFloat(el.dataset.endSecs) !== parseInt(el.dataset.origEndSecs); })();
+  if (isAdjusted) {
+    loading.classList.add('d-none');
+    err.classList.remove('d-none');
+    return;
   }
 
   img.onload  = () => { loading.classList.add('d-none'); img.classList.remove('d-none'); };
   img.onerror = () => { loading.classList.add('d-none'); err.classList.remove('d-none'); };
-  img.src = `/ocr/${jobId}/frame/${mov}/${attempt}/${ftype}`;
+  img.src = frameUrl;
 }
 
 function buildTimestamps() {
