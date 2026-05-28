@@ -806,15 +806,24 @@ def ocr_frame(job_id: str, mov: str, attempt: int, ftype: str):
     ts_list = result.get(key) or []
     if attempt >= len(ts_list):
         abort(404)
-    secs = int(ts_list[attempt])
     prefix = _OCR_MOV_PREFIX.get(mov)
     if not prefix:
         abort(404)
     work_dir = Path(job["output_dir"]) / "ocr"
-    candidates = list(work_dir.glob(f"{prefix}*_{secs:06d}.jpg"))
-    if not candidates:
+    requested = request.args.get("t", type=int, default=int(ts_list[attempt]))
+    # Find the closest cached frame within 30 s of the requested timestamp
+    _ts_re = _re.compile(r"_(\d{6})\.jpg$")
+    best, best_delta = None, 31
+    for p in work_dir.glob(f"{prefix}*_*.jpg"):
+        m = _ts_re.search(p.name)
+        if not m:
+            continue
+        delta = abs(int(m.group(1)) - requested)
+        if delta < best_delta:
+            best, best_delta = p, delta
+    if best is None:
         abort(404)
-    return send_file(candidates[0].resolve(), mimetype="image/jpeg")
+    return send_file(best.resolve(), mimetype="image/jpeg")
 
 
 @app.route("/status/<job_id>")

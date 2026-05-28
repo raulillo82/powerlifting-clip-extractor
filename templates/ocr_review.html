@@ -232,24 +232,21 @@ function previewFrame(btn) {
   if (!_frameModal) _frameModal = new bootstrap.Modal(document.getElementById('frame-modal'));
   _frameModal.show();
 
-  // No disponible si el timestamp fue ajustado manualmente
-  const isAdjusted = ftype === 'start'
-    ? (() => { const el = document.getElementById(`ts_${mov}_${attempt}`);
-               if (!el) return false;
-               const curr = Math.round(hmsToSecs(el.value.trim()));
-               return isNaN(curr) || curr !== parseInt(el.dataset.origSecs); })()
-    : (() => { const el = document.getElementById(`end_${mov}_${attempt}`);
-               if (!el || el.dataset.endSecs === '') return false;
-               return Math.round(parseFloat(el.dataset.endSecs)) !== Math.round(parseFloat(el.dataset.origEndSecs)); })();
-  if (isAdjusted) {
-    loading.classList.add('d-none');
-    err.classList.remove('d-none');
-    return;
+  // Resolve current timestamp to pass as ?t= so the server finds the nearest
+  // cached frame even when the user has adjusted the value with ±5s buttons.
+  let currentSecs;
+  if (ftype === 'start') {
+    const el = document.getElementById(`ts_${mov}_${attempt}`);
+    currentSecs = el ? Math.round(hmsToSecs(el.value.trim())) : NaN;
+  } else {
+    const el = document.getElementById(`end_${mov}_${attempt}`);
+    currentSecs = el ? Math.round(parseFloat(el.dataset.endSecs)) : NaN;
   }
+  const url = isNaN(currentSecs) ? frameUrl : `${frameUrl}?t=${currentSecs}`;
 
   img.onload  = () => { loading.classList.add('d-none'); img.classList.remove('d-none'); };
   img.onerror = () => { loading.classList.add('d-none'); err.classList.remove('d-none'); };
-  img.src = frameUrl;
+  img.src = url;
 }
 
 function buildTimestamps() {
