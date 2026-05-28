@@ -32,7 +32,7 @@
   <input type="hidden" name="music"           value="{{ job.music or '' }}">
   <input type="hidden" name="music_start"     value="{{ job.music_start or '' }}">
   <input type="hidden" name="music_pct"       value="{{ job.music_pct or '50' }}">
-  <input type="hidden" name="skip_combined"   value="1">
+  {% if job.skip_combined %}<input type="hidden" name="skip_combined" value="1">{% endif %}
 
   <div class="row g-4 mb-4">
     {% for mov, label_key, ts_list, end_list in [
