@@ -911,13 +911,13 @@ def download_zip(job_id: str):
         return send_file(prebuilt.resolve(), mimetype="application/zip",
                          as_attachment=True, download_name=f"{safe_name}.zip")
 
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
-        for f in sorted(out_dir.rglob("*.mp4")):
-            zf.write(f, f.relative_to(out_dir))
-    buf.seek(0)
-    return send_file(buf, mimetype="application/zip", as_attachment=True,
-                     download_name=f"{safe_name}.zip")
+    zip_path = out_dir / "clips.zip"
+    if not zip_path.exists():
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
+            for f in sorted(out_dir.rglob("*.mp4")):
+                zf.write(f, f.relative_to(out_dir))
+    return send_file(zip_path.resolve(), mimetype="application/zip",
+                     as_attachment=True, download_name=f"{safe_name}.zip")
 
 
 def _make_issue_title(subject: str, body: str) -> str:
