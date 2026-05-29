@@ -24,6 +24,9 @@ venv/
 # Auth — never commit these
 secret.key
 users.db
+powerlifting.db
+github_pat.key
+webhook_secret.key
 
 # MaxMind license key — never commit
 .maxmind_key

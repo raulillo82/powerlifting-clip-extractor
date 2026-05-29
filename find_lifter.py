@@ -49,6 +49,7 @@ EARLY_STOP_N     = 3                          # detener el scan al completar N g
 REFINE_BEFORE_S  = 12                         # segundos antes de min(g) para refinar inicio
 REFINE_AFTER_S   = 20                         # segundos después de max(g) para refinar fin
 REFINE_STEP_S    = 2                          # step del scan de refinamiento
+ISOLATED_HIT_GAP_S = SCAN_STEP_S + 5         # gap mínimo para considerar el primer hit aislado
 
 
 def err(msg):
@@ -320,6 +321,25 @@ def groups_to_ends(groups):
     return [max(g) for g in groups]
 
 
+def trim_isolated_starts(groups, label):
+    """
+    Descarta el primer hit de un grupo si está aislado del siguiente
+    (gap > ISOLATED_HIT_GAP_S). Ocurre cuando el overlay del levantador
+    aparece durante la repetición del intento anterior: el nombre ya está
+    en pantalla pero la cámara aún no apunta al levantador.
+    """
+    trimmed = []
+    for gi, group in enumerate(groups):
+        sgroup = sorted(group)
+        if len(sgroup) >= 2 and (sgroup[1] - sgroup[0]) > ISOLATED_HIT_GAP_S:
+            err(f"  [{label}] intento {gi+1}: primer hit aislado "
+                f"({sgroup[0]}s, siguiente en {sgroup[1]}s, gap={sgroup[1]-sgroup[0]}s) "
+                f"→ descartando, nuevo inicio: {sgroup[1]}s")
+            sgroup = sgroup[1:]
+        trimmed.append(sgroup)
+    return trimmed
+
+
 def main():
     parser = argparse.ArgumentParser(description="Detecta timestamps de un levantador en vídeo AEP.")
     parser.add_argument("url", help="URL de YouTube del vídeo de competición")
@@ -370,6 +390,7 @@ def main():
         prefix="sq",
     )
     squat_groups = refine_group_bounds(url, work_dir, squat_groups, token, "SQ", "sq")
+    squat_groups = trim_isolated_starts(squat_groups, "SQ")
     squat_ts = groups_to_timestamps(squat_groups)
     result["squat"] = squat_ts
     result["squat_ends"] = groups_to_ends(squat_groups)
@@ -421,6 +442,7 @@ def main():
         prefix="bn",
     )
     bench_groups = refine_group_bounds(url, work_dir, bench_groups, token, "BN", "bn")
+    bench_groups = trim_isolated_starts(bench_groups, "BN")
     bench_ts = groups_to_timestamps(bench_groups)
     result["bench"] = bench_ts
     result["bench_ends"] = groups_to_ends(bench_groups)
@@ -463,6 +485,7 @@ def main():
         prefix="dl",
     )
     dl_groups = refine_group_bounds(url, work_dir, dl_groups, token, "DL", "dl")
+    dl_groups = trim_isolated_starts(dl_groups, "DL")
     dl_ts = groups_to_timestamps(dl_groups)
     result["deadlift"] = dl_ts
     result["deadlift_ends"] = groups_to_ends(dl_groups)
