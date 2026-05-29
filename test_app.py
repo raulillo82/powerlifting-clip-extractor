@@ -1437,3 +1437,70 @@ class TestOcrWorker:
             flask_app._ocr_worker("ocr2", job)
 
         assert job["status"] == "error"
+
+
+# ── OCR phase display contract (status.html JS ↔ find_lifter.py output) ─────────
+# El progreso de fases del OCR es JS de cliente sin runner de tests. Estos tests
+# verifican el *contrato* entre los marcadores que find_lifter.py imprime y los
+# que status.html parsea, para cazar bugs como el "fase 7 de 6" (contar
+# 'Terminado en' como una 7ª fase) o que backend y frontend se desincronicen.
+
+import re as _re
+
+_ROOT = Path(__file__).parent
+
+
+def _js_string_array(source, name):
+    """Devuelve los literales de cadena de `const NAME = [ ... ];` en JS."""
+    m = _re.search(name + r"\s*=\s*\[([^\]]*)\]", source)
+    assert m, f"no se encontró el array {name} en status.html"
+    return _re.findall(r"'([^']*)'", m.group(1))
+
+
+class TestOcrPhaseContract:
+    status_html = (_ROOT / "templates" / "status.html").read_text(encoding="utf-8")
+    find_lifter = (_ROOT / "find_lifter.py").read_text(encoding="utf-8")
+
+    def test_every_frontend_phase_marker_is_emitted_by_backend(self):
+        for marker in _js_string_array(self.status_html, "OCR_PHASES"):
+            assert marker in self.find_lifter, (
+                f"status.html busca '{marker}' pero find_lifter.py no lo emite")
+
+    def test_six_phases_on_both_sides(self):
+        phases = _js_string_array(self.status_html, "OCR_PHASES")
+        assert len(phases) == 6
+        assert self.find_lifter.count("=== Fase") == 6
+
+    def test_done_marker_is_separate_from_phases(self):
+        # Guarda contra "fase 7 de 6": 'Terminado en' NO debe estar en OCR_PHASES.
+        phases = _js_string_array(self.status_html, "OCR_PHASES")
+        assert not any("Terminado" in p for p in phases)
+        m = _re.search(r"OCR_DONE_MARKER\s*=\s*'([^']*)'", self.status_html)
+        assert m, "falta OCR_DONE_MARKER en status.html"
+        assert m.group(1) in self.find_lifter, "el marcador de fin no lo emite find_lifter"
+
+    def test_phase_keys_align_with_phases(self):
+        phases = _js_string_array(self.status_html, "OCR_PHASES")
+        keys = _js_string_array(self.status_html, "OCR_PHASE_KEYS")
+        # keys[0] = '' (sin fase aún); keys[1..N] mapean a las N fases reales.
+        assert len(keys) == len(phases) + 1
+        assert keys[0] == ""
+
+
+class TestOcrEstimateHint:
+    """La estimación dinámica de tiempo de OCR usa una clave i18n con placeholder;
+    si falta en algún idioma, la UI mostraría el literal de la clave."""
+
+    base_html = (_ROOT / "templates" / "base.html").read_text(encoding="utf-8")
+    index_html = (_ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+
+    def test_dynamic_hint_key_defined_in_both_languages(self):
+        # Una entrada por idioma (EN + ES).
+        assert self.base_html.count("'ts.ocr.hint.dyn'") == 2
+
+    def test_dynamic_hint_has_min_placeholder(self):
+        for m in _re.findall(r"'ts\.ocr\.hint\.dyn':\s*'([^']*)'", self.base_html):
+            assert "{min}" in m, f"falta el placeholder {{min}} en: {m}"
+
+    def test_index_uses_the_dynamic_hint_key(self):
+        assert "ts.ocr.hint.dyn" in self.index_html

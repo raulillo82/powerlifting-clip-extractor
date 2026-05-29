@@ -146,7 +146,7 @@
                data-i18n-placeholder="ph.ocr.apellido" disabled
                oninput="normalizeApellido(this)">
         <div class="form-text text-muted" data-i18n="ts.ocr.hint">
-          El script buscará los levantamientos de este apellido (~26 min).
+          El script buscará los levantamientos de este apellido (unos minutos).
         </div>
       </div>
 
@@ -685,6 +685,7 @@ function _setSelectedUrl(radio, linkContainer) {
   document.getElementById('session-label-hidden').value = radio ? (radio.dataset.label || '') : '';
   _videoDuration = radio && radio.dataset.duration ? parseFloat(radio.dataset.duration) : null;
   _clearDurationError();
+  updateOcrEstimate();
   document.getElementById('session-yt-link')?.remove();
   if (radio && radio.value) {
     const a = document.createElement('a');
@@ -812,6 +813,36 @@ function onTsInputModeChange() {
 function _onSubmit() {
   const isOcr = document.getElementById('ts_mode_ocr').checked;
   return isOcr || _validateDuration();
+}
+
+// ── Estimación dinámica del tiempo de OCR ───────────────────────────────────
+// El OCR escanea desde el inicio de la competición hasta el último peso muerto
+// del levantador, así que su coste ≈ proporcional a la duración del vídeo.
+// Factor calibrado con el vídeo de prueba (12360s → ~500s reales de OCR).
+// OJO: el vídeo de prueba contiene UNA sola sesión. Para vídeos largos con varias
+// sesiones encadenadas (p.ej. mañana+tarde en un mismo vídeo) esta estimación se
+// queda larga —el levantador estará en una sola sesión— y habría que revisar el
+// cálculo (estimar sobre la duración de la sesión, no del vídeo entero).
+const OCR_TIME_FACTOR = 0.045;
+
+function _ocrEstimateMinutes(videoSeconds) {
+  return Math.max(2, Math.round(videoSeconds * OCR_TIME_FACTOR / 60));
+}
+
+function updateOcrEstimate() {
+  const el = document.querySelector('[data-i18n="ts.ocr.hint"]');
+  if (!el) return;
+  if (_videoDuration) {
+    el.textContent = T('ts.ocr.hint.dyn').replace('{min}', _ocrEstimateMinutes(_videoDuration));
+  } else {
+    el.textContent = T('ts.ocr.hint');  // sin duración conocida (URL manual)
+  }
+}
+
+// base.html llama a esto tras re-traducir al cambiar idioma: re-aplicamos la
+// estimación dinámica para que no la pise el texto estático de data-i18n.
+function onLangChange() {
+  updateOcrEstimate();
 }
 
 // Restore JS state after server-side validation error
