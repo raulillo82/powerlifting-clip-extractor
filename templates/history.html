@@ -139,12 +139,16 @@
           </div>
         {% endfor %}
 
-        {% if session.can_reedit %}
-          <div class="mt-2 pt-1">
+        <div class="mt-2 pt-1 d-flex gap-2 flex-wrap">
+          {% if session.can_reedit %}
             <a href="{{ url_for('ocr_review', job_id=ocr.job_id) }}"
                class="btn btn-sm btn-outline-info" data-i18n="hist.reedit">Re-editar timestamps</a>
-          </div>
-        {% endif %}
+          {% endif %}
+          {% if ocr %}
+            <a href="{{ url_for('status', job_id=ocr.job_id) }}"
+               class="btn btn-sm btn-outline-secondary" data-i18n="hist.ocr_log">Ver log OCR</a>
+          {% endif %}
+        </div>
       </div>
     </div>
     {% endif %}
