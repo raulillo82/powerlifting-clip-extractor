@@ -49,7 +49,7 @@
 {# ── OCR review ── #}
 {% if ocr_mode %}
 <div id="ocr-running-notice" class="alert alert-info py-2 small mb-3">
-  <span data-i18n="ocr.nav.away">El escaneo OCR dura ~26 min. Puedes cerrar esta pestaña y volver más tarde — el job seguirá corriendo en el servidor.</span>
+  <span data-i18n="ocr.nav.away">El escaneo OCR puede tardar varios minutos. Puedes cerrar esta pestaña y volver más tarde — el job seguirá corriendo en el servidor.</span>
 </div>
 <div id="ocr-review-section" class="d-none">
   <a href="{{ url_for('ocr_review', job_id=job_id) }}"
