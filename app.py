@@ -490,8 +490,9 @@ def _ocr_worker(job_id: str, job: dict) -> None:
 
         drain_t = threading.Thread(target=_drain_stderr, daemon=True)
         drain_t.start()
-        stdout, _ = proc.communicate()
-        drain_t.join(timeout=5)
+        stdout = proc.stdout.read()
+        proc.wait()
+        drain_t.join(timeout=10)
 
         if proc.returncode != 0:
             raise RuntimeError(f"find_lifter.py falló (exit {proc.returncode})")

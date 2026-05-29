@@ -1404,11 +1404,13 @@ class TestOcrWorker:
         fake_result = json.dumps(OCR_RESULT)
 
         import subprocess as sp
+        class _FakeStdout:
+            def read(self): return fake_result
         mock_proc = type("P", (), {
-            "stdout": iter([fake_result]),
+            "stdout": _FakeStdout(),
             "stderr": iter(["Fase 1: inicio\nFase 6: peso muerto\nTerminado en 100s\n"]),
             "returncode": 0,
-            "communicate": lambda self: (fake_result, ""),
+            "wait": lambda self: None,
         })()
 
         with patch("app._save_job"), patch("subprocess.Popen", return_value=mock_proc):
@@ -1422,11 +1424,13 @@ class TestOcrWorker:
         db.init_db()
         job = self._make_job(tmp_path)
 
+        class _FakeStdoutEmpty:
+            def read(self): return ""
         mock_proc = type("P", (), {
-            "stdout": iter([]),
+            "stdout": _FakeStdoutEmpty(),
             "stderr": iter(["Error fatal\n"]),
             "returncode": 1,
-            "communicate": lambda self: ("", "Error fatal"),
+            "wait": lambda self: None,
         })()
 
         with patch("app._save_job"), patch("subprocess.Popen", return_value=mock_proc):
