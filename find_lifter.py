@@ -380,7 +380,8 @@ def main():
     # Un G2 tiene sq_offset >> 30 min; un G1 tiene sq_offset de pocos minutos.
     # La decisión es binaria: G1 → sin salto en banca/DL; G2 → saltar la parte de G1.
     G2_THRESHOLD_S     = 1800  # 30 min: sq_offset mayor que esto indica G2
-    GROUP_OFFSET_MARGIN_S = 300  # margen de 5 min para variaciones de orden dentro del grupo
+    GROUP_OFFSET_MARGIN_S    = 300  # margen de 5 min para banca (similar al de sentadilla)
+    DL_OFFSET_MARGIN_S       = 600  # margen de 10 min para DL (rondas más rápidas que banca)
     sq_offset = (squat_ts[0] - comp_start) if squat_ts else 0
     is_g2 = sq_offset > G2_THRESHOLD_S
     err(f"  [grupo] sq_offset={sq_offset}s ({_hms(sq_offset)}) → {'G2' if is_g2 else 'G1'}")
@@ -448,8 +449,8 @@ def main():
     bn_offset = (bench_ts[0] - bench_start) if bench_ts else sq_offset
     is_g2_bn  = bn_offset > G2_THRESHOLD_S
     if is_g2_bn:
-        dl_scan_start = max(dl_start, dl_start + bn_offset - GROUP_OFFSET_MARGIN_S)
-        err(f"  [G2] bn_offset={bn_offset}s ({_hms(bn_offset)}) → saltando {dl_scan_start - dl_start}s ({_hms(dl_scan_start - dl_start)}) del bloque de DL")
+        dl_scan_start = max(dl_start, dl_start + bn_offset - DL_OFFSET_MARGIN_S)
+        err(f"  [attempt offset] bn_offset={bn_offset}s ({_hms(bn_offset)}) → saltando {dl_scan_start - dl_start}s ({_hms(dl_scan_start - dl_start)}) del bloque de DL")
     else:
         dl_scan_start = dl_start
         err(f"  [G1] escaneando desde el inicio del bloque de DL")
