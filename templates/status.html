@@ -81,8 +81,19 @@ const expiryEl   = document.getElementById('expiry-notice');
 
 const TOTAL_CLIPS = {{ 1 if single_mode else 9 }};
 const OCR_MODE = {{ ocr_mode | tojson }};
+const OCR_ESTIMATE_MIN = {{ ocr_estimate_min | tojson }};  // null si no se conoce la duración
 const ocrReviewSection = document.getElementById('ocr-review-section');
 let lastData = null;   // saved so language changes can re-render
+
+// Muestra la estimación de tiempo (si se conoce la duración del vídeo) en el
+// aviso de "puedes cerrar la pestaña". Se re-aplica al cambiar idioma.
+function updateOcrNavAway() {
+  const el = document.querySelector('#ocr-running-notice [data-i18n="ocr.nav.away"]');
+  if (!el) return;
+  if (OCR_ESTIMATE_MIN) {
+    el.textContent = T('ocr.nav.away.est').replace('{min}', OCR_ESTIMATE_MIN);
+  }  // si no, queda el texto genérico de data-i18n
+}
 
 
 function movementKey(clips) {
@@ -187,6 +198,7 @@ function renderQueued(data) {
 
 // Called by base.html when the user switches language
 function onLangChange() {
+  updateOcrNavAway();  // antes del guard: debe aplicarse aunque no haya datos aún
   if (!lastData) return;
   if (lastData.status === 'done')      renderDone(lastData);
   if (lastData.status === 'ocr_done')  renderOcrDone(lastData);
@@ -234,5 +246,6 @@ stepEl.textContent  = T('step.starting');
 
 const timer = setInterval(poll, 2000);
 poll();
+updateOcrNavAway();  // estimación en el aviso ya en la carga inicial
 </script>
 {% endblock %}

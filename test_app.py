@@ -1504,3 +1504,31 @@ class TestOcrEstimateHint:
 
     def test_index_uses_the_dynamic_hint_key(self):
         assert "ts.ocr.hint.dyn" in self.index_html
+
+    def test_nav_away_estimate_key_defined_in_both_languages(self):
+        # El aviso "puedes cerrar la pestaña" con estimación (página de estado).
+        assert self.base_html.count("'ocr.nav.away.est'") == 2
+        for m in _re.findall(r"'ocr\.nav\.away\.est':\s*'([^']*)'", self.base_html):
+            assert "{min}" in m, f"falta el placeholder {{min}} en: {m}"
+
+
+class TestOcrEstimateMinutes:
+    """Helper backend que estima el tiempo de OCR a partir de la duración."""
+
+    def test_none_when_no_duration(self):
+        assert flask_app._ocr_estimate_min(None) is None
+        assert flask_app._ocr_estimate_min(0) is None
+
+    def test_test_video_duration(self):
+        # 12360s (vídeo de prueba) → round(12360 * 0.045 / 60) = 9 min
+        assert flask_app._ocr_estimate_min(12360) == 9
+
+    def test_floor_of_two_minutes(self):
+        # Vídeos cortos no bajan de 2 min.
+        assert flask_app._ocr_estimate_min(600) == 2
+
+    def test_parse_float_helper(self):
+        assert flask_app._parse_float("12360") == 12360.0
+        assert flask_app._parse_float("") is None
+        assert flask_app._parse_float(None) is None
+        assert flask_app._parse_float("abc") is None

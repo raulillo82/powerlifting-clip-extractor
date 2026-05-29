@@ -22,6 +22,7 @@
              value="{{ form_data.get('url', '') if form_data else '' }}">
       <input type="hidden" id="source-hidden" name="source">
       <input type="hidden" id="session-label-hidden" name="session_label">
+      <input type="hidden" id="ocr-video-duration" name="ocr_video_duration">
 
       {# Source selector #}
       <div class="mb-3">
@@ -830,6 +831,10 @@ function _ocrEstimateMinutes(videoSeconds) {
 }
 
 function updateOcrEstimate() {
+  // Propaga la duración al campo oculto para que la página de estado pueda
+  // mostrar la misma estimación mientras el job corre.
+  const hidden = document.getElementById('ocr-video-duration');
+  if (hidden) hidden.value = _videoDuration || '';
   const el = document.querySelector('[data-i18n="ts.ocr.hint"]');
   if (!el) return;
   if (_videoDuration) {

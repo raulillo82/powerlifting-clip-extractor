@@ -752,6 +752,27 @@ def start_job():
     return redirect(url_for("status", job_id=job_id))
 
 
+# Estimación de tiempo de OCR ≈ factor × duración del vídeo. Calibrado con el
+# vídeo de prueba (~12360s → ~500s reales). Debe coincidir con OCR_TIME_FACTOR en
+# index.html (formulario). OJO: asume vídeo de UNA sola sesión; para vídeos con
+# varias sesiones encadenadas hay que revisar el cálculo.
+OCR_TIME_FACTOR = 0.045
+
+
+def _parse_float(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _ocr_estimate_min(duration_s):
+    """Minutos estimados de OCR a partir de la duración del vídeo, o None."""
+    if not duration_s:
+        return None
+    return max(2, round(duration_s * OCR_TIME_FACTOR / 60))
+
+
 @app.route("/run-ocr", methods=["POST"])
 @login_required
 @limiter.limit("1 per 30 minutes", key_func=lambda: current_user.get_id())
@@ -775,6 +796,7 @@ def start_ocr_job():
         "is_admin": current_user.is_admin,
         "submitted_url": url,
         "ocr_apellido": apellido,
+        "video_duration": _parse_float(request.form.get("ocr_video_duration")),
         "source": request.form.get("source", "").strip(),
         "session_label": request.form.get("session_label", "").strip(),
         "music": request.form.get("music", "").strip(),
@@ -868,8 +890,10 @@ def status(job_id: str):
     job = jobs.get(job_id) or _load_job(job_id)
     single_mode = job.get("mode") == "single" if job else False
     ocr_mode = job.get("mode") == "ocr" if job else False
+    ocr_estimate_min = _ocr_estimate_min(job.get("video_duration")) if job else None
     return render_template("status.html", job_id=job_id,
-                           single_mode=single_mode, ocr_mode=ocr_mode)
+                           single_mode=single_mode, ocr_mode=ocr_mode,
+                           ocr_estimate_min=ocr_estimate_min)
 
 
 @app.route("/status/<job_id>/json")
