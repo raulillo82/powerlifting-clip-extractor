@@ -24,7 +24,15 @@ Instalación en OpenSUSE Tumbleweed:
         python3-pytesseract python3-Pillow python3-numpy
 """
 
-import sys, argparse, subprocess, time, difflib, re, json, unicodedata
+import os, sys, argparse, subprocess, time, difflib, re, json, unicodedata
+
+# Tesseract lanza hilos OpenMP internos. Con varios procesos OCR concurrentes
+# (ver SCAN_WORKERS) eso sobre-suscribe la CPU y dispara el tiempo por frame
+# (~140ms → ~1500ms medido). Limitar a 1 hilo por proceso lo evita: sobre estos
+# crops minúsculos OMP no aporta nada, y además hace el OCR más reproducible.
+# setdefault para respetar un valor externo si se fija a propósito.
+os.environ.setdefault("OMP_THREAD_LIMIT", "1")
+
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -51,8 +59,8 @@ REFINE_BEFORE_S  = 12                         # segundos antes de min(g) para re
 REFINE_AFTER_S   = 20                         # segundos después de max(g) para refinar fin
 REFINE_STEP_S    = 2                          # step del scan de refinamiento
 ISOLATED_HIT_GAP_S = SCAN_STEP_S + 5         # gap mínimo para considerar el primer hit aislado
-SCAN_WORKERS     = 4                          # hilos para extraer+OCR frames en paralelo
-SCAN_BATCH       = 8                          # frames por lote antes de evaluar early-stop
+SCAN_WORKERS     = 6                          # hilos para extraer+OCR frames en paralelo
+SCAN_BATCH       = 12                         # frames por lote antes de evaluar early-stop
 
 # Acumulador global de coste (se actualiza solo desde el hilo principal → sin race).
 _STATS = {"frames": 0, "ff_ms": 0, "ocr_ms": 0}
@@ -128,16 +136,12 @@ def _token_matches_word(tok, word):
     return False
 
 
-def ocr_banner(path, token):
-    ym = yellow_mask(path)
-    if ym.sum() < YELLOW_MIN_PX:
-        return "", False
-    bin_arr = np.zeros((*ym.shape, 3), dtype=np.uint8)
-    bin_arr[ym] = 255
-    pil = Image.fromarray(bin_arr).resize(
-        (bin_arr.shape[1] * OCR_SCALE, bin_arr.shape[0] * OCR_SCALE), Image.NEAREST)
-    raw = pytesseract.image_to_string(
-        pil, config="--oem 3 --psm 6 -l spa").replace("\n", " ").strip()
+def _match_token(raw, token):
+    """Decide si el texto OCR `raw` contiene el apellido `token`.
+
+    Función pura (sin imagen ni red) para poder testearla. Devuelve
+    (texto_para_log, encontrado).
+    """
     text = raw.upper()  # for log display
     text_cmp = _normalize(raw)  # accentless for comparison
 
@@ -155,6 +159,19 @@ def ocr_banner(path, token):
                    if not any(_token_matches_word(tok, w) for w in ocr_words))
     max_failures = 1 if len(sub_tokens) >= 3 else 0
     return text, failures <= max_failures
+
+
+def ocr_banner(path, token):
+    ym = yellow_mask(path)
+    if ym.sum() < YELLOW_MIN_PX:
+        return "", False
+    bin_arr = np.zeros((*ym.shape, 3), dtype=np.uint8)
+    bin_arr[ym] = 255
+    pil = Image.fromarray(bin_arr).resize(
+        (bin_arr.shape[1] * OCR_SCALE, bin_arr.shape[0] * OCR_SCALE), Image.NEAREST)
+    raw = pytesseract.image_to_string(
+        pil, config="--oem 3 --psm 6 -l spa").replace("\n", " ").strip()
+    return _match_token(raw, token)
 
 
 def read_timer(path):
