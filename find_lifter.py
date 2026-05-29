@@ -137,11 +137,11 @@ def ocr_banner(path, token):
     if not sub_tokens:
         return text, False
 
-    # All sub-tokens must match at least one OCR word (AND logic)
-    for tok in sub_tokens:
-        if not any(_token_matches_word(tok, w) for w in ocr_words):
-            return text, False
-    return text, True
+    # N≥3: allow 1 failure (N-1 of N); N<3: require all
+    failures = sum(1 for tok in sub_tokens
+                   if not any(_token_matches_word(tok, w) for w in ocr_words))
+    max_failures = 1 if len(sub_tokens) >= 3 else 0
+    return text, failures <= max_failures
 
 
 def read_timer(path):
