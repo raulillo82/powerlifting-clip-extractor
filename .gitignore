@@ -24,7 +24,6 @@ venv/
 # Auth — never commit these
 secret.key
 users.db
-powerlifting.db
 github_pat.key
 webhook_secret.key
 
