@@ -25,6 +25,7 @@ Instalación en OpenSUSE Tumbleweed:
 """
 
 import sys, argparse, subprocess, time, difflib, re, json, unicodedata
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from PIL import Image
@@ -50,6 +51,17 @@ REFINE_BEFORE_S  = 12                         # segundos antes de min(g) para re
 REFINE_AFTER_S   = 20                         # segundos después de max(g) para refinar fin
 REFINE_STEP_S    = 2                          # step del scan de refinamiento
 ISOLATED_HIT_GAP_S = SCAN_STEP_S + 5         # gap mínimo para considerar el primer hit aislado
+SCAN_WORKERS     = 4                          # hilos para extraer+OCR frames en paralelo
+SCAN_BATCH       = 8                          # frames por lote antes de evaluar early-stop
+
+# Acumulador global de coste (se actualiza solo desde el hilo principal → sin race).
+_STATS = {"frames": 0, "ff_ms": 0, "ocr_ms": 0}
+
+
+def _record(frames, ff_ms, ocr_ms):
+    _STATS["frames"] += frames
+    _STATS["ff_ms"]  += ff_ms
+    _STATS["ocr_ms"] += ocr_ms
 
 
 def err(msg):
@@ -194,49 +206,86 @@ def detect_comp_start(url, work_dir, max_probe_s=360):
     return 0
 
 
+def _scan_one(url, work_dir, secs, token, prefix):
+    """Extrae un frame y le pasa el OCR. Devuelve tiempos de ffmpeg y OCR por separado.
+
+    Pensado para ejecutarse en un ThreadPool: ffmpeg y tesseract son subprocesos
+    que liberan el GIL, así que varios frames avanzan en paralelo.
+    """
+    out = work_dir / f"{prefix}_{secs:06d}.jpg"
+    t0 = time.perf_counter()
+    ok = extract_frame(url, secs, out)
+    t1 = time.perf_counter()
+    if not ok:
+        return secs, False, "", False, int((t1 - t0) * 1000), 0
+    text, found = ocr_banner(out, token)
+    t2 = time.perf_counter()
+    return secs, True, text, found, int((t1 - t0) * 1000), int((t2 - t1) * 1000)
+
+
 def scan_movement(url, work_dir, start_s, max_window_s, token, label, prefix):
     """
     Scan denso de un bloque de movimiento. Para cuando el último de EARLY_STOP_N grupos
     lleva GROUP_GAP_S sin nuevas detecciones (banner de repetición cerrado).
     Devuelve lista de grupos [[t1, t2, ...], [t1, t2, ...], [t1, t2, ...]].
+
+    Los frames se extraen+OCRean en lotes de SCAN_BATCH con SCAN_WORKERS hilos; el
+    early-stop se evalúa procesando cada lote en orden (a lo sumo se desperdicia un
+    lote tras el corte). El cuello es ffmpeg (seek remoto), que paraleliza bien.
     """
     err(f"  [{label}] scan desde {start_s // 3600}h{(start_s % 3600) // 60:02d}m "
-        f"(max {max_window_s // 60} min, step {SCAN_STEP_S}s)")
+        f"(max {max_window_s // 60} min, step {SCAN_STEP_S}s, {SCAN_WORKERS} hilos)")
+    t_phase = time.perf_counter()
     hits = []
     groups = []
     end_s = start_s + max_window_s
+    all_secs = list(range(start_s, end_s + 1, SCAN_STEP_S))
+    n_frames = tot_ff = tot_ocr = 0
     i = 0
-    for secs in range(start_s, end_s + 1, SCAN_STEP_S):
-        i += 1
-        ts = f"{secs // 3600}h{(secs % 3600) // 60:02d}m{secs % 60:02d}s"
-        out = work_dir / f"{prefix}_{secs:06d}.jpg"
-        tf = time.perf_counter()
-        if not extract_frame(url, secs, out):
-            err(f"  [{label} {i:3d}] {ts}  ERROR"); continue
-        text, found = ocr_banner(out, token)
-        ms = int((time.perf_counter() - tf) * 1000)
-        excerpt = (text[:50] + "…") if len(text) > 50 else text
-        mark = "✓ HIT" if found else "·"
-        err(f"  [{label} {i:3d}] {ts}  {mark:<7} {ms:4d}ms  {excerpt!r}")
+    stop = False
 
-        if found:
-            hits.append(secs)
-            groups = []
-            cur = [hits[0]]
-            for s in hits[1:]:
-                if s - cur[-1] <= GROUP_GAP_S:
-                    cur.append(s)
-                else:
+    with ThreadPoolExecutor(max_workers=SCAN_WORKERS) as ex:
+        for b in range(0, len(all_secs), SCAN_BATCH):
+            if stop:
+                break
+            batch = all_secs[b:b + SCAN_BATCH]
+            # ex.map preserva el orden de envío → resultados en orden de batch.
+            results = ex.map(lambda s: _scan_one(url, work_dir, s, token, prefix), batch)
+            for secs, ok, text, found, ff_ms, ocr_ms in results:
+                i += 1
+                n_frames += 1
+                tot_ff += ff_ms
+                tot_ocr += ocr_ms
+                ts = f"{secs // 3600}h{(secs % 3600) // 60:02d}m{secs % 60:02d}s"
+                if not ok:
+                    err(f"  [{label} {i:3d}] {ts}  ERROR"); continue
+                excerpt = (text[:50] + "…") if len(text) > 50 else text
+                mark = "✓ HIT" if found else "·"
+                err(f"  [{label} {i:3d}] {ts}  {mark:<7} ff{ff_ms:4d}ms ocr{ocr_ms:4d}ms  {excerpt!r}")
+
+                if found:
+                    hits.append(secs)
+                    groups = []
+                    cur = [hits[0]]
+                    for s in hits[1:]:
+                        if s - cur[-1] <= GROUP_GAP_S:
+                            cur.append(s)
+                        else:
+                            groups.append(cur)
+                            cur = [s]
                     groups.append(cur)
-                    cur = [s]
-            groups.append(cur)
 
-        # Stop once EARLY_STOP_N groups are identified AND the last group has closed
-        # (GROUP_GAP_S seconds without a new detection = replay banner ended).
-        if len(groups) >= EARLY_STOP_N and hits and (secs - hits[-1]) >= GROUP_GAP_S:
-            err(f"  [{label}] early-stop: {EARLY_STOP_N} grupos cerrados en frame {i}")
-            break
+                # Stop once EARLY_STOP_N groups are identified AND the last group has closed
+                # (GROUP_GAP_S seconds without a new detection = replay banner ended).
+                if len(groups) >= EARLY_STOP_N and hits and (secs - hits[-1]) >= GROUP_GAP_S:
+                    err(f"  [{label}] early-stop: {EARLY_STOP_N} grupos cerrados en frame {i}")
+                    stop = True
+                    break
 
+    _record(n_frames, tot_ff, tot_ocr)
+    dt = time.perf_counter() - t_phase
+    err(f"  [{label}] scan: {n_frames} frames en {dt:.0f}s wall "
+        f"(ff {tot_ff / 1000:.0f}s + ocr {tot_ocr / 1000:.0f}s)")
     return groups
 
 
@@ -270,44 +319,52 @@ def refine_group_bounds(url, work_dir, groups, token, label, prefix):
     Reduce la incertidumbre ±SCAN_STEP_S/2 del scan principal a ±REFINE_STEP_S/2.
     """
     refined = []
-    for gi, group in enumerate(groups):
-        g_min, g_max = min(group), max(group)
-        new_min, new_max = g_min, g_max
+    n_frames = tot_ff = tot_ocr = 0
+    with ThreadPoolExecutor(max_workers=SCAN_WORKERS) as ex:
+        for gi, group in enumerate(groups):
+            g_min, g_max = min(group), max(group)
+            new_min, new_max = g_min, g_max
 
-        # Buscar inicio más temprano: escanear REFINE_BEFORE_S segundos antes de g_min
-        for secs in range(max(0, g_min - REFINE_BEFORE_S), g_min, REFINE_STEP_S):
-            out = work_dir / f"{prefix}_rb{gi}_{secs:06d}.jpg"
-            if not extract_frame(url, secs, out):
-                continue
-            _, found = ocr_banner(out, token)
-            if found:
-                err(f"  [{label}] refine intento {gi+1} inicio ✓ {secs}s ({_hms(secs)}) (era {g_min}s / {_hms(g_min)})")
-                new_min = min(new_min, secs)
+            # Buscar inicio más temprano: escanear REFINE_BEFORE_S segundos antes de g_min.
+            # Frames independientes → en paralelo; new_min = el hit más temprano.
+            before = list(range(max(0, g_min - REFINE_BEFORE_S), g_min, REFINE_STEP_S))
+            pre = f"{prefix}_rb{gi}"
+            for secs, ok, _t, found, ff_ms, ocr_ms in ex.map(
+                    lambda s, p=pre: _scan_one(url, work_dir, s, token, p), before):
+                n_frames += 1; tot_ff += ff_ms; tot_ocr += ocr_ms
+                if ok and found:
+                    err(f"  [{label}] refine intento {gi+1} inicio ✓ {secs}s ({_hms(secs)}) (era {g_min}s / {_hms(g_min)})")
+                    new_min = min(new_min, secs)
 
-        # Buscar fin más tardío: escanear hasta REFINE_AFTER_S segundos después de g_max
-        for secs in range(g_max + REFINE_STEP_S, g_max + REFINE_AFTER_S + 1, REFINE_STEP_S):
-            out = work_dir / f"{prefix}_re{gi}_{secs:06d}.jpg"
-            if not extract_frame(url, secs, out):
-                continue
-            _, found = ocr_banner(out, token)
-            if found:
-                err(f"  [{label}] refine intento {gi+1} fin ✓ {secs}s ({_hms(secs)}) (era {g_max}s / {_hms(g_max)})")
-                new_max = max(new_max, secs)
+            # Buscar fin más tardío: escanear hasta REFINE_AFTER_S después de g_max.
+            # ex.map preserva el orden → extender mientras haya hits consecutivos y
+            # parar en el primer miss (banner terminado), igual que la versión serie.
+            after = list(range(g_max + REFINE_STEP_S, g_max + REFINE_AFTER_S + 1, REFINE_STEP_S))
+            pst = f"{prefix}_re{gi}"
+            for secs, ok, _t, found, ff_ms, ocr_ms in ex.map(
+                    lambda s, p=pst: _scan_one(url, work_dir, s, token, p), after):
+                n_frames += 1; tot_ff += ff_ms; tot_ocr += ocr_ms
+                if ok and found:
+                    err(f"  [{label}] refine intento {gi+1} fin ✓ {secs}s ({_hms(secs)}) (era {g_max}s / {_hms(g_max)})")
+                    new_max = max(new_max, secs)
+                else:
+                    break  # primer miss: el banner ha terminado
+
+            extra = set()
+            if new_min < g_min:
+                extra.add(new_min)
+            if new_max > g_max:
+                extra.add(new_max)
+            refined_group = sorted(set(group) | extra)
+            refined.append(refined_group)
+
+            if new_min != g_min or new_max != g_max:
+                err(f"  [{label}] refine intento {gi+1}: [{g_min}s/{_hms(g_min)}, {g_max}s/{_hms(g_max)}] → [{new_min}s/{_hms(new_min)}, {new_max}s/{_hms(new_max)}]")
             else:
-                break  # primer miss: el banner ha terminado
+                err(f"  [{label}] refine intento {gi+1}: sin cambios")
 
-        extra = set()
-        if new_min < g_min:
-            extra.add(new_min)
-        if new_max > g_max:
-            extra.add(new_max)
-        refined_group = sorted(set(group) | extra)
-        refined.append(refined_group)
-
-        if new_min != g_min or new_max != g_max:
-            err(f"  [{label}] refine intento {gi+1}: [{g_min}s/{_hms(g_min)}, {g_max}s/{_hms(g_max)}] → [{new_min}s/{_hms(new_min)}, {new_max}s/{_hms(new_max)}]")
-        else:
-            err(f"  [{label}] refine intento {gi+1}: sin cambios")
+    _record(n_frames, tot_ff, tot_ocr)
+    err(f"  [{label}] refine: {n_frames} frames (ff {tot_ff / 1000:.0f}s + ocr {tot_ocr / 1000:.0f}s)")
     return refined
 
 
@@ -355,12 +412,13 @@ def main():
     t_start = time.perf_counter()
     err(f"find_lifter.py — URL: {args.url}  token: {token}")
     err("Leyenda líneas de scan OCR:")
-    err("  [MOV nnn] pos  marca  ms  texto")
+    err("  [MOV nnn] pos  marca  ffXms ocrYms  texto")
     err("  MOV   = SQ/BN/DL (sentadilla / banca / peso muerto)")
     err("  nnn   = nº de frame analizado en el scan actual")
     err("  pos   = posición en el vídeo (h:m:s)")
     err("  marca = ✓ HIT: banner del levantador detectado  ·: no detectado")
-    err("  ms    = tiempo de procesado OCR (Tesseract) por frame")
+    err("  ffX   = tiempo de extracción del frame con ffmpeg (seek al stream)")
+    err("  ocrY  = tiempo de OCR (Tesseract) sobre la máscara del banner")
     err("  texto = primeros 50 caracteres leídos por OCR")
 
     # URL directa del stream
@@ -380,7 +438,7 @@ def main():
     result["comp_start"] = comp_start
 
     # ── 2. Sentadilla ────────────────────────────────────────────────────────
-    err("\n=== Fase 2: sentadilla ===")
+    err(""); err("=== Fase 2: sentadilla ===")
     squat_groups = scan_movement(
         url, work_dir,
         start_s=comp_start,
@@ -408,7 +466,7 @@ def main():
     err(f"  [grupo] sq_offset={sq_offset}s ({_hms(sq_offset)}) → {'G2' if is_g2 else 'G1'}")
 
     # ── 3. Inicio de banca (timer de descanso) ────────────────────────────────
-    err("\n=== Fase 3: buscando inicio de banca ===")
+    err(""); err("=== Fase 3: buscando inicio de banca ===")
     if len(squat_ts) >= 2:
         avg_gap_sq = (squat_ts[1] - squat_ts[0] + squat_ts[-1] - squat_ts[-2]) / 2
         search_from = int(comp_start + avg_gap_sq * 6)
@@ -426,7 +484,7 @@ def main():
             err("  ERROR: no se puede estimar bench_start"); sys.exit(1)
 
     # ── 4. Banca ─────────────────────────────────────────────────────────────
-    err("\n=== Fase 4: banca ===")
+    err(""); err("=== Fase 4: banca ===")
     if is_g2:
         bench_scan_start = max(bench_start, bench_start + sq_offset - GROUP_OFFSET_MARGIN_S)
         err(f"  [G2] sq_offset={sq_offset}s ({_hms(sq_offset)}) → saltando {bench_scan_start - bench_start}s ({_hms(bench_scan_start - bench_start)}) del bloque de banca")
@@ -449,7 +507,7 @@ def main():
     err(f"  → banca: {bench_ts}")
 
     # ── 5. Inicio de DL (timer de descanso) ───────────────────────────────────
-    err("\n=== Fase 5: buscando inicio de peso muerto ===")
+    err(""); err("=== Fase 5: buscando inicio de peso muerto ===")
     if len(bench_ts) >= 2:
         avg_gap_bn = (bench_ts[1] - bench_ts[0] + bench_ts[-1] - bench_ts[-2]) / 2
         search_from_dl = int(bench_start + avg_gap_bn * 6)
@@ -466,7 +524,7 @@ def main():
             err("  ERROR: no se puede estimar dl_start"); sys.exit(1)
 
     # ── 6. Peso muerto ───────────────────────────────────────────────────────
-    err("\n=== Fase 6: peso muerto ===")
+    err(""); err("=== Fase 6: peso muerto ===")
     # Usar el offset de banca si está disponible (más reciente que squat)
     bn_offset = (bench_ts[0] - bench_start) if bench_ts else sq_offset
     is_g2_bn  = bn_offset > G2_THRESHOLD_S
@@ -492,7 +550,11 @@ def main():
     err(f"  → peso muerto: {dl_ts}")
 
     result["elapsed_s"] = round(time.perf_counter() - t_start, 1)
-    err(f"\nTerminado en {result['elapsed_s']}s ({_hms(result['elapsed_s'])})")
+    err("")
+    err(f"Resumen: {_STATS['frames']} frames · ffmpeg {_STATS['ff_ms'] / 1000:.0f}s "
+        f"· OCR {_STATS['ocr_ms'] / 1000:.0f}s (suma de hilos, no wall-clock)")
+    err(f"Terminado en {result['elapsed_s']}s ({_hms(result['elapsed_s'])}) wall-clock "
+        f"con {SCAN_WORKERS} hilos")
 
     print(json.dumps(result, indent=2))
 
