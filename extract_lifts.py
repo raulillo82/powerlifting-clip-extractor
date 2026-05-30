@@ -595,6 +595,7 @@ def run(
                       f" bench {bench_attempt}, deadlift {deadlift_attempt}"
                       f" (descargando deps primero)")
 
+            _t0 = time.monotonic()
             completed_combined_deps: set[int] = set()
             combined_thread: threading.Thread | None = None
             _bg_error: list[BaseException] = []
@@ -644,6 +645,12 @@ def run(
                 if _bg_error:
                     raise _bg_error[0]
                 _combined_early_done = True
+
+            elapsed = time.monotonic() - _t0
+            clips_label = f"{len(timestamps)} clips"
+            combined_label = "" if skip_combined else " + combinado"
+            print(f"{_ts()} Terminado en {elapsed:.1f}s ({elapsed/60:.1f} min)"
+                  f" — {clips_label}{combined_label}")
 
             if preview_width:
                 for path in clip_paths:
