@@ -42,7 +42,11 @@ import numpy as np, pytesseract
 # ── Parámetros de detección ────────────────────────────────────────────────────
 
 BANNER_CROP      = (0.00, 0.78, 0.45, 1.00)  # x0, y0, x1, y1 relativo al frame
-TIMER_CROP       = (0.78, 0.88, 1.00, 1.00)  # reloj de intento / timer de descanso
+TIMER_CROPS      = [
+    (0.78, 0.88, 1.00, 1.00),  # esquina inf-der (AEP estándar)
+    (0.78, 0.00, 1.00, 0.12),  # esquina sup-der (p.ej. Campeonato Junior 2026)
+]
+TIMER_CROP       = TIMER_CROPS[0]  # alias de compatibilidad
 YELLOW_H_RANGE   = (10, 33)                   # hue en rango HSV escalado 0-180
 YELLOW_MIN_S     = 100
 YELLOW_MIN_V     = 100
@@ -61,6 +65,7 @@ REFINE_STEP_S    = 2                          # step del scan de refinamiento
 ISOLATED_HIT_GAP_S = SCAN_STEP_S + 5         # gap mínimo para considerar el primer hit aislado
 SCAN_WORKERS     = 6                          # hilos para extraer+OCR frames en paralelo
 SCAN_BATCH       = 12                         # frames por lote antes de evaluar early-stop
+MAX_CONSECUTIVE_ERRORS = 5                    # bail-out si la URL ha expirado
 
 # Acumulador global de coste (se actualiza solo desde el hilo principal → sin race).
 _STATS = {"frames": 0, "ff_ms": 0, "ocr_ms": 0}
@@ -88,11 +93,14 @@ def _normalize(text: str) -> str:
 
 
 def extract_frame(url, secs, out):
-    r = subprocess.run(
-        ["ffmpeg", "-ss", str(secs), "-i", url, "-frames:v", "1",
-         "-q:v", "3", "-vf", "scale=1280:-1", str(out), "-y"],
-        capture_output=True, timeout=30)
-    return out.exists() and out.stat().st_size > 0
+    try:
+        subprocess.run(
+            ["ffmpeg", "-ss", str(secs), "-i", url, "-frames:v", "1",
+             "-q:v", "3", "-vf", "scale=1280:-1", str(out), "-y"],
+            capture_output=True, timeout=30)
+        return out.exists() and out.stat().st_size > 0
+    except subprocess.TimeoutExpired:
+        return False
 
 
 def _hsv_hue(arr):
@@ -174,14 +182,9 @@ def ocr_banner(path, token):
     return _match_token(raw, token)
 
 
-def read_timer(path):
-    """Lee el timer del cuadrante inf-der. Devuelve segundos o None."""
-    img = Image.open(path).convert("RGB")
-    w, h = img.size
-    x0, y0, x1, y1 = TIMER_CROP
+def _read_timer_crop(img, w, h, x0, y0, x1, y1):
+    """Intenta leer el timer en la región especificada. Devuelve segundos o None."""
     crop = img.crop((int(w * x0), int(h * y0), int(w * x1), int(h * y1)))
-
-    # Aislar caja roja del timer (números blancos sobre fondo rojo AEP)
     arr = np.array(crop)
     red_mask = (arr[:, :, 0] > 120) & (arr[:, :, 1] < 80) & (arr[:, :, 2] < 80)
     if red_mask.sum() > 200:
@@ -196,14 +199,22 @@ def read_timer(path):
         psm = 7
     else:
         psm = 6
-
     crop4 = crop.resize((crop.width * TIMER_SCALE, crop.height * TIMER_SCALE), Image.NEAREST)
     text = pytesseract.image_to_string(
         crop4, config=f"--oem 3 --psm {psm} -l spa -c tessedit_char_whitelist=0123456789:").strip()
     m = re.search(r"(\d{1,2}):(\d{2})", text)
-    if not m:
-        return None
-    return int(m.group(1)) * 60 + int(m.group(2))
+    return int(m.group(1)) * 60 + int(m.group(2)) if m else None
+
+
+def read_timer(path):
+    """Lee el timer de la esquina derecha del frame. Prueba TIMER_CROPS en orden."""
+    img = Image.open(path).convert("RGB")
+    w, h = img.size
+    for crop_box in TIMER_CROPS:
+        t = _read_timer_crop(img, w, h, *crop_box)
+        if t is not None:
+            return t
+    return None
 
 
 def detect_comp_start(url, work_dir, max_probe_s=360):
@@ -260,6 +271,7 @@ def scan_movement(url, work_dir, start_s, max_window_s, token, label, prefix):
     n_frames = tot_ff = tot_ocr = 0
     i = 0
     stop = False
+    consecutive_errors = 0
 
     with ThreadPoolExecutor(max_workers=SCAN_WORKERS) as ex:
         for b in range(0, len(all_secs), SCAN_BATCH):
@@ -275,7 +287,12 @@ def scan_movement(url, work_dir, start_s, max_window_s, token, label, prefix):
                 tot_ocr += ocr_ms
                 ts = f"{secs // 3600}h{(secs % 3600) // 60:02d}m{secs % 60:02d}s"
                 if not ok:
+                    consecutive_errors += 1
+                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                        err(f"  [{label}] bail-out: {consecutive_errors} errores consecutivos (URL expirada?)")
+                        stop = True; break
                     err(f"  [{label} {i:3d}] {ts}  ERROR"); continue
+                consecutive_errors = 0
                 excerpt = (text[:50] + "…") if len(text) > 50 else text
                 mark = "✓ HIT" if found else "·"
                 err(f"  [{label} {i:3d}] {ts}  {mark:<7} ff{ff_ms:4d}ms ocr{ocr_ms:4d}ms  {excerpt!r}")
@@ -315,11 +332,17 @@ def detect_break_timer(url, work_dir, search_from_s, label, prefix):
     err(f"  [{label}] buscando timer de descanso desde "
         f"{search_from_s // 3600}h{(search_from_s % 3600) // 60:02d}m...")
     max_scan = search_from_s + 5400  # buscar hasta 90 min después
+    consecutive_errors = 0
     for secs in range(search_from_s, max_scan + 1, TIMER_STEP_S):
         ts = f"{secs // 3600}h{(secs % 3600) // 60:02d}m{secs % 60:02d}s"
         out = work_dir / f"{prefix}_{secs:06d}.jpg"
         if not out.exists() and not extract_frame(url, secs, out):
+            consecutive_errors += 1
+            if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                err(f"  [{label}] bail-out: {consecutive_errors} errores consecutivos (URL expirada?)")
+                break
             err(f"  [{label}] {ts}  ERROR"); continue
+        consecutive_errors = 0
         t = read_timer(out)
         err(f"  [{label}] {ts}  timer={t!r}")
         if t is not None and t > BREAK_TIMER_MIN:
@@ -440,10 +463,14 @@ def main():
 
     # URL directa del stream
     err("\nObteniendo URL stream...")
-    r = subprocess.run(
-        ["yt-dlp", "--get-url", "-f", "bestvideo[height<=720][ext=mp4]/bestvideo[height<=720]",
-         args.url], capture_output=True, text=True, timeout=30)
-    url = r.stdout.strip().splitlines()[0]
+    try:
+        r = subprocess.run(
+            ["yt-dlp", "--get-url", "-f", "bestvideo[height<=720][ext=mp4]/bestvideo[height<=720]",
+             args.url], capture_output=True, text=True, timeout=30)
+        url = r.stdout.strip().splitlines()[0]
+    except subprocess.TimeoutExpired:
+        err("ERROR: yt-dlp tardó más de 30s — URL no disponible")
+        sys.exit(1)
     err("OK\n")
 
     result = {"squat": None, "bench": None, "deadlift": None,

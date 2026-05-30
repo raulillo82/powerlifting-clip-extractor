@@ -9,9 +9,10 @@ No network or media files needed — frame extraction + OCR (`_scan_one`) is moc
 so these tests exercise the pure detection/grouping logic only.
 """
 
+import subprocess
 import pytest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock, call
 
 import find_lifter as fl
 
@@ -213,3 +214,80 @@ class TestGroupsHelpers:
 
     def test_ends_take_max(self):
         assert fl.groups_to_ends([[20, 10, 30], [200, 210]]) == [30, 210]
+
+
+# ── extract_frame timeout handling ───────────────────────────────────────────
+
+class TestExtractFrameTimeout:
+    def test_returns_false_on_timeout(self, tmp_path):
+        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("ffmpeg", 30)):
+            result = fl.extract_frame("url", 0, tmp_path / "out.jpg")
+        assert result is False
+
+
+# ── scan_movement bail-out on consecutive extraction errors ──────────────────
+
+class TestScanMovementBailout:
+    def test_stops_early_on_consecutive_errors(self):
+        # _scan_one always returns ok=False (simulates expired stream URL).
+        def _always_fail(url, work_dir, secs, token, prefix):
+            return secs, False, "", False, 30000, 0
+
+        scanned = []
+        orig = _always_fail
+
+        def recording(url, wd, secs, token, prefix):
+            scanned.append(secs)
+            return orig(url, wd, secs, token, prefix)
+
+        with patch.object(fl, "_scan_one", recording):
+            fl.scan_movement("u", Path("/tmp"), start_s=0, max_window_s=3000,
+                             token="X", label="SQ", prefix="sq")
+
+        # Should bail out well before scanning all 300+ frames.
+        assert len(scanned) <= (fl.MAX_CONSECUTIVE_ERRORS + 1) * fl.SCAN_BATCH
+
+
+# ── detect_break_timer bail-out on consecutive extraction errors ─────────────
+
+class TestDetectBreakTimerBailout:
+    def test_bails_out_and_returns_none(self):
+        call_count = []
+
+        def _always_fail(url, secs, out):
+            call_count.append(secs)
+            return False
+
+        with patch.object(fl, "extract_frame", side_effect=_always_fail):
+            result = fl.detect_break_timer("url", Path("/tmp"), 0, "LBL", "pfx")
+
+        assert result is None
+        # Must bail out after MAX_CONSECUTIVE_ERRORS consecutive failures.
+        assert len(call_count) <= fl.MAX_CONSECUTIVE_ERRORS
+
+
+# ── read_timer multi-crop fallback ───────────────────────────────────────────
+
+class TestReadTimerMultiCrop:
+    def _make_img(self):
+        from PIL import Image
+        return Image.new("RGB", (1280, 720), (0, 0, 0))
+
+    def test_falls_back_to_second_crop(self):
+        returns = iter([None, 300])
+        with patch.object(fl, "_read_timer_crop", side_effect=returns):
+            with patch("PIL.Image.open", return_value=self._make_img()):
+                assert fl.read_timer("fake.jpg") == 300
+
+    def test_returns_first_hit_without_trying_second(self):
+        mock = MagicMock(return_value=120)
+        with patch.object(fl, "_read_timer_crop", mock):
+            with patch("PIL.Image.open", return_value=self._make_img()):
+                result = fl.read_timer("fake.jpg")
+        assert result == 120
+        assert mock.call_count == 1  # stopped after first hit
+
+    def test_all_fail_returns_none(self):
+        with patch.object(fl, "_read_timer_crop", return_value=None):
+            with patch("PIL.Image.open", return_value=self._make_img()):
+                assert fl.read_timer("fake.jpg") is None

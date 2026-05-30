@@ -2,9 +2,10 @@
 import io
 import json
 import shutil
+import subprocess
 import time
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import pytest
 from werkzeug.security import generate_password_hash
@@ -1410,7 +1411,7 @@ class TestOcrWorker:
             "stdout": _FakeStdout(),
             "stderr": iter(["Fase 1: inicio\nFase 6: peso muerto\nTerminado en 100s\n"]),
             "returncode": 0,
-            "wait": lambda self: None,
+            "wait": lambda self, **kw: None,
         })()
 
         with patch("app._save_job"), patch("subprocess.Popen", return_value=mock_proc):
@@ -1430,7 +1431,7 @@ class TestOcrWorker:
             "stdout": _FakeStdoutEmpty(),
             "stderr": iter(["Error fatal\n"]),
             "returncode": 1,
-            "wait": lambda self: None,
+            "wait": lambda self, **kw: None,
         })()
 
         with patch("app._save_job"), patch("subprocess.Popen", return_value=mock_proc):
@@ -1532,3 +1533,60 @@ class TestOcrEstimateMinutes:
         assert flask_app._parse_float("") is None
         assert flask_app._parse_float(None) is None
         assert flask_app._parse_float("abc") is None
+
+
+# ── OCR job global timeout ────────────────────────────────────────────────────
+
+class TestOcrJobTimeout:
+    """_ocr_worker cancela el proceso y marca el job como error al superar el timeout."""
+
+    def _make_job(self, tmp_path):
+        return {
+            "submitted_url": "https://www.youtube.com/watch?v=test",
+            "ocr_apellido": "TEST",
+            "output_dir": str(tmp_path),
+            "status": "running",
+            "log": "",
+            "mode": "ocr",
+            "is_admin": True,  # evita record_job_stat
+        }
+
+    def test_timeout_kills_process_and_marks_error(self, tmp_path):
+        job = self._make_job(tmp_path)
+
+        mock_proc = MagicMock()
+        mock_proc.stderr = iter([])
+        mock_proc.stdout.read.return_value = ""
+        # Primera llamada (con timeout) lanza; segunda (tras kill) retorna.
+        mock_proc.wait.side_effect = [
+            subprocess.TimeoutExpired("find_lifter.py", flask_app.OCR_JOB_TIMEOUT_S),
+            None,
+        ]
+
+        with patch("subprocess.Popen", return_value=mock_proc):
+            with patch.object(flask_app, "_save_job"):
+                flask_app._ocr_worker("test-id", job)
+
+        mock_proc.kill.assert_called_once()
+        assert job["status"] == "error"
+
+    def test_normal_completion_unaffected(self, tmp_path):
+        job = self._make_job(tmp_path)
+
+        result_json = json.dumps({
+            "squat": [100, 200, 300], "bench": [400, 500, 600],
+            "deadlift": [700, 800, 900], "comp_start": 50, "elapsed_s": 120.0,
+        })
+
+        mock_proc = MagicMock()
+        mock_proc.stderr = iter([])
+        mock_proc.stdout.read.return_value = result_json
+        mock_proc.wait.return_value = None
+        mock_proc.returncode = 0
+
+        with patch("subprocess.Popen", return_value=mock_proc):
+            with patch.object(flask_app, "_save_job"):
+                flask_app._ocr_worker("test-id", job)
+
+        assert job["status"] == "ocr_done"
+        assert job["ocr_result"] is not None

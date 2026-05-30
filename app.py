@@ -466,6 +466,8 @@ class _LiveLog(io.StringIO):
         return result
 
 
+OCR_JOB_TIMEOUT_S = 60 * 60  # 1 hora; suficiente para cualquier vídeo razonable
+
 # ── Worker ─────────────────────────────────────────────────────────────────────
 
 def _ocr_worker(job_id: str, job: dict) -> None:
@@ -491,7 +493,12 @@ def _ocr_worker(job_id: str, job: dict) -> None:
         drain_t = threading.Thread(target=_drain_stderr, daemon=True)
         drain_t.start()
         stdout = proc.stdout.read()
-        proc.wait()
+        try:
+            proc.wait(timeout=OCR_JOB_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            raise RuntimeError(f"OCR cancelado por timeout ({OCR_JOB_TIMEOUT_S // 60} min)")
         drain_t.join(timeout=10)
 
         if proc.returncode != 0:
