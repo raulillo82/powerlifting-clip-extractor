@@ -97,6 +97,12 @@
         {% elif latest_dl and not latest_dl.expired and latest_dl.status not in ['queued', 'running', 'done'] %}
           <a href="{{ url_for('status', job_id=latest_dl.job_id) }}"
              class="btn btn-sm btn-outline-secondary" data-i18n="hist.view">Ver estado</a>
+        {% elif ocr and ocr.status == 'error' %}
+          <form method="post" action="{{ url_for('relaunch_ocr_job', job_id=ocr.job_id) }}" class="d-inline">
+            <button type="submit" class="btn btn-sm btn-warning" data-i18n="btn.relaunch">Relanzar</button>
+          </form>
+          <a href="{{ url_for('status', job_id=ocr.job_id) }}"
+             class="btn btn-sm btn-outline-secondary" data-i18n="hist.ocr_log">Ver log OCR</a>
         {% endif %}
 
         {# Toggle button #}
