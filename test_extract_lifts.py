@@ -8,10 +8,12 @@ Run with:
 No network or media files needed — external calls (yt-dlp, ffmpeg) are mocked.
 """
 
+import subprocess
 import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
+import extract_lifts as fl_el
 from extract_lifts import (
     parse_timestamp,
     seconds_to_hms,
@@ -238,17 +240,16 @@ class TestRun:
                 preview_width=0,
             )
         assert mock_dl.call_count == 9
-        # call_args_list[i][0] is the tuple of positional args for call i
-        # signature: download_clip(url, start, duration, output, label)
-        first_output: Path = mock_dl.call_args_list[0][0][3]
-        last_output: Path  = mock_dl.call_args_list[8][0][3]
-        assert first_output.name == "lift_01_squat_attempt1.mp4"
-        assert last_output.name  == "lift_09_deadlift_attempt3.mp4"
+        # parallel=True means calls arrive in non-deterministic order; check as a set
+        # signature: download_clip(url, start, duration, output, label, parallel=True)
+        output_names = {c[0][3].name for c in mock_dl.call_args_list}
+        assert "lift_01_squat_attempt1.mp4" in output_names
+        assert "lift_09_deadlift_attempt3.mp4" in output_names
 
     def test_no_replay_halves_all_durations(self, tmp_path):
         captured: list[tuple[str, int]] = []
 
-        def spy_download(url, start, duration, output, label):
+        def spy_download(url, start, duration, output, label, **kwargs):
             captured.append((label, duration))
 
         with patch("extract_lifts.download_clip", side_effect=spy_download):
@@ -272,7 +273,7 @@ class TestRun:
     def test_no_replay_minimum_duration_is_10s(self, tmp_path):
         captured: list[tuple[str, int]] = []
 
-        def spy_download(url, start, duration, output, label):
+        def spy_download(url, start, duration, output, label, **kwargs):
             captured.append((label, duration))
 
         with patch("extract_lifts.download_clip", side_effect=spy_download):
@@ -461,3 +462,99 @@ class TestAddMixedAudio:
     def test_filter_complex_contains_amix(self, tmp_path):
         cmd = self._run(tmp_path, video_dur=30.0, song_dur=200.0, music_start=0.0)
         assert "amix=inputs=2" in cmd
+
+
+# ── download_clip parallel mode ───────────────────────────────────────────────
+
+class TestDownloadClipParallel:
+    def test_parallel_uses_subprocess_run_not_popen(self, tmp_path):
+        out = tmp_path / "clip.mp4"
+        tmp = tmp_path / "clip.tmp.mp4"
+        tmp.write_bytes(b"")
+        ok_result = MagicMock(returncode=0)
+        with patch("subprocess.run", return_value=ok_result) as mock_run, \
+             patch("subprocess.Popen") as mock_popen:
+            fl_el.download_clip("url", 0, 60, out, "lift 01", parallel=True)
+        mock_popen.assert_not_called()
+        # subprocess.run called at least once (yt-dlp + faststart)
+        assert mock_run.call_count >= 1
+
+    def test_parallel_propagates_nonzero_returncode(self, tmp_path):
+        out = tmp_path / "clip.mp4"
+        bad_result = MagicMock(returncode=1, stderr=b"yt-dlp error")
+        with patch("subprocess.run", return_value=bad_result):
+            with pytest.raises(subprocess.CalledProcessError):
+                fl_el.download_clip("url", 0, 60, out, "lift 01", parallel=True)
+
+
+# ── run() — parallel downloads ────────────────────────────────────────────────
+
+class TestRunParallelDownloads:
+    def _run_full(self, tmp_path, **kwargs):
+        defaults = dict(
+            url="https://yt.com/v",
+            timestamps=SAMPLE_TIMESTAMPS,
+            durations=SAMPLE_DURATIONS,
+            squat_attempt=3, bench_attempt=3, deadlift_attempt=3,
+            output_dir=tmp_path,
+            skip_individual=False,
+            skip_combined=False,
+            preview_width=0,
+        )
+        defaults.update(kwargs)
+        run(**defaults)
+
+    def test_all_nine_clips_downloaded_with_parallel_flag(self, tmp_path):
+        calls = []
+
+        def spy(url, start, duration, output, label, **kwargs):
+            calls.append(kwargs.get("parallel", False))
+
+        with patch("extract_lifts.download_clip", side_effect=spy), \
+             patch("extract_lifts.make_combined"):
+            self._run_full(tmp_path)
+
+        assert len(calls) == 9
+        assert all(calls), "todos los clips deben descargarse con parallel=True"
+
+    def test_combined_starts_before_non_dep_clips_finish(self, tmp_path):
+        import threading as _th
+
+        # squat=3, bench=3, deadlift=3 → dep indices 2, 5, 8 (0-based)
+        dep_indices = {2, 5, 8}
+        combined_called = _th.Event()
+        non_dep_release = _th.Event()
+
+        def spy_dl(url, start, duration, output, label, **kwargs):
+            idx = int(output.name.split("_")[1]) - 1
+            if idx not in dep_indices:
+                non_dep_release.wait(timeout=10)  # block non-deps until event fires
+
+        def spy_combined(clips, output, **kwargs):
+            combined_called.set()
+
+        # Patch workers to 9 so all tasks start concurrently; otherwise only 3 start
+        # and the non-dep tasks can crowd out the dep tasks before they start.
+        with patch("extract_lifts.download_clip", side_effect=spy_dl), \
+             patch("extract_lifts.make_combined", side_effect=spy_combined), \
+             patch.object(fl_el, "DOWNLOAD_WORKERS", 9):
+            t = _th.Thread(target=self._run_full, args=(tmp_path,))
+            t.start()
+            assert combined_called.wait(timeout=5), "combinado no arrancó antes de que terminaran las no-dep"
+            non_dep_release.set()
+            t.join(timeout=10)
+
+    def test_error_in_download_propagates_and_skips_combined(self, tmp_path):
+        call_count = [0]
+
+        def spy_dl(url, start, duration, output, label, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise subprocess.CalledProcessError(1, "yt-dlp")
+
+        with patch("extract_lifts.download_clip", side_effect=spy_dl), \
+             patch("extract_lifts.make_combined") as mock_combined:
+            with pytest.raises(subprocess.CalledProcessError):
+                self._run_full(tmp_path)
+
+        mock_combined.assert_not_called()
