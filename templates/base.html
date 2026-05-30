@@ -112,6 +112,7 @@
       'label.music':           'YouTube URL or search query',
       'label.music.start':     'Start at (MM:SS)',
       // ── single lift mode ──
+      'opt.multi_lift':        'Full mode (9 lifts)',
       'opt.single_lift':       'Single lift mode',
       'card.single_lift':      'Lift',
       'label.single_ts':       'Timestamp (HH:MM:SS)',
@@ -141,6 +142,7 @@
       'warning.ig.d':          'with-music',
       'warning.ig.e':          'files via WhatsApp or Telegram.',
       'err.failed':            'Extraction failed — see the log for details.',
+      'btn.relaunch':          'Relaunch',
       'btn.new':               'New extraction',
       // ── status: dynamic (set by JS) ──
       'badge.queued':          'Queued',
@@ -229,10 +231,20 @@
       'hist.status.running':   'Running',
       'hist.status.done':      'Done',
       'hist.status.error':     'Error',
-      'hist.expired':          'Expired',
-      'hist.download':         'Download',
-      'hist.view':             'View status',
-      'hist.custom_url':       'Custom URL',
+      'hist.expired':              'Expired',
+      'hist.download':             'Download',
+      'hist.view':                 'View status',
+      'hist.view_progress':        'View progress',
+      'hist.custom_url':           'Custom URL',
+      'hist.status.ocr_running':   'OCR scanning…',
+      'hist.status.pending_review':'Pending review',
+      'hist.status.downloading':   'Generating videos…',
+      'hist.version':              'Version',
+      'hist.versions':             'versions',
+      'hist.reedit':               'Re-edit timestamps',
+      'hist.ocr_log':              'View OCR log',
+      'admin.btn.clear_jobs':      'Delete my jobs',
+      'admin.confirm_clear_jobs':  'Delete all your jobs? This cannot be undone.',
       // ── feedback ──
       'nav.feedback':          'Feedback',
       'fb.title':              'Send feedback',
@@ -288,6 +300,38 @@
       'stats.lbl.full':        'Full',
       'stats.lbl.single':      'Single lift',
       'stats.lbl.min':         ' min',
+      // ── OCR auto-detect ──
+      'ts.mode.manual':        'Manual',
+      'ts.mode.ocr':           'Auto-detect (OCR)',
+      'badge.experimental':    'EXPERIMENTAL',
+      'label.ocr.apellido':    'Lifter name',
+      'ph.ocr.apellido':       'E.g.: SMITH Paul John',
+      'ts.ocr.hint':           'The script will scan the video for this name (a few minutes).',
+      'ts.ocr.hint.dyn':       'The script will scan the video for this name (~{min} min).',
+      'btn.extract.ocr':       'Start scan',
+      'badge.ocr_done':        'Scan complete',
+      'ocr.phase1':            'Detecting competition start...',
+      'ocr.phase2':            'Scanning squats...',
+      'ocr.phase3':            'Break between squat and bench...',
+      'ocr.phase4':            'Scanning bench...',
+      'ocr.phase5':            'Break between bench and deadlift...',
+      'ocr.phase6':            'Scanning deadlift...',
+      'ocr.nav.away':          'The OCR scan can take several minutes. You can close this tab and come back later — the job will keep running on the server.',
+      'ocr.nav.away.est':      'The OCR scan will take ~{min} min. You can close this tab and come back later — the job will keep running on the server.',
+      'ocr.review.btn':        'Review timestamps',
+      'ocr.review.title':      'Review detected timestamps',
+      'ocr.review.hint':       'Adjust timestamps detected by the OCR scan. All 9 fields are required.',
+      'ocr.squat':             'Squat',
+      'ocr.bench':             'Bench',
+      'ocr.deadlift':          'Deadlift',
+      'ocr.warn.incomplete':   'Some movements have fewer than 3 detected timestamps. Fill in the empty fields before continuing.',
+      'ocr.review.retry':      'Detect again',
+      'ocr.review.continue':   'Continue →',
+      'ocr.frame.start':       'Start frame',
+      'ocr.frame.end':         'End frame',
+      'ocr.frame.unavailable': 'Frame not available',
+      'hist.mode.ocr':         'OCR scan',
+      'hist.status.ocr_done':  'Scan done',
     },
     es: {
       'page.new':              'Nueva extracción',
@@ -350,6 +394,7 @@
       'label.music':           'URL de YouTube o búsqueda',
       'label.music.start':     'Empezar en (MM:SS)',
       // ── modo un solo levantamiento ──
+      'opt.multi_lift':        'Modo completo (9 levantamientos)',
       'opt.single_lift':       'Modo un solo levantamiento',
       'card.single_lift':      'Levantamiento',
       'label.single_ts':       'Marca de tiempo (HH:MM:SS)',
@@ -378,6 +423,7 @@
       'warning.ig.d':          'with-music',
       'warning.ig.e':          'por WhatsApp o Telegram.',
       'err.failed':            'La extracción ha fallado — consulta el log para más detalles.',
+      'btn.relaunch':          'Relanzar',
       'btn.new':               'Nueva extracción',
       'badge.queued':          'En cola',
       'badge.running':         'En curso...',
@@ -464,10 +510,20 @@
       'hist.status.running':   'En curso',
       'hist.status.done':      'Listo',
       'hist.status.error':     'Error',
-      'hist.expired':          'Expirado',
-      'hist.download':         'Descargar',
-      'hist.view':             'Ver estado',
-      'hist.custom_url':       'URL personalizada',
+      'hist.expired':              'Expirado',
+      'hist.download':             'Descargar',
+      'hist.view':                 'Ver estado',
+      'hist.view_progress':        'Ver progreso',
+      'hist.custom_url':           'URL personalizada',
+      'hist.status.ocr_running':   'Escaneando OCR…',
+      'hist.status.pending_review':'Pendiente de revisión',
+      'hist.status.downloading':   'Generando vídeos…',
+      'hist.version':              'Versión',
+      'hist.versions':             'versiones',
+      'hist.reedit':               'Re-editar timestamps',
+      'hist.ocr_log':              'Ver log OCR',
+      'admin.btn.clear_jobs':      'Borrar mis jobs',
+      'admin.confirm_clear_jobs':  '¿Borrar todos tus jobs? Esta acción no se puede deshacer.',
       // ── feedback ──
       'nav.feedback':          'Feedback',
       'fb.title':              'Enviar feedback',
@@ -523,6 +579,38 @@
       'stats.lbl.full':        'Completo',
       'stats.lbl.single':      'Un levantamiento',
       'stats.lbl.min':         ' min',
+      // ── OCR auto-detect ──
+      'ts.mode.manual':        'Manual',
+      'ts.mode.ocr':           'Auto-detección (OCR)',
+      'badge.experimental':    'EXPERIMENTAL',
+      'label.ocr.apellido':    'Nombre del levantador',
+      'ph.ocr.apellido':       'Ej: LOPEZ GOMEZ Pedro Antonio',
+      'ts.ocr.hint':           'El script buscará los levantamientos de este nombre en el vídeo (unos minutos).',
+      'ts.ocr.hint.dyn':       'El script buscará los levantamientos de este nombre en el vídeo (~{min} min).',
+      'btn.extract.ocr':       'Iniciar escaneo',
+      'badge.ocr_done':        'Escaneo completado',
+      'ocr.phase1':            'Detectando inicio de competición...',
+      'ocr.phase2':            'Escaneando sentadillas...',
+      'ocr.phase3':            'Pausa entre sentadilla y banca...',
+      'ocr.phase4':            'Escaneando banca...',
+      'ocr.phase5':            'Pausa entre banca y peso muerto...',
+      'ocr.phase6':            'Escaneando peso muerto...',
+      'ocr.nav.away':          'El escaneo OCR puede tardar varios minutos. Puedes cerrar esta pestaña y volver más tarde — el job seguirá corriendo en el servidor.',
+      'ocr.nav.away.est':      'El escaneo OCR durará ~{min} min. Puedes cerrar esta pestaña y volver más tarde — el job seguirá corriendo en el servidor.',
+      'ocr.review.btn':        'Revisar timestamps',
+      'ocr.review.title':      'Revisar timestamps detectados',
+      'ocr.review.hint':       'Ajusta los timestamps detectados. Los 9 campos son obligatorios.',
+      'ocr.squat':             'Sentadilla',
+      'ocr.bench':             'Banca',
+      'ocr.deadlift':          'Peso muerto',
+      'ocr.warn.incomplete':   'Algunos movimientos tienen menos de 3 timestamps detectados. Rellena los campos vacíos antes de continuar.',
+      'ocr.review.retry':      'Detectar de nuevo',
+      'ocr.review.continue':   'Continuar →',
+      'ocr.frame.start':       'Frame inicial',
+      'ocr.frame.end':         'Frame final',
+      'ocr.frame.unavailable': 'Frame no disponible',
+      'hist.mode.ocr':         'Escaneo OCR',
+      'hist.status.ocr_done':  'Escaneo listo',
     }
   };
 
@@ -572,6 +660,15 @@
 
   <script>
   applyLang(localStorage.getItem('lang') || 'en');
+
+  document.querySelectorAll('time[data-ts]').forEach(el => {
+    const d = new Date(parseInt(el.dataset.ts));
+    el.textContent =
+      String(d.getDate()).padStart(2,'0') + '/' +
+      String(d.getMonth()+1).padStart(2,'0') + ' ' +
+      String(d.getHours()).padStart(2,'0') + ':' +
+      String(d.getMinutes()).padStart(2,'0');
+  });
 
   const _nav = document.querySelector('.navbar');
   document.body.style.paddingTop = _nav.offsetHeight + 'px';

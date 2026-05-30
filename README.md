@@ -18,6 +18,7 @@
 ### Índice
 
 - [Hoja de ruta](#hoja-de-ruta)
+- [Detección automática de tiempos (OCR)](#detección-automática-de-tiempos-ocr)
 - [Requisitos](#requisitos)
 - [Uso](#uso)
 - [Opciones principales](#opciones-principales)
@@ -60,8 +61,38 @@
 | ✅ | Contenedor Podman (imagen OCI reproducible, base OpenSUSE Tumbleweed) | — |
 | ✅ | Ansible playbook para despliegue y failover RPi5↔RPi4 | — |
 | ✅ | **Panel de estadísticas** (`/admin/stats`) — mapa Leaflet por ciudad (GeoLite2), gráficos Chart.js (éxito/error, música, federaciones, modo, hora del día), filtro 7/30/90d/todo, cola en tiempo real | — |
+| ✅ | **Detección automática de tiempos por OCR** (experimental) — escribe el nombre del levantador y la herramienta localiza sus 9 levantamientos leyendo el rótulo del vídeo (Tesseract + `ffmpeg`); procesado paralelizado (~8 min) y estimación de tiempo dinámica | — |
+| ✅ | Tests automatizados (198 tests, CI) | — |
 
 Extrae levantamientos individuales de un vídeo de competición de powerlifting en YouTube y genera un vídeo combinado compatible con Instagram con sentadilla, press de banca y peso muerto apilados verticalmente.
+
+---
+
+### Detección automática de tiempos (OCR)
+
+En lugar de introducir manualmente los 9 tiempos, puedes escribir el **nombre del levantador** y la herramienta los localiza sola. Lee el rótulo con el nombre que la federación superpone en el vídeo (OCR con Tesseract sobre frames extraídos con `ffmpeg`), detecta los 3 intentos de sentadilla, banca y peso muerto, y precarga los tiempos para que los revises antes de extraer los clips.
+
+- Pensada para la maquetación de vídeos AEP y federaciones IPF con rótulo equivalente.
+- Tarda ~8 min para un vídeo de competición de ~3,5 h; la estimación se muestra según la duración del vídeo seleccionado.
+- **Experimental**: revisa siempre los tiempos detectados antes de extraer.
+
+<details>
+<summary>⚙️ Cómo bajamos el procesado de 32 a 8 minutos</summary>
+
+El coste del OCR es, sobre todo, extraer frames: para un vídeo de prueba de ~3,5 h se analizan ~600-680 frames, cada uno con un *seek* remoto al stream de YouTube (`ffmpeg`) más el OCR. El logging detallado en cada iteración fue clave para encontrar el cuello real, que nunca fue el que parecía:
+
+| Iteración | Cambio | Tiempo |
+|---|---|---|
+| Base | scan secuencial, un frame cada vez | ~32 min |
+| 1 | extracción + OCR en paralelo (ThreadPool) | ~23 min |
+| 2 | `OMP_THREAD_LIMIT=1` + 6 hilos | ~8 min |
+
+1. **Diagnóstico inicial.** El ~84 % del tiempo se iba en extraer frames; el OCR aislado costaba ~0,14 s. El cuello era el *seek* remoto a YouTube (~3,5 s/frame), no Tesseract.
+2. **Iteración 1 — paralelizar.** Los *seek* son I/O y paralelizan bien, así que extraemos + OCRamos en lotes con varios hilos (manteniendo el agrupado y el corte temprano idénticos a la versión serie). Bajó a ~23 min, pero el nuevo log —que separa el tiempo de `ffmpeg` y de OCR por frame— destapó que el OCR se disparaba a ~4,2 s/frame con 4 hilos.
+3. **Diagnóstico 2.** Tesseract lanza sus propios hilos OpenMP; con varios procesos a la vez la CPU quedaba masivamente sobre-suscrita y el OCR pasó a dominar.
+4. **Iteración 2 — domar el OCR.** Con `OMP_THREAD_LIMIT=1` el OCR cayó de ~1,5 s a ~0,08 s por frame (~18x) sin cambiar ninguna detección. Sin esa contención, subir a 6 hilos volvió a merecer la pena. Total: **~8 min, ~4x más rápido**, con los mismos tiempos detectados. El cuello vuelve a ser el *seek* remoto de `ffmpeg`.
+
+</details>
 
 ---
 
@@ -485,6 +516,7 @@ En los tests, el rate limiting se desactiva en el fixture `client` mediante `mon
 ### Table of contents
 
 - [Roadmap](#roadmap)
+- [Automatic timestamp detection (OCR)](#automatic-timestamp-detection-ocr)
 - [Requirements](#requirements)
 - [Usage](#usage)
 - [Options](#options)
@@ -527,8 +559,38 @@ En los tests, el rate limiting se desactiva en el fixture `client` mediante `mon
 | ✅ | Podman container (reproducible OCI image, OpenSUSE Tumbleweed base) | — |
 | ✅ | Ansible playbook for deployment and RPi5↔RPi4 failover | — |
 | ✅ | **Statistics panel** (`/admin/stats`) — Leaflet city map (GeoLite2), Chart.js charts (success/error, music, federations, mode, time of day), 7/30/90d/all filter, live queue snapshot | — |
+| ✅ | **Automatic timestamp detection via OCR** (experimental) — type the lifter's name and the tool finds their 9 lifts by reading the video's name banner (Tesseract + `ffmpeg`); parallelised processing (~8 min) and dynamic time estimate | — |
+| ✅ | Automated tests (198 tests, CI) | — |
 
 Extracts individual lifts from a YouTube powerlifting competition and creates an Instagram-compatible combined video with squat, bench and deadlift stacked vertically.
+
+---
+
+### Automatic timestamp detection (OCR)
+
+Instead of entering the 9 timestamps by hand, you can type the **lifter's name** and the tool finds them for you. It reads the name banner the federation overlays on the video (OCR with Tesseract over frames extracted with `ffmpeg`), detects the 3 squat, bench and deadlift attempts, and pre-fills the timestamps for you to review before extracting the clips.
+
+- Built for the AEP video layout and IPF federations with an equivalent banner.
+- Takes ~8 min for a ~3.5 h competition video; the estimate is shown based on the selected video's duration.
+- **Experimental**: always review the detected timestamps before extracting.
+
+<details>
+<summary>⚙️ How we cut processing from 32 to 8 minutes</summary>
+
+OCR cost is dominated by frame extraction: a ~3.5 h test video means ~600-680 analysed frames, each one a remote seek into the YouTube stream (`ffmpeg`) plus the OCR. Detailed logging at each iteration was key to finding the real bottleneck, which was never the obvious one:
+
+| Iteration | Change | Time |
+|---|---|---|
+| Baseline | sequential scan, one frame at a time | ~32 min |
+| 1 | parallel extract + OCR (ThreadPool) | ~23 min |
+| 2 | `OMP_THREAD_LIMIT=1` + 6 threads | ~8 min |
+
+1. **Initial profiling.** ~84% of the time went into extracting frames; OCR in isolation took ~0.14 s. The bottleneck was the remote YouTube seek (~3.5 s/frame), not Tesseract.
+2. **Iteration 1 — parallelise.** Seeks are I/O-bound and parallelise well, so we extract + OCR in batches across several threads (keeping grouping and early-stop identical to the serial version). Down to ~23 min — but the new log, which splits `ffmpeg` vs OCR time per frame, revealed OCR ballooning to ~4.2 s/frame with 4 threads.
+3. **Second diagnosis.** Tesseract spawns its own OpenMP threads; with several processes at once the CPU was massively oversubscribed and OCR became the dominant cost.
+4. **Iteration 2 — tame the OCR.** With `OMP_THREAD_LIMIT=1` OCR dropped from ~1.5 s to ~0.08 s per frame (~18x) with zero detection change. Free of that contention, bumping to 6 threads paid off again. Total: **~8 min, ~4x faster**, with identical detected timestamps. The bottleneck is back to the remote `ffmpeg` seek.
+
+</details>
 
 ---
 

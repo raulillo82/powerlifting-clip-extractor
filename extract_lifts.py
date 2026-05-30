@@ -330,7 +330,7 @@ def make_combined(clips: list[Path], output: Path, preview_width: int = 0) -> No
     ]
     print(f"\n[combined] ⏳ Creando vídeo combinado...")
     sys.stdout.flush()
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
     print("✓ Vídeo combinado listo")
 
 
@@ -548,10 +548,13 @@ def run(
     music_start: float = 0.0,
     interactive: bool = False,
     dry_run: bool = False,   # skip all network/ffmpeg calls; write placeholder files
+    clip_durations: list[int] | None = None,  # 9 per-clip durations; overrides durations dict
 ) -> None:
     if no_replay:
         # Without a slow-motion replay, lifts are roughly half as long
         durations = {k: max(10, v // 2) for k, v in durations.items()}
+        if clip_durations:
+            clip_durations = [max(10, d // 2) for d in clip_durations]
     output_dir.mkdir(parents=True, exist_ok=True)
 
     clip_paths: list[Path] = []
@@ -583,7 +586,7 @@ def run(
             for i, (ts, path) in enumerate(zip(timestamps, clip_paths), 1):
                 movement = MOVEMENTS[i - 1]
                 attempt = ((i - 1) % 3) + 1
-                duration = durations[movement]
+                duration = clip_durations[i - 1] if clip_durations else durations[movement]
                 end = ts + duration
                 print(f"\n  [lift {i:02d} — {movement} attempt {attempt}]"
                       f"  {seconds_to_hms(ts)} → {seconds_to_hms(end)}  [dry run]")
@@ -619,7 +622,7 @@ def run(
                 for idx in priority_order:
                     movement = MOVEMENTS[idx]
                     attempt = (idx % 3) + 1
-                    duration = durations[movement]
+                    duration = clip_durations[idx] if clip_durations else durations[movement]
                     lbl = f"lift {idx + 1:02d} — {movement} attempt {attempt}"
                     fs[ex.submit(
                         download_clip, url, timestamps[idx], duration,

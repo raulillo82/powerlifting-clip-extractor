@@ -15,12 +15,15 @@ import os
 import queue
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import urllib.parse
 import uuid
 import zipfile
 from pathlib import Path
+
+_FIND_LIFTER = Path(__file__).with_name("find_lifter.py")
 
 from altcha import verify_solution_v1
 from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, url_for
@@ -41,8 +44,10 @@ app = Flask(__name__)
 @app.template_filter("datetimeformat")
 def _datetimeformat(ts: int) -> str:
     import datetime
-    d = datetime.datetime.fromtimestamp(ts)
-    return f"{d.day:02d}/{d.month:02d} {d.hour:02d}:{d.minute:02d}"
+    from markupsafe import Markup
+    d = datetime.datetime.fromtimestamp(ts, datetime.timezone.utc)
+    fallback = f"{d.day:02d}/{d.month:02d} {d.hour:02d}:{d.minute:02d}"
+    return Markup(f'<time data-ts="{int(ts) * 1000}">{fallback}</time>')
 
 
 @app.template_filter("fromjson")
@@ -349,7 +354,7 @@ def _save_job(job_id: str, job: dict) -> None:
     path = _status_path(job_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({
-        "status":     job["status"],
+        "status":        job["status"],
         "log":           job["log"],
         "output_dir":    job["output_dir"],
         "expires_at":    job.get("expires_at"),
@@ -360,6 +365,13 @@ def _save_job(job_id: str, job: dict) -> None:
         "source":        job.get("source"),
         "session_label": job.get("session_label"),
         "queued_at":     job.get("queued_at"),
+        "ocr_result":    job.get("ocr_result"),
+        "ocr_job_id":    job.get("ocr_job_id"),
+        "ocr_apellido":  job.get("ocr_apellido"),
+        "audio_mode":    job.get("audio_mode", "original"),
+        "music":         job.get("music", ""),
+        "music_start":   job.get("music_start", ""),
+        "music_pct":     job.get("music_pct", "50"),
     }))
 
 
@@ -454,9 +466,78 @@ class _LiveLog(io.StringIO):
         return result
 
 
+OCR_JOB_TIMEOUT_S = 60 * 60  # 1 hora; suficiente para cualquier vídeo razonable
+
 # ── Worker ─────────────────────────────────────────────────────────────────────
 
+def _ocr_worker(job_id: str, job: dict) -> None:
+    """Execute find_lifter.py as a subprocess, stream stderr to live log."""
+    buf = _LiveLog(job_id, job)
+    started_at = time.time()
+    url = job["submitted_url"]
+    apellido = job.get("ocr_apellido", "")
+    work_dir = Path(job["output_dir"]) / "ocr"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        cmd = [sys.executable, str(_FIND_LIFTER), url, apellido, "--work-dir", str(work_dir)]
+        if job.get("video_duration"):
+            cmd += ["--duration", str(int(job["video_duration"]))]
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        def _drain_stderr() -> None:
+            for line in proc.stderr:
+                buf.write(line)
+
+        drain_t = threading.Thread(target=_drain_stderr, daemon=True)
+        drain_t.start()
+        stdout = proc.stdout.read()
+        try:
+            proc.wait(timeout=OCR_JOB_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            raise RuntimeError(f"OCR cancelado por timeout ({OCR_JOB_TIMEOUT_S // 60} min)")
+        drain_t.join(timeout=10)
+
+        if proc.returncode != 0:
+            raise RuntimeError(f"find_lifter.py falló (exit {proc.returncode})")
+        result = json.loads(stdout.strip())
+        job["ocr_result"] = result
+        job["status"] = "ocr_done"
+        job["expires_at"] = time.time() + EXPIRY_SECONDS
+    except Exception as e:
+        job["status"] = "error"
+        buf.write(f"\nError: {e}\n")
+    finally:
+        job["log"] = buf.getvalue()
+        _save_job(job_id, job)
+        geo = job.get("_geo") or {}
+        if not job.get("is_admin"):
+            record_job_stat(
+                submitted_at=job.get("queued_at", started_at),
+                started_at=started_at,
+                finished_at=time.time(),
+                status=job["status"],
+                source=job.get("source") or None,
+                mode="ocr",
+                has_music=0,
+                city=geo.get("city"),
+                country_code=geo.get("country_code"),
+                latitude=geo.get("lat"),
+                longitude=geo.get("lng"),
+            )
+
+
 def _worker(job_id: str, job: dict, run_kwargs: dict, mode: str = "full") -> None:
+    if mode == "ocr":
+        _ocr_worker(job_id, job)
+        return
+
     buf = _LiveLog(job_id, job)
     started_at = time.time()
     try:
@@ -483,19 +564,20 @@ def _worker(job_id: str, job: dict, run_kwargs: dict, mode: str = "full") -> Non
         job["log"] = buf.getvalue()
         _save_job(job_id, job)
         geo = job.get("_geo") or {}
-        record_job_stat(
-            submitted_at=job.get("queued_at", started_at),
-            started_at=started_at,
-            finished_at=time.time(),
-            status=job["status"],
-            source=job.get("source") or None,
-            mode=job.get("mode") or None,
-            has_music=1 if run_kwargs.get("music_source") else 0,
-            city=geo.get("city"),
-            country_code=geo.get("country_code"),
-            latitude=geo.get("lat"),
-            longitude=geo.get("lng"),
-        )
+        if not job.get("is_admin"):
+            record_job_stat(
+                submitted_at=job.get("queued_at", started_at),
+                started_at=started_at,
+                finished_at=time.time(),
+                status=job["status"],
+                source=job.get("source") or None,
+                mode=job.get("mode") or None,
+                has_music=1 if run_kwargs.get("music_source") else 0,
+                city=geo.get("city"),
+                country_code=geo.get("country_code"),
+                latitude=geo.get("lat"),
+                longitude=geo.get("lng"),
+            )
 
 
 # ── Form parsing ───────────────────────────────────────────────────────────────
@@ -605,10 +687,19 @@ def _build_run_kwargs(form, files, output_dir: Path) -> dict:
     music_start_raw = form.get("music_start", "").strip()
     music_start = float(parse_timestamp(music_start_raw)) if music_start_raw else 0.0
 
+    clip_dur_vals = [form.get(f"clip_duration_{i}", "").strip() for i in range(9)]
+    clip_durations = None
+    if all(clip_dur_vals):
+        try:
+            clip_durations = [max(10, int(v)) for v in clip_dur_vals]
+        except ValueError:
+            clip_durations = None
+
     return dict(
         url=url,
         timestamps=timestamps,
         durations=durations,
+        clip_durations=clip_durations,
         squat_attempt=int(form.get("squat_attempt", 3)),
         bench_attempt=int(form.get("bench_attempt", 3)),
         deadlift_attempt=int(form.get("deadlift_attempt", 3)),
@@ -655,12 +746,15 @@ def start_job():
                                form_data=request.form), 400
 
     mode = run_kwargs.pop("_mode", "full")
+    ocr_job_id = request.form.get("ocr_job_id", "").strip() or None
     job = {"status": "queued", "log": "", "output_dir": str(output_dir),
            "expires_at": None, "queued_at": time.time(), "mode": mode,
            "user_id": current_user.get_id(),
+           "is_admin": current_user.is_admin,
            "submitted_url": request.form.get("url", "").strip(),
            "source": request.form.get("source", "").strip(),
            "session_label": request.form.get("session_label", "").strip(),
+           "ocr_job_id": ocr_job_id,
            "_geo": geoip.lookup(request.headers.get("X-Real-IP", request.remote_addr))}
     jobs[job_id] = job
     _save_job(job_id, job)
@@ -668,12 +762,180 @@ def start_job():
     return redirect(url_for("status", job_id=job_id))
 
 
+# Estimación de tiempo de OCR ≈ factor × duración del vídeo. Calibrado con el
+# vídeo de prueba (~12360s → ~500s reales). Debe coincidir con OCR_TIME_FACTOR en
+# index.html (formulario). OJO: asume vídeo de UNA sola sesión; para vídeos con
+# varias sesiones encadenadas hay que revisar el cálculo.
+OCR_TIME_FACTOR = 0.045
+
+
+def _parse_float(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _ocr_estimate_min(duration_s):
+    """Minutos estimados de OCR a partir de la duración del vídeo, o None."""
+    if not duration_s:
+        return None
+    return max(2, round(duration_s * OCR_TIME_FACTOR / 60))
+
+
+@app.route("/run-ocr", methods=["POST"])
+@login_required
+@limiter.limit("1 per 30 minutes", key_func=lambda: current_user.get_id())
+def start_ocr_job():
+    url = request.form.get("url", "").strip()
+    apellido = request.form.get("ocr_apellido", "").strip()[:60]
+
+    if not url:
+        return render_template("index.html", error="URL de YouTube obligatoria.",
+                               error_field="url", form_data=request.form), 400
+    if not apellido:
+        return render_template("index.html", error="El apellido es obligatorio.",
+                               error_field="ocr_apellido", form_data=request.form), 400
+
+    job_id = uuid.uuid4().hex
+    output_dir = Path("lifts") / job_id[:8]
+    job = {
+        "status": "queued", "log": "", "output_dir": str(output_dir),
+        "expires_at": None, "queued_at": time.time(), "mode": "ocr",
+        "user_id": current_user.get_id(),
+        "is_admin": current_user.is_admin,
+        "submitted_url": url,
+        "ocr_apellido": apellido,
+        "video_duration": _parse_float(request.form.get("ocr_video_duration")),
+        "source": request.form.get("source", "").strip(),
+        "session_label": request.form.get("session_label", "").strip(),
+        "music": request.form.get("music", "").strip(),
+        "music_start": request.form.get("music_start", "").strip(),
+        "music_pct": request.form.get("music_pct", "50").strip(),
+        "audio_mode": request.form.get("audio_mode", "original").strip(),
+        "_geo": geoip.lookup(request.headers.get("X-Real-IP", request.remote_addr)),
+        "ocr_result": None,
+    }
+    jobs[job_id] = job
+    _save_job(job_id, job)
+    _job_queue.put((job_id, {}, "ocr"))
+    return redirect(url_for("status", job_id=job_id))
+
+
+@app.route("/ocr/<job_id>/relaunch", methods=["POST"])
+@login_required
+def relaunch_ocr_job(job_id: str):
+    original = jobs.get(job_id) or _load_job(job_id)
+    if not original or original.get("mode") != "ocr" or original.get("status") != "error":
+        abort(404)
+
+    new_job_id = uuid.uuid4().hex
+    output_dir = Path("lifts") / new_job_id[:8]
+    new_job = {
+        "status": "queued", "log": "", "output_dir": str(output_dir),
+        "expires_at": None, "queued_at": time.time(), "mode": "ocr",
+        "user_id": current_user.get_id(),
+        "is_admin": current_user.is_admin,
+        "submitted_url": original.get("submitted_url", ""),
+        "ocr_apellido": original.get("ocr_apellido", ""),
+        "video_duration": original.get("video_duration"),
+        "source": original.get("source", ""),
+        "session_label": original.get("session_label", ""),
+        "music": original.get("music", ""),
+        "music_start": original.get("music_start", ""),
+        "music_pct": original.get("music_pct", "50"),
+        "audio_mode": original.get("audio_mode", "original"),
+        "_geo": geoip.lookup(request.headers.get("X-Real-IP", request.remote_addr)),
+        "ocr_result": None,
+    }
+    jobs[new_job_id] = new_job
+    _save_job(new_job_id, new_job)
+    _job_queue.put((new_job_id, {}, "ocr"))
+    return redirect(url_for("status", job_id=new_job_id))
+
+
+@app.route("/ocr/<job_id>/review")
+@login_required
+def ocr_review(job_id: str):
+    job = jobs.get(job_id) or _load_job(job_id)
+    if not job or job.get("status") != "ocr_done" or not job.get("ocr_result"):
+        abort(404)
+    return render_template("ocr_review.html", job_id=job_id, job=job,
+                           ocr_result=job["ocr_result"])
+
+
+_OCR_MOV_PREFIX = {"squat": "sq", "bench": "bn", "deadlift": "dl"}
+
+
+@app.route("/ocr/<job_id>/frame/<mov>/<int:attempt>/<ftype>")
+@login_required
+def ocr_frame(job_id: str, mov: str, attempt: int, ftype: str):
+    job = jobs.get(job_id) or _load_job(job_id)
+    if not job or not job.get("ocr_result"):
+        abort(404)
+    result = job["ocr_result"]
+    key = mov if ftype == "start" else f"{mov}_ends"
+    ts_list = result.get(key) or []
+    if attempt >= len(ts_list):
+        abort(404)
+    prefix = _OCR_MOV_PREFIX.get(mov)
+    if not prefix:
+        abort(404)
+    work_dir = Path(job["output_dir"]) / "ocr"
+    requested = request.args.get("t", type=int, default=int(ts_list[attempt]))
+
+    if request.args.get("exact") == "1":
+        # On-demand extraction at the exact requested timestamp
+        exact_path = work_dir / f"preview_{requested:06d}.jpg"
+        if not exact_path.exists():
+            submitted_url = job.get("submitted_url")
+            if not submitted_url:
+                abort(404)
+            try:
+                r = subprocess.run(
+                    ["yt-dlp", "--get-url",
+                     "-f", "best[height<=720][ext=mp4]/best[height<=720]/best",
+                     submitted_url],
+                    capture_output=True, text=True, timeout=30)
+                stream_url = r.stdout.strip().split("\n")[0] if r.returncode == 0 else None
+                if not stream_url:
+                    abort(404)
+                subprocess.run(
+                    ["ffmpeg", "-ss", str(requested), "-i", stream_url,
+                     "-frames:v", "1", "-q:v", "3", "-vf", "scale=1280:-1",
+                     str(exact_path), "-y"],
+                    capture_output=True, timeout=30)
+            except Exception:
+                abort(404)
+        if not exact_path.exists() or exact_path.stat().st_size == 0:
+            abort(404)
+        return send_file(exact_path.resolve(), mimetype="image/jpeg")
+
+    # Non-exact: find closest cached frame within ±2 s
+    _ts_re = _re.compile(r"_(\d{6})\.jpg$")
+    best, best_delta = None, 3
+    for p in work_dir.glob(f"{prefix}*_*.jpg"):
+        m = _ts_re.search(p.name)
+        if not m:
+            continue
+        delta = abs(int(m.group(1)) - requested)
+        if delta < best_delta:
+            best, best_delta = p, delta
+    if best is None:
+        abort(404)
+    return send_file(best.resolve(), mimetype="image/jpeg")
+
+
 @app.route("/status/<job_id>")
 @login_required
 def status(job_id: str):
     job = jobs.get(job_id) or _load_job(job_id)
     single_mode = job.get("mode") == "single" if job else False
-    return render_template("status.html", job_id=job_id, single_mode=single_mode)
+    ocr_mode = job.get("mode") == "ocr" if job else False
+    ocr_estimate_min = _ocr_estimate_min(job.get("video_duration")) if job else None
+    return render_template("status.html", job_id=job_id,
+                           single_mode=single_mode, ocr_mode=ocr_mode,
+                           ocr_estimate_min=ocr_estimate_min)
 
 
 @app.route("/status/<job_id>/json")
@@ -684,12 +946,15 @@ def status_json(job_id: str):
         return jsonify({"error": "not found"}), 404
     jobs[job_id] = job
 
-    return jsonify({
+    resp = {
         "status":     job["status"],
         "log":        job["log"],
         "expires_at": job.get("expires_at"),
         "queue_pos":  _queue_position(job_id),
-    })
+    }
+    if job.get("ocr_result") is not None:
+        resp["ocr_result"] = job["ocr_result"]
+    return jsonify(resp)
 
 
 @app.route("/download/<job_id>/zip")
@@ -704,14 +969,21 @@ def download_zip(job_id: str):
         return render_template("expired.html"), 410
 
     out_dir = Path(job["output_dir"])
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for f in sorted(out_dir.rglob("*.mp4")):
-            zf.write(f, f.relative_to(out_dir))
-    buf.seek(0)
     safe_name = current_user.display_name.replace(" ", "_")
-    return send_file(buf, mimetype="application/zip", as_attachment=True,
-                     download_name=f"{safe_name}.zip")
+
+    # Serve pre-built ZIP if present (e.g. contains extra debug frames)
+    prebuilt = out_dir / "descarga_con_frames.zip"
+    if prebuilt.exists():
+        return send_file(prebuilt.resolve(), mimetype="application/zip",
+                         as_attachment=True, download_name=f"{safe_name}.zip")
+
+    zip_path = out_dir / "clips.zip"
+    if not zip_path.exists():
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
+            for f in sorted(out_dir.rglob("*.mp4")):
+                zf.write(f, f.relative_to(out_dir))
+    return send_file(zip_path.resolve(), mimetype="application/zip",
+                     as_attachment=True, download_name=f"{safe_name}.zip")
 
 
 def _make_issue_title(subject: str, body: str) -> str:
@@ -806,7 +1078,9 @@ def github_webhook():
 def history():
     lifts_root = Path("lifts")
     now = time.time()
-    my_jobs = []
+    ocr_jobs: dict = {}
+    dl_jobs: list  = []
+
     if lifts_root.exists():
         for job_dir in lifts_root.iterdir():
             if not job_dir.is_dir():
@@ -820,10 +1094,56 @@ def history():
                 continue
             if str(data.get("user_id")) != current_user.get_id():
                 continue
+            if not data.get("job_id"):
+                continue
             data["expired"] = bool(data.get("expires_at") and now > data["expires_at"])
-            my_jobs.append(data)
-    my_jobs.sort(key=lambda d: d.get("queued_at") or 0, reverse=True)
-    return render_template("history.html", jobs=my_jobs[:20])
+            if data.get("mode") == "ocr":
+                ocr_jobs[data["job_id"]] = data
+            else:
+                dl_jobs.append(data)
+
+    sessions: dict = {}
+
+    for dl in dl_jobs:
+        ocr_id = dl.get("ocr_job_id")
+        if ocr_id:
+            if ocr_id not in sessions:
+                sessions[ocr_id] = {"ocr_job": ocr_jobs.get(ocr_id), "downloads": []}
+            sessions[ocr_id]["downloads"].append(dl)
+        else:
+            sessions[dl["job_id"]] = {"ocr_job": None, "downloads": [dl]}
+
+    for ocr_id, ocr_job in ocr_jobs.items():
+        if ocr_id not in sessions:
+            sessions[ocr_id] = {"ocr_job": ocr_job, "downloads": []}
+
+    for s in sessions.values():
+        ocr  = s["ocr_job"]
+        dls  = sorted(s["downloads"], key=lambda d: d.get("queued_at") or 0)
+        s["downloads"] = dls
+        latest_dl = dls[-1] if dls else None
+
+        s["ocr_active"]  = bool(ocr and ocr["status"] in ("queued", "running"))
+        s["ocr_ready"]   = bool(ocr and ocr["status"] == "ocr_done" and not ocr.get("expired"))
+        s["ocr_pending"] = s["ocr_ready"] and not dls
+        s["dl_active"]   = bool(latest_dl and latest_dl["status"] in ("queued", "running"))
+        s["has_done_dl"] = any(d["status"] == "done" and not d.get("expired") for d in dls)
+        s["can_reedit"]  = s["ocr_ready"] and not s["dl_active"]
+        s["n_downloads"] = len(dls)
+        s["show_toggle"] = len(dls) > 1 or (len(dls) == 1 and s["can_reedit"])
+
+        label_src = None
+        for candidate in ([ocr] if ocr else []) + list(reversed(dls)):
+            if candidate and candidate.get("session_label"):
+                label_src = candidate
+                break
+        s["label_src"] = label_src or ocr or latest_dl
+
+        times = ([ocr.get("queued_at") or 0] if ocr else []) + [d.get("queued_at") or 0 for d in dls]
+        s["queued_at"] = max(times) if times else 0
+
+    session_list = sorted(sessions.values(), key=lambda s: s["queued_at"], reverse=True)
+    return render_template("history.html", sessions=session_list[:20])
 
 
 if __name__ == "__main__":

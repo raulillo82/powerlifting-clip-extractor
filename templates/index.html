@@ -7,7 +7,10 @@
 <div class="alert alert-danger">{{ error }}</div>
 {% endif %}
 
-<form method="post" action="{{ url_for('start_job') }}" enctype="multipart/form-data">
+<form method="post" action="{{ url_for('start_job') }}" enctype="multipart/form-data"
+      id="main-form"
+      data-normal-action="{{ url_for('start_job') }}"
+      data-ocr-action="{{ url_for('start_ocr_job') }}">
 
   {# ── 1. Video ── #}
   <div class="card mb-3">
@@ -19,6 +22,7 @@
              value="{{ form_data.get('url', '') if form_data else '' }}">
       <input type="hidden" id="source-hidden" name="source">
       <input type="hidden" id="session-label-hidden" name="session_label">
+      <input type="hidden" id="ocr-video-duration" name="ocr_video_duration">
 
       {# Source selector #}
       <div class="mb-3">
@@ -106,7 +110,7 @@
            {% if is_single %}checked{% endif %}
            onchange="toggleSingleLift()">
     <label class="form-check-label fw-semibold" for="single_lift"
-           data-i18n="opt.single_lift">Modo un solo levantamiento</label>
+           data-i18n="{{ 'opt.single_lift' if is_single else 'opt.multi_lift' }}">{{ 'Modo un solo levantamiento' if is_single else 'Modo completo (9 levantamientos)' }}</label>
   </div>
 
   {# ── Full-mode section (hidden in single lift mode) ── #}
@@ -116,6 +120,39 @@
   <div class="card mb-3">
     <div class="card-header fw-semibold">Timestamps</div>
     <div class="card-body">
+
+      {# ── Input mode: manual vs OCR auto-detect ── #}
+      <div class="mb-3">
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="radio" name="ts_input_mode"
+                 id="ts_mode_manual" value="manual" checked
+                 onchange="onTsInputModeChange()">
+          <label class="form-check-label" data-i18n="ts.mode.manual" for="ts_mode_manual">Manual</label>
+        </div>
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="radio" name="ts_input_mode"
+                 id="ts_mode_ocr" value="ocr"
+                 onchange="onTsInputModeChange()">
+          <label class="form-check-label" data-i18n="ts.mode.ocr" for="ts_mode_ocr">Auto-detect (OCR)</label>
+          <span class="badge ms-1 fw-semibold" style="background:#6f42c1;font-size:.65em;vertical-align:middle;letter-spacing:.03em" data-i18n="badge.experimental">EXPERIMENTAL</span>
+        </div>
+      </div>
+
+      {# ── OCR apellido area (shown only in OCR mode) ── #}
+      <div id="ocr-apellido-area" class="d-none mb-3">
+        <label class="form-label" for="ocr_apellido" data-i18n="label.ocr.apellido">Apellido</label>
+        <input type="text" class="form-control" id="ocr_apellido" name="ocr_apellido"
+               style="max-width:300px" maxlength="22"
+               placeholder="Ej: GONZALEZ FERNANDEZ David"
+               data-i18n-placeholder="ph.ocr.apellido" disabled
+               oninput="normalizeApellido(this)">
+        <div class="form-text text-muted" data-i18n="ts.ocr.hint">
+          El script buscará los levantamientos de este apellido (unos minutos).
+        </div>
+      </div>
+
+      {# ── Manual timestamps area ── #}
+      <div id="manual-ts-area">
       {% set ts_mode = form_data.get('timestamps_mode', 'paste') if form_data else 'paste' %}
       <div class="mb-3">
         <div class="form-check form-check-inline">
@@ -158,14 +195,15 @@
         <div class="invalid-feedback">{{ error }}</div>
         {% endif %}
       </div>
+      </div>{# end manual-ts-area #}
     </div>
   </div>
 
   {# ── 3. Clip settings ── #}
-  <div class="card mb-3">
+  <div class="card mb-3" id="clips-card">
     <div class="card-header fw-semibold" data-i18n="card.clips">Clip settings</div>
     <div class="card-body">
-      <div class="row g-3 mb-3">
+      <div id="duration-row" class="row g-3 mb-3">
         {% for name, i18n_key, has_placeholder, default in [
             ('duration',          'label.duration',     False, '60'),
             ('duration_squat',    'label.dur.squat',    True,  ''),
@@ -208,7 +246,7 @@
   </div>
 
   {# ── 4. Options ── #}
-  <div class="card mb-3">
+  <div class="card mb-3" id="options-card">
     <div class="card-header fw-semibold" data-i18n="card.options">Options</div>
     <div class="card-body">
       <div class="row g-2 mb-3">
@@ -429,8 +467,8 @@
     </div>
   </div>
 
-  <button type="submit" class="btn btn-primary btn-lg px-5" data-i18n="btn.extract"
-          onclick="return _validateDuration()">Extract</button>
+  <button type="submit" id="submit-btn" class="btn btn-primary btn-lg px-5" data-i18n="btn.extract"
+          onclick="return _onSubmit()">Extract</button>
 
 </form>
 
@@ -438,8 +476,17 @@
 
 {% block scripts %}
 <script>
+function normalizeApellido(el) {
+  const pos = el.selectionStart;
+  el.value = el.value.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+  el.setSelectionRange(pos, pos);
+}
+
 function toggleSingleLift() {
   const single = document.getElementById('single_lift').checked;
+  const lbl = document.querySelector('label[for="single_lift"]');
+  lbl.dataset.i18n = single ? 'opt.single_lift' : 'opt.multi_lift';
+  lbl.textContent = T(lbl.dataset.i18n);
   document.getElementById('full-mode-section').classList.toggle('d-none', single);
   document.getElementById('single-mode-section').classList.toggle('d-none', !single);
   document.querySelectorAll('#full-mode-section input, #full-mode-section textarea, #full-mode-section select')
@@ -639,6 +686,7 @@ function _setSelectedUrl(radio, linkContainer) {
   document.getElementById('session-label-hidden').value = radio ? (radio.dataset.label || '') : '';
   _videoDuration = radio && radio.dataset.duration ? parseFloat(radio.dataset.duration) : null;
   _clearDurationError();
+  updateOcrEstimate();
   document.getElementById('session-yt-link')?.remove();
   if (radio && radio.value) {
     const a = document.createElement('a');
@@ -741,6 +789,65 @@ function _validateDuration() {
   }
   _clearDurationError();
   return true;
+}
+
+function onTsInputModeChange() {
+  const isOcr = document.getElementById('ts_mode_ocr').checked;
+  const form = document.getElementById('main-form');
+  form.action = isOcr ? form.dataset.ocrAction : form.dataset.normalAction;
+
+  document.getElementById('manual-ts-area').classList.toggle('d-none', isOcr);
+  document.getElementById('ocr-apellido-area').classList.toggle('d-none', !isOcr);
+  document.getElementById('ocr_apellido').disabled = !isOcr;
+  document.getElementById('duration-row')?.classList.toggle('d-none', isOcr);
+
+  // Disable timestamps inputs so they don't get submitted in OCR mode
+  document.querySelectorAll('#manual-ts-area input, #manual-ts-area textarea')
+    .forEach(el => { el.disabled = isOcr; });
+
+  // Update submit button label
+  const btn = document.getElementById('submit-btn');
+  btn.textContent = isOcr ? T('btn.extract.ocr') : T('btn.extract');
+  btn.removeAttribute('data-i18n');
+}
+
+function _onSubmit() {
+  const isOcr = document.getElementById('ts_mode_ocr').checked;
+  return isOcr || _validateDuration();
+}
+
+// ── Estimación dinámica del tiempo de OCR ───────────────────────────────────
+// El OCR escanea desde el inicio de la competición hasta el último peso muerto
+// del levantador, así que su coste ≈ proporcional a la duración del vídeo.
+// Factor calibrado con el vídeo de prueba (12360s → ~500s reales de OCR).
+// OJO: el vídeo de prueba contiene UNA sola sesión. Para vídeos largos con varias
+// sesiones encadenadas (p.ej. mañana+tarde en un mismo vídeo) esta estimación se
+// queda larga —el levantador estará en una sola sesión— y habría que revisar el
+// cálculo (estimar sobre la duración de la sesión, no del vídeo entero).
+const OCR_TIME_FACTOR = 0.045;
+
+function _ocrEstimateMinutes(videoSeconds) {
+  return Math.max(2, Math.round(videoSeconds * OCR_TIME_FACTOR / 60));
+}
+
+function updateOcrEstimate() {
+  // Propaga la duración al campo oculto para que la página de estado pueda
+  // mostrar la misma estimación mientras el job corre.
+  const hidden = document.getElementById('ocr-video-duration');
+  if (hidden) hidden.value = _videoDuration || '';
+  const el = document.querySelector('[data-i18n="ts.ocr.hint"]');
+  if (!el) return;
+  if (_videoDuration) {
+    el.textContent = T('ts.ocr.hint.dyn').replace('{min}', _ocrEstimateMinutes(_videoDuration));
+  } else {
+    el.textContent = T('ts.ocr.hint');  // sin duración conocida (URL manual)
+  }
+}
+
+// base.html llama a esto tras re-traducir al cambiar idioma: re-aplicamos la
+// estimación dinámica para que no la pise el texto estático de data-i18n.
+function onLangChange() {
+  updateOcrEstimate();
 }
 
 // Restore JS state after server-side validation error

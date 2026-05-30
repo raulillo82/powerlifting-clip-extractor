@@ -2,9 +2,10 @@
 import io
 import json
 import shutil
+import subprocess
 import time
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import pytest
 from werkzeug.security import generate_password_hash
@@ -1265,3 +1266,327 @@ class TestGithubWebhook:
                         headers={"X-GitHub-Event": "pull_request",
                                  "X-Hub-Signature-256": sig})
         assert r.status_code == 204
+
+
+# ── /run-ocr ──────────────────────────────────────────────────────────────────
+
+OCR_FORM_BASE = {
+    "url":          "https://www.youtube.com/watch?v=test",
+    "ocr_apellido": "OSUNA",
+}
+
+
+class TestRunOcr:
+    def _post(self, client, overrides=None):
+        data = {**OCR_FORM_BASE, **(overrides or {})}
+        with patch("app._save_job"), patch("app._job_queue.put"):
+            return client.post("/run-ocr", data=data, follow_redirects=False)
+
+    def test_valid_form_redirects_to_status(self, client):
+        r = self._post(client)
+        assert r.status_code == 302
+        assert "/status/" in r.headers["Location"]
+
+    def test_valid_form_creates_queued_ocr_job(self, client):
+        self._post(client)
+        assert len(flask_app.jobs) == 1
+        job = next(iter(flask_app.jobs.values()))
+        assert job["status"] == "queued"
+        assert job["mode"] == "ocr"
+
+    def test_missing_url_returns_400(self, client):
+        assert self._post(client, {"url": ""}).status_code == 400
+
+    def test_missing_apellido_returns_400(self, client):
+        assert self._post(client, {"ocr_apellido": ""}).status_code == 400
+
+    def test_queued_job_has_apellido(self, client):
+        self._post(client)
+        job = next(iter(flask_app.jobs.values()))
+        assert job["ocr_apellido"] == "OSUNA"
+
+    def test_queues_with_ocr_mode(self, client):
+        queued = []
+        with patch("app._save_job"), patch("app._job_queue.put", side_effect=queued.append):
+            client.post("/run-ocr", data=OCR_FORM_BASE, follow_redirects=False)
+        assert queued
+        _job_id, _run_kwargs, mode = queued[0]
+        assert mode == "ocr"
+
+
+# ── /ocr/<job_id>/review ──────────────────────────────────────────────────────
+
+OCR_RESULT = {
+    "squat":         [1287, 1795, 2295],
+    "squat_ends":    [1330, 1840, 2340],
+    "bench":         [5010, 5790, 6570],
+    "bench_ends":    [5060, 5840, 6620],
+    "deadlift":      [9630, 10164, 10698],
+    "deadlift_ends": [9680, 10214, 10748],
+    "comp_start": 1257,
+    "elapsed_s": 1560.0,
+}
+
+
+class TestOcrReview:
+    def _make_ocr_done_job(self, job_id="ocrtestjob"):
+        flask_app.jobs[job_id] = {
+            "status": "ocr_done",
+            "log": "",
+            "output_dir": "lifts/ocrtestj",
+            "expires_at": time.time() + 3600,
+            "mode": "ocr",
+            "user_id": "1",
+            "submitted_url": "https://www.youtube.com/watch?v=test",
+            "source": "aep",
+            "session_label": "Test session",
+            "ocr_result": OCR_RESULT,
+            "ocr_apellido": "OSUNA",
+        }
+        return job_id
+
+    def test_ocr_done_job_returns_200(self, client):
+        job_id = self._make_ocr_done_job()
+        r = client.get(f"/ocr/{job_id}/review")
+        assert r.status_code == 200
+
+    def test_review_page_shows_timestamps(self, client):
+        job_id = self._make_ocr_done_job()
+        r = client.get(f"/ocr/{job_id}/review")
+        assert b"0:21:27" in r.data  # squat[0] = 1287s
+
+    def test_review_page_has_adjust_buttons(self, client):
+        job_id = self._make_ocr_done_job()
+        r = client.get(f"/ocr/{job_id}/review")
+        assert b"\xe2\x88\x925s" in r.data or b"5s" in r.data  # −5s or +5s
+
+    def test_missing_job_returns_404(self, client):
+        with patch("app._load_job", return_value=None):
+            r = client.get("/ocr/nonexistentjob/review")
+        assert r.status_code == 404
+
+    def test_still_running_job_returns_404(self, client):
+        flask_app.jobs["runningjob"] = {
+            "status": "running", "log": "", "output_dir": "x",
+            "expires_at": None, "mode": "ocr", "ocr_result": None,
+        }
+        r = client.get("/ocr/runningjob/review")
+        assert r.status_code == 404
+
+    def test_status_json_includes_ocr_result(self, client):
+        job_id = self._make_ocr_done_job()
+        r = client.get(f"/status/{job_id}/json")
+        data = json.loads(r.data)
+        assert "ocr_result" in data
+        assert data["ocr_result"]["squat"] == OCR_RESULT["squat"]
+
+
+# ── _ocr_worker unit tests ─────────────────────────────────────────────────────
+
+class TestOcrWorker:
+    def _make_job(self, tmp_path):
+        return {
+            "status": "running",
+            "log": "",
+            "output_dir": str(tmp_path / "ocr_job"),
+            "queued_at": time.time(),
+            "mode": "ocr",
+            "source": "aep",
+            "submitted_url": "https://www.youtube.com/watch?v=test",
+            "ocr_apellido": "OSUNA",
+            "_geo": {},
+            "ocr_result": None,
+        }
+
+    def test_ocr_worker_success(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        job = self._make_job(tmp_path)
+        fake_result = json.dumps(OCR_RESULT)
+
+        import subprocess as sp
+        class _FakeStdout:
+            def read(self): return fake_result
+        mock_proc = type("P", (), {
+            "stdout": _FakeStdout(),
+            "stderr": iter(["Fase 1: inicio\nFase 6: peso muerto\nTerminado en 100s\n"]),
+            "returncode": 0,
+            "wait": lambda self, **kw: None,
+        })()
+
+        with patch("app._save_job"), patch("subprocess.Popen", return_value=mock_proc):
+            flask_app._ocr_worker("ocr1", job)
+
+        assert job["status"] == "ocr_done"
+        assert job["ocr_result"]["squat"] == OCR_RESULT["squat"]
+
+    def test_ocr_worker_subprocess_failure(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        job = self._make_job(tmp_path)
+
+        class _FakeStdoutEmpty:
+            def read(self): return ""
+        mock_proc = type("P", (), {
+            "stdout": _FakeStdoutEmpty(),
+            "stderr": iter(["Error fatal\n"]),
+            "returncode": 1,
+            "wait": lambda self, **kw: None,
+        })()
+
+        with patch("app._save_job"), patch("subprocess.Popen", return_value=mock_proc):
+            flask_app._ocr_worker("ocr2", job)
+
+        assert job["status"] == "error"
+
+
+# ── OCR phase display contract (status.html JS ↔ find_lifter.py output) ─────────
+# El progreso de fases del OCR es JS de cliente sin runner de tests. Estos tests
+# verifican el *contrato* entre los marcadores que find_lifter.py imprime y los
+# que status.html parsea, para cazar bugs como el "fase 7 de 6" (contar
+# 'Terminado en' como una 7ª fase) o que backend y frontend se desincronicen.
+
+import re as _re
+
+_ROOT = Path(__file__).parent
+
+
+def _js_string_array(source, name):
+    """Devuelve los literales de cadena de `const NAME = [ ... ];` en JS."""
+    m = _re.search(name + r"\s*=\s*\[([^\]]*)\]", source)
+    assert m, f"no se encontró el array {name} en status.html"
+    return _re.findall(r"'([^']*)'", m.group(1))
+
+
+class TestOcrPhaseContract:
+    status_html = (_ROOT / "templates" / "status.html").read_text(encoding="utf-8")
+    find_lifter = (_ROOT / "find_lifter.py").read_text(encoding="utf-8")
+
+    def test_every_frontend_phase_marker_is_emitted_by_backend(self):
+        for marker in _js_string_array(self.status_html, "OCR_PHASES"):
+            assert marker in self.find_lifter, (
+                f"status.html busca '{marker}' pero find_lifter.py no lo emite")
+
+    def test_six_phases_on_both_sides(self):
+        phases = _js_string_array(self.status_html, "OCR_PHASES")
+        assert len(phases) == 6
+        assert self.find_lifter.count("=== Fase") == 6
+
+    def test_done_marker_is_separate_from_phases(self):
+        # Guarda contra "fase 7 de 6": 'Terminado en' NO debe estar en OCR_PHASES.
+        phases = _js_string_array(self.status_html, "OCR_PHASES")
+        assert not any("Terminado" in p for p in phases)
+        m = _re.search(r"OCR_DONE_MARKER\s*=\s*'([^']*)'", self.status_html)
+        assert m, "falta OCR_DONE_MARKER en status.html"
+        assert m.group(1) in self.find_lifter, "el marcador de fin no lo emite find_lifter"
+
+    def test_phase_keys_align_with_phases(self):
+        phases = _js_string_array(self.status_html, "OCR_PHASES")
+        keys = _js_string_array(self.status_html, "OCR_PHASE_KEYS")
+        # keys[0] = '' (sin fase aún); keys[1..N] mapean a las N fases reales.
+        assert len(keys) == len(phases) + 1
+        assert keys[0] == ""
+
+
+class TestOcrEstimateHint:
+    """La estimación dinámica de tiempo de OCR usa una clave i18n con placeholder;
+    si falta en algún idioma, la UI mostraría el literal de la clave."""
+
+    base_html = (_ROOT / "templates" / "base.html").read_text(encoding="utf-8")
+    index_html = (_ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+
+    def test_dynamic_hint_key_defined_in_both_languages(self):
+        # Una entrada por idioma (EN + ES).
+        assert self.base_html.count("'ts.ocr.hint.dyn'") == 2
+
+    def test_dynamic_hint_has_min_placeholder(self):
+        for m in _re.findall(r"'ts\.ocr\.hint\.dyn':\s*'([^']*)'", self.base_html):
+            assert "{min}" in m, f"falta el placeholder {{min}} en: {m}"
+
+    def test_index_uses_the_dynamic_hint_key(self):
+        assert "ts.ocr.hint.dyn" in self.index_html
+
+    def test_nav_away_estimate_key_defined_in_both_languages(self):
+        # El aviso "puedes cerrar la pestaña" con estimación (página de estado).
+        assert self.base_html.count("'ocr.nav.away.est'") == 2
+        for m in _re.findall(r"'ocr\.nav\.away\.est':\s*'([^']*)'", self.base_html):
+            assert "{min}" in m, f"falta el placeholder {{min}} en: {m}"
+
+
+class TestOcrEstimateMinutes:
+    """Helper backend que estima el tiempo de OCR a partir de la duración."""
+
+    def test_none_when_no_duration(self):
+        assert flask_app._ocr_estimate_min(None) is None
+        assert flask_app._ocr_estimate_min(0) is None
+
+    def test_test_video_duration(self):
+        # 12360s (vídeo de prueba) → round(12360 * 0.045 / 60) = 9 min
+        assert flask_app._ocr_estimate_min(12360) == 9
+
+    def test_floor_of_two_minutes(self):
+        # Vídeos cortos no bajan de 2 min.
+        assert flask_app._ocr_estimate_min(600) == 2
+
+    def test_parse_float_helper(self):
+        assert flask_app._parse_float("12360") == 12360.0
+        assert flask_app._parse_float("") is None
+        assert flask_app._parse_float(None) is None
+        assert flask_app._parse_float("abc") is None
+
+
+# ── OCR job global timeout ────────────────────────────────────────────────────
+
+class TestOcrJobTimeout:
+    """_ocr_worker cancela el proceso y marca el job como error al superar el timeout."""
+
+    def _make_job(self, tmp_path):
+        return {
+            "submitted_url": "https://www.youtube.com/watch?v=test",
+            "ocr_apellido": "TEST",
+            "output_dir": str(tmp_path),
+            "status": "running",
+            "log": "",
+            "mode": "ocr",
+            "is_admin": True,  # evita record_job_stat
+        }
+
+    def test_timeout_kills_process_and_marks_error(self, tmp_path):
+        job = self._make_job(tmp_path)
+
+        mock_proc = MagicMock()
+        mock_proc.stderr = iter([])
+        mock_proc.stdout.read.return_value = ""
+        # Primera llamada (con timeout) lanza; segunda (tras kill) retorna.
+        mock_proc.wait.side_effect = [
+            subprocess.TimeoutExpired("find_lifter.py", flask_app.OCR_JOB_TIMEOUT_S),
+            None,
+        ]
+
+        with patch("subprocess.Popen", return_value=mock_proc):
+            with patch.object(flask_app, "_save_job"):
+                flask_app._ocr_worker("test-id", job)
+
+        mock_proc.kill.assert_called_once()
+        assert job["status"] == "error"
+
+    def test_normal_completion_unaffected(self, tmp_path):
+        job = self._make_job(tmp_path)
+
+        result_json = json.dumps({
+            "squat": [100, 200, 300], "bench": [400, 500, 600],
+            "deadlift": [700, 800, 900], "comp_start": 50, "elapsed_s": 120.0,
+        })
+
+        mock_proc = MagicMock()
+        mock_proc.stderr = iter([])
+        mock_proc.stdout.read.return_value = result_json
+        mock_proc.wait.return_value = None
+        mock_proc.returncode = 0
+
+        with patch("subprocess.Popen", return_value=mock_proc):
+            with patch.object(flask_app, "_save_job"):
+                flask_app._ocr_worker("test-id", job)
+
+        assert job["status"] == "ocr_done"
+        assert job["ocr_result"] is not None

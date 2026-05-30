@@ -33,7 +33,7 @@ jobs:
           cd ~/powerlifting-clip-extractor-staging
           git fetch
           git checkout ${{ github.head_ref }}
-          git pull
+          git reset --hard origin/${{ github.head_ref }}
           podman build -t localhost/powerlifting-staging:latest .
           systemctl --user restart powerlifting-staging
           systemctl --user is-active powerlifting-staging
