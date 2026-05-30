@@ -819,6 +819,38 @@ def start_ocr_job():
     return redirect(url_for("status", job_id=job_id))
 
 
+@app.route("/ocr/<job_id>/relaunch", methods=["POST"])
+@login_required
+def relaunch_ocr_job(job_id: str):
+    original = jobs.get(job_id) or _load_job(job_id)
+    if not original or original.get("mode") != "ocr" or original.get("status") != "error":
+        abort(404)
+
+    new_job_id = uuid.uuid4().hex
+    output_dir = Path("lifts") / new_job_id[:8]
+    new_job = {
+        "status": "queued", "log": "", "output_dir": str(output_dir),
+        "expires_at": None, "queued_at": time.time(), "mode": "ocr",
+        "user_id": current_user.get_id(),
+        "is_admin": current_user.is_admin,
+        "submitted_url": original.get("submitted_url", ""),
+        "ocr_apellido": original.get("ocr_apellido", ""),
+        "video_duration": original.get("video_duration"),
+        "source": original.get("source", ""),
+        "session_label": original.get("session_label", ""),
+        "music": original.get("music", ""),
+        "music_start": original.get("music_start", ""),
+        "music_pct": original.get("music_pct", "50"),
+        "audio_mode": original.get("audio_mode", "original"),
+        "_geo": geoip.lookup(request.headers.get("X-Real-IP", request.remote_addr)),
+        "ocr_result": None,
+    }
+    jobs[new_job_id] = new_job
+    _save_job(new_job_id, new_job)
+    _job_queue.put((new_job_id, {}, "ocr"))
+    return redirect(url_for("status", job_id=new_job_id))
+
+
 @app.route("/ocr/<job_id>/review")
 @login_required
 def ocr_review(job_id: str):

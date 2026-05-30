@@ -60,6 +60,11 @@
 
 <div id="error-section" class="d-none">
   <div class="alert alert-danger" data-i18n="err.failed">Extraction failed — see the log for details.</div>
+  {% if ocr_mode %}
+  <form method="post" action="{{ url_for('relaunch_ocr_job', job_id=job_id) }}" class="mt-2">
+    <button type="submit" class="btn btn-warning" data-i18n="btn.relaunch">Relanzar</button>
+  </form>
+  {% endif %}
 </div>
 
 <a href="{{ url_for('index') }}" class="btn btn-outline-secondary mt-3" data-i18n="btn.new">New extraction</a>
