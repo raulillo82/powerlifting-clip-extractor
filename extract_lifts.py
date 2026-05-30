@@ -22,6 +22,7 @@ import sys
 import tempfile
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 MOVEMENTS = [
@@ -32,6 +33,13 @@ MOVEMENTS = [
 DEFAULT_DURATION = 60
 DEFAULT_OUTPUT_DIR = "lifts"
 DEFAULT_TIMES_FILE = "times.txt"
+DOWNLOAD_WORKERS = 3            # workers paralelos para los 9 clips
+_print_lock = threading.Lock()  # serializa líneas de log en modo paralelo
+
+
+def _ts() -> str:
+    """Timestamp prefix para el log paralelo: '[HH:MM:SS TZ]'."""
+    return time.strftime("[%H:%M:%S %Z]")
 
 
 # ── Timestamp helpers ──────────────────────────────────────────────────────────
@@ -144,12 +152,11 @@ def get_clip_duration(path: Path) -> float:
     return float(result.stdout.strip())
 
 
-def download_clip(url: str, start: int, duration: int, output: Path, label: str) -> None:
+def download_clip(url: str, start: int, duration: int, output: Path, label: str,
+                  *, parallel: bool = False) -> None:
     """Download a single timed section from YouTube using yt-dlp."""
     end = start + duration
     section = f"*{seconds_to_hms(start)}-{seconds_to_hms(end)}"
-    print(f"\n[{label}] ⏳ Descargando...  {seconds_to_hms(start)} → {seconds_to_hms(end)}")
-    sys.stdout.flush()
 
     tmp = output.with_suffix(".tmp.mp4")
     cmd = [
@@ -164,7 +171,20 @@ def download_clip(url: str, start: int, duration: int, output: Path, label: str)
         url,
     ]
 
-    if sys.stdout.isatty():
+    if parallel:
+        # Parallel mode: no PTY, simple capture; start/done messages via shared lock
+        t0 = time.monotonic()
+        with _print_lock:
+            print(f"{_ts()} ▶ [{label}]  {seconds_to_hms(start)} → {seconds_to_hms(end)}")
+            sys.stdout.flush()
+        result = subprocess.run(cmd, capture_output=True)
+        if result.returncode != 0:
+            with _print_lock:
+                for line in result.stderr.decode("utf-8", errors="replace").splitlines():
+                    if line and "[download]" not in line:
+                        print(f"{_ts()} {line}")
+            raise subprocess.CalledProcessError(result.returncode, cmd)
+    elif sys.stdout.isatty():
         # CLI: yt-dlp writes directly to the terminal → real-time native progress bar
         result = subprocess.run(cmd)
         if result.returncode != 0:
@@ -255,10 +275,18 @@ def download_clip(url: str, start: int, duration: int, output: Path, label: str)
     r = subprocess.run(faststart_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if r.returncode == 0:
         tmp.unlink()
-        print("✓ Clip listo")
+        if parallel:
+            with _print_lock:
+                print(f"{_ts()} ✓ [{label}] listo ({int(time.monotonic() - t0)}s)")
+        else:
+            print("✓ Clip listo")
     else:
         tmp.rename(output)
-        print("✓ Clip listo (sin optimizar para streaming)")
+        if parallel:
+            with _print_lock:
+                print(f"{_ts()} ✓ [{label}] listo (sin optimizar, {int(time.monotonic() - t0)}s)")
+        else:
+            print("✓ Clip listo (sin optimizar para streaming)")
 
 
 def make_combined(clips: list[Path], output: Path, preview_width: int = 0) -> None:
@@ -531,24 +559,105 @@ def run(
         attempt = ((i - 1) % 3) + 1
         clip_paths.append(output_dir / f"lift_{i:02d}_{movement}_attempt{attempt}.mp4")
 
+    # Compute combined metadata up front so the early trigger can use it
+    combined_indices: frozenset[int] = frozenset({
+        squat_attempt - 1,
+        3 + bench_attempt - 1,
+        6 + deadlift_attempt - 1,
+    })
+    selected = [
+        clip_paths[squat_attempt - 1],
+        clip_paths[3 + bench_attempt - 1],
+        clip_paths[6 + deadlift_attempt - 1],
+    ]
+    base = f"combined_s{squat_attempt}_b{bench_attempt}_d{deadlift_attempt}"
+    combined_path = output_dir / (
+        f"{base}_for-instagram.mp4" if music_source else f"{base}.mp4"
+    )
+
+    _combined_early_done = False  # True if parallel early trigger already ran make_combined
+
     if not skip_individual:
-        action = "Simulating" if dry_run else "Downloading"
-        print(f"\n{action} {len(timestamps)} clips into '{output_dir}/'...")
-        for i, (ts, path) in enumerate(zip(timestamps, clip_paths), 1):
-            movement = MOVEMENTS[i - 1]
-            attempt = ((i - 1) % 3) + 1
-            duration = durations[movement]
-            if dry_run:
+        if dry_run:
+            print(f"\nSimulating {len(timestamps)} clips into '{output_dir}/'...")
+            for i, (ts, path) in enumerate(zip(timestamps, clip_paths), 1):
+                movement = MOVEMENTS[i - 1]
+                attempt = ((i - 1) % 3) + 1
+                duration = durations[movement]
                 end = ts + duration
                 print(f"\n  [lift {i:02d} — {movement} attempt {attempt}]"
                       f"  {seconds_to_hms(ts)} → {seconds_to_hms(end)}  [dry run]")
                 path.write_bytes(b"")
-            else:
-                download_clip(url, ts, duration, path, f"lift {i:02d} — {movement} attempt {attempt}")
-                if preview_width:
+        else:
+            print(f"{_ts()} Descargando {len(timestamps)} clips en paralelo ({DOWNLOAD_WORKERS} workers)...")
+            if not skip_combined:
+                print(f"  → combinado: squat {squat_attempt},"
+                      f" bench {bench_attempt}, deadlift {deadlift_attempt}"
+                      f" (descargando deps primero)")
+
+            _t0 = time.monotonic()
+            completed_combined_deps: set[int] = set()
+            combined_thread: threading.Thread | None = None
+            _bg_error: list[BaseException] = []
+
+            def _make_combined_bg() -> None:
+                try:
+                    make_combined(selected, combined_path)
+                    if preview_width:
+                        prev = output_dir / "preview" / combined_path.name
+                        make_combined(selected, prev, preview_width=preview_width)
+                except BaseException as exc:
+                    _bg_error.append(exc)
+
+            with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as ex:
+                fs: dict = {}
+                # Submit combined dep clips first so make_combined can start early
+                priority_order = sorted(
+                    range(len(timestamps)),
+                    key=lambda i: 0 if i in combined_indices else 1,
+                )
+                for idx in priority_order:
+                    movement = MOVEMENTS[idx]
+                    attempt = (idx % 3) + 1
+                    duration = durations[movement]
+                    lbl = f"lift {idx + 1:02d} — {movement} attempt {attempt}"
+                    fs[ex.submit(
+                        download_clip, url, timestamps[idx], duration,
+                        clip_paths[idx], lbl, parallel=True,
+                    )] = idx
+
+                for f in as_completed(fs):
+                    idx = fs[f]
+                    f.result()  # re-lanza si la descarga falló
+                    if idx in combined_indices:
+                        completed_combined_deps.add(idx)
+                    if (combined_thread is None
+                            and not skip_combined
+                            and len(completed_combined_deps) == 3):
+                        with _print_lock:
+                            print(f"{_ts()} [combinado] iniciando encode (deps listas)...")
+                        combined_thread = threading.Thread(
+                            target=_make_combined_bg, daemon=True)
+                        combined_thread.start()
+
+            if combined_thread is not None:
+                combined_thread.join()
+                if _bg_error:
+                    raise _bg_error[0]
+                _combined_early_done = True
+
+            elapsed = time.monotonic() - _t0
+            clips_label = f"{len(timestamps)} clips"
+            combined_label = "" if skip_combined else " + combinado"
+            print(f"{_ts()} Terminado en {elapsed:.1f}s ({elapsed/60:.1f} min)"
+                  f" — {clips_label}{combined_label}")
+
+            if preview_width:
+                for path in clip_paths:
                     prev = output_dir / "preview" / path.name
                     print(f"    → preview {prev.name}")
                     make_preview(path, prev, preview_width)
+
     else:
         missing = [p for p in clip_paths if not p.exists()]
         if missing:
@@ -565,23 +674,10 @@ def run(
         print(f"\nDone. Clips saved to: {output_dir}/")
         return
 
-    selected = [
-        clip_paths[squat_attempt - 1],          # squat:    index 0–2
-        clip_paths[3 + bench_attempt - 1],       # bench:    index 3–5
-        clip_paths[6 + deadlift_attempt - 1],    # deadlift: index 6–8
-    ]
-    base = f"combined_s{squat_attempt}_b{bench_attempt}_d{deadlift_attempt}"
-
-    # When music will be added we label the silent version explicitly for Instagram
-    if music_source:
-        combined_path = output_dir / f"{base}_for-instagram.mp4"
-    else:
-        combined_path = output_dir / f"{base}.mp4"
-
     if dry_run:
         print(f"\n  [combined]  {combined_path.name}  [dry run]")
         combined_path.write_bytes(b"")
-    else:
+    elif not _combined_early_done:
         make_combined(selected, combined_path)
         if preview_width:
             prev_combined = output_dir / "preview" / combined_path.name
