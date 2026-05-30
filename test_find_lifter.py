@@ -291,3 +291,54 @@ class TestReadTimerMultiCrop:
         with patch.object(fl, "_read_timer_crop", return_value=None):
             with patch("PIL.Image.open", return_value=self._make_img()):
                 assert fl.read_timer("fake.jpg") is None
+
+
+# ── detect_break_timer: cap al final del vídeo ───────────────────────────────
+
+class TestDetectBreakTimerVideoEndCap:
+    def test_does_not_probe_past_video_end(self):
+        probed = []
+        with patch.object(fl, "extract_frame", side_effect=lambda u, s, o: probed.append(s) or False):
+            fl.detect_break_timer("url", Path("/tmp"), 1000, "T", "p", video_end_s=1180)
+        assert probed, "debe haber sondeado al menos un frame"
+        assert all(s <= 1180 for s in probed), f"frames más allá del fin: {[s for s in probed if s > 1180]}"
+
+    def test_without_cap_would_probe_further(self):
+        # Sin video_end_s la ventana es 5400s → bail-out a los 5 errores,
+        # pero habría intentado más allá de 1180.
+        probed = []
+        with patch.object(fl, "extract_frame", side_effect=lambda u, s, o: probed.append(s) or False):
+            fl.detect_break_timer("url", Path("/tmp"), 1000, "T", "p")
+        assert max(probed) > 1180
+
+
+# ── refine_group_bounds: cap al final del vídeo ──────────────────────────────
+
+class TestRefineGroupBoundsVideoEndCap:
+    def test_does_not_extend_past_video_end(self):
+        called_secs = []
+
+        def _recording(url, wd, secs, token, prefix):
+            called_secs.append(secs)
+            return secs, True, "NOMBRE", True, 100, 50
+
+        with patch.object(fl, "_scan_one", _recording):
+            fl.refine_group_bounds("u", Path("/tmp"), [[3000, 3010, 3020]],
+                                   "X", "SQ", "sq", video_end_s=3022)
+
+        after_secs = [s for s in called_secs if s > 3020]
+        assert all(s <= 3022 for s in after_secs), f"frames más allá del fin: {[s for s in after_secs if s > 3022]}"
+
+    def test_without_cap_extends_further(self):
+        called_secs = []
+
+        def _recording(url, wd, secs, token, prefix):
+            called_secs.append(secs)
+            return secs, True, "NOMBRE", True, 100, 50
+
+        with patch.object(fl, "_scan_one", _recording):
+            fl.refine_group_bounds("u", Path("/tmp"), [[3000, 3010, 3020]],
+                                   "X", "SQ", "sq")
+
+        after_secs = [s for s in called_secs if s > 3020]
+        assert any(s > 3022 for s in after_secs), "sin cap debe intentar más allá de 3022"

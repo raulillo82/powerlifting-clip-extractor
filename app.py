@@ -479,8 +479,11 @@ def _ocr_worker(job_id: str, job: dict) -> None:
     work_dir = Path(job["output_dir"]) / "ocr"
     work_dir.mkdir(parents=True, exist_ok=True)
     try:
+        cmd = [sys.executable, str(_FIND_LIFTER), url, apellido, "--work-dir", str(work_dir)]
+        if job.get("video_duration"):
+            cmd += ["--duration", str(int(job["video_duration"]))]
         proc = subprocess.Popen(
-            [sys.executable, str(_FIND_LIFTER), url, apellido, "--work-dir", str(work_dir)],
+            cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,

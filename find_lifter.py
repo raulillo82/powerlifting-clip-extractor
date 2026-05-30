@@ -323,7 +323,7 @@ def scan_movement(url, work_dir, start_s, max_window_s, token, label, prefix):
     return groups
 
 
-def detect_break_timer(url, work_dir, search_from_s, label, prefix):
+def detect_break_timer(url, work_dir, search_from_s, label, prefix, video_end_s=None):
     """
     Escanea cada TIMER_STEP_S desde search_from_s buscando el timer de descanso
     entre movimientos (valor > BREAK_TIMER_MIN). Devuelve el timestamp de inicio
@@ -332,6 +332,8 @@ def detect_break_timer(url, work_dir, search_from_s, label, prefix):
     err(f"  [{label}] buscando timer de descanso desde "
         f"{search_from_s // 3600}h{(search_from_s % 3600) // 60:02d}m...")
     max_scan = search_from_s + 5400  # buscar hasta 90 min después
+    if video_end_s is not None:
+        max_scan = min(max_scan, video_end_s)
     consecutive_errors = 0
     for secs in range(search_from_s, max_scan + 1, TIMER_STEP_S):
         ts = f"{secs // 3600}h{(secs % 3600) // 60:02d}m{secs % 60:02d}s"
@@ -353,7 +355,7 @@ def detect_break_timer(url, work_dir, search_from_s, label, prefix):
     return None
 
 
-def refine_group_bounds(url, work_dir, groups, token, label, prefix):
+def refine_group_bounds(url, work_dir, groups, token, label, prefix, video_end_s=None):
     """
     Scan denso (REFINE_STEP_S) alrededor de min(g) y max(g) de cada grupo.
     Reduce la incertidumbre ±SCAN_STEP_S/2 del scan principal a ±REFINE_STEP_S/2.
@@ -379,7 +381,10 @@ def refine_group_bounds(url, work_dir, groups, token, label, prefix):
             # Buscar fin más tardío: escanear hasta REFINE_AFTER_S después de g_max.
             # ex.map preserva el orden → extender mientras haya hits consecutivos y
             # parar en el primer miss (banner terminado), igual que la versión serie.
-            after = list(range(g_max + REFINE_STEP_S, g_max + REFINE_AFTER_S + 1, REFINE_STEP_S))
+            after_end = g_max + REFINE_AFTER_S + 1
+            if video_end_s is not None:
+                after_end = min(after_end, video_end_s + 1)
+            after = list(range(g_max + REFINE_STEP_S, after_end, REFINE_STEP_S))
             pst = f"{prefix}_re{gi}"
             for secs, ok, _t, found, ff_ms, ocr_ms in ex.map(
                     lambda s, p=pst: _scan_one(url, work_dir, s, token, p), after):
@@ -443,14 +448,18 @@ def main():
     parser.add_argument("apellido", help="Primer apellido del levantador (p.ej. OSUNA)")
     parser.add_argument("--work-dir", default="/tmp/find_lifter",
                         help="Directorio temporal para frames (default: /tmp/find_lifter)")
+    parser.add_argument("--duration", type=float, default=None,
+                        help="Duración del vídeo en segundos (evita buscar frames inexistentes)")
     args = parser.parse_args()
 
     work_dir = Path(args.work_dir)
     work_dir.mkdir(parents=True, exist_ok=True)
     token = _normalize(args.apellido)
+    video_end_s = int(args.duration) if args.duration else None
 
     t_start = time.perf_counter()
-    err(f"find_lifter.py — URL: {args.url}  token: {token}")
+    err(f"find_lifter.py — URL: {args.url}  token: {token}"
+        + (f"  duración: {_hms(video_end_s)}" if video_end_s else ""))
     err("Leyenda líneas de scan OCR:")
     err("  [MOV nnn] pos  marca  ffXms ocrYms  texto")
     err("  MOV   = SQ/BN/DL (sentadilla / banca / peso muerto)")
@@ -486,12 +495,13 @@ def main():
     squat_groups = scan_movement(
         url, work_dir,
         start_s=comp_start,
-        max_window_s=90 * 60,
+        max_window_s=min(90 * 60, video_end_s - comp_start) if video_end_s else 90 * 60,
         token=token,
         label="SQ",
         prefix="sq",
     )
-    squat_groups = refine_group_bounds(url, work_dir, squat_groups, token, "SQ", "sq")
+    squat_groups = refine_group_bounds(url, work_dir, squat_groups, token, "SQ", "sq",
+                                       video_end_s=video_end_s)
     squat_groups = trim_isolated_starts(squat_groups, "SQ")
     squat_ts = groups_to_timestamps(squat_groups)
     result["squat"] = squat_ts
@@ -517,7 +527,8 @@ def main():
         err(f"  [timer] avg_gap_sq={avg_gap_sq:.0f}s ({_hms(avg_gap_sq)}) → buscando desde {search_from}s ({_hms(search_from)})")
     else:
         search_from = (max(squat_ts) + 300) if squat_ts else (comp_start + 3600)
-    bench_start = detect_break_timer(url, work_dir, search_from, "SQ→BN", "brk_sq")
+    bench_start = detect_break_timer(url, work_dir, search_from, "SQ→BN", "brk_sq",
+                                      video_end_s=video_end_s)
     if bench_start is None:
         # Fallback: estimar desde duración del grupo de sentadilla
         if len(squat_ts) >= 2:
@@ -535,15 +546,17 @@ def main():
     else:
         bench_scan_start = bench_start
         err(f"  [G1] escaneando desde el inicio del bloque de banca")
+    bn_window = 90 * 60 - (bench_scan_start - bench_start)
     bench_groups = scan_movement(
         url, work_dir,
         start_s=bench_scan_start,
-        max_window_s=90 * 60 - (bench_scan_start - bench_start),
+        max_window_s=min(bn_window, video_end_s - bench_scan_start) if video_end_s else bn_window,
         token=token,
         label="BN",
         prefix="bn",
     )
-    bench_groups = refine_group_bounds(url, work_dir, bench_groups, token, "BN", "bn")
+    bench_groups = refine_group_bounds(url, work_dir, bench_groups, token, "BN", "bn",
+                                       video_end_s=video_end_s)
     bench_groups = trim_isolated_starts(bench_groups, "BN")
     bench_ts = groups_to_timestamps(bench_groups)
     result["bench"] = bench_ts
@@ -558,7 +571,8 @@ def main():
         err(f"  [timer] avg_gap_bn={avg_gap_bn:.0f}s ({_hms(avg_gap_bn)}) → buscando desde {search_from_dl}s ({_hms(search_from_dl)})")
     else:
         search_from_dl = (max(bench_ts) + 300) if bench_ts else (bench_start + 3600)
-    dl_start = detect_break_timer(url, work_dir, search_from_dl, "BN→DL", "brk_bn")
+    dl_start = detect_break_timer(url, work_dir, search_from_dl, "BN→DL", "brk_bn",
+                                   video_end_s=video_end_s)
     if dl_start is None:
         if len(bench_ts) >= 2:
             group_dur = max(bench_ts) - bench_start
@@ -578,15 +592,17 @@ def main():
     else:
         dl_scan_start = dl_start
         err(f"  [G1] escaneando desde el inicio del bloque de DL")
+    dl_window = 60 * 60 - (dl_scan_start - dl_start)
     dl_groups = scan_movement(
         url, work_dir,
         start_s=dl_scan_start,
-        max_window_s=60 * 60 - (dl_scan_start - dl_start),
+        max_window_s=min(dl_window, video_end_s - dl_scan_start) if video_end_s else dl_window,
         token=token,
         label="DL",
         prefix="dl",
     )
-    dl_groups = refine_group_bounds(url, work_dir, dl_groups, token, "DL", "dl")
+    dl_groups = refine_group_bounds(url, work_dir, dl_groups, token, "DL", "dl",
+                                    video_end_s=video_end_s)
     dl_groups = trim_isolated_starts(dl_groups, "DL")
     dl_ts = groups_to_timestamps(dl_groups)
     result["deadlift"] = dl_ts
