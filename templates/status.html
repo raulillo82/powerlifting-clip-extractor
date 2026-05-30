@@ -76,7 +76,7 @@ function movementKey(clips) {
 }
 
 function updateProgress(log) {
-  const clips    = (log.match(/\[lift \d+/g) || []).length;
+  const clips    = (log.match(/✓ \[lift \d+/g) || []).length;
   const combined = log.includes('[combined]');
   const music    = log.includes('[music]');
   const done     = log.includes('====');

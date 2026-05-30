@@ -1,6 +1,12 @@
 FROM registry.opensuse.org/opensuse/tumbleweed
 
-RUN zypper refresh && zypper install -y \
+# Packman Essentials provides a full-featured ffmpeg build (libx264, libx265, etc.)
+# which the standard OpenSUSE package omits due to patent restrictions.
+RUN zypper addrepo -cfp 90 \
+        'https://ftp.gwdg.de/pub/linux/misc/packman/suse/openSUSE_Tumbleweed/Essentials' \
+        packman-essentials \
+    && zypper --gpg-auto-import-keys refresh \
+    && zypper install -y \
         python3 \
         python3-pip \
         yt-dlp \

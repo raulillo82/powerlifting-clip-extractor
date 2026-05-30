@@ -558,3 +558,25 @@ class TestRunParallelDownloads:
                 self._run_full(tmp_path)
 
         mock_combined.assert_not_called()
+
+    def test_combined_exception_propagates_from_thread(self, tmp_path):
+        with patch("extract_lifts.download_clip"), \
+             patch("extract_lifts.make_combined",
+                   side_effect=subprocess.CalledProcessError(1, "ffmpeg")):
+            with pytest.raises(subprocess.CalledProcessError):
+                self._run_full(tmp_path)
+
+    def test_combined_deps_submitted_first(self, tmp_path):
+        # squat=3, bench=3, deadlift=3 → combined_indices = {2, 5, 8}
+        submission_order: list[int] = []
+
+        def spy_dl(url, start, duration, output, label, **kwargs):
+            idx = int(output.name.split("_")[1]) - 1
+            submission_order.append(idx)
+
+        with patch("extract_lifts.download_clip", side_effect=spy_dl), \
+             patch("extract_lifts.make_combined"):
+            self._run_full(tmp_path)
+
+        # First 3 submissions must be the combined deps (indices 2, 5, 8)
+        assert set(submission_order[:3]) == {2, 5, 8}

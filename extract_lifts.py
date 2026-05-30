@@ -37,6 +37,11 @@ DOWNLOAD_WORKERS = 3            # workers paralelos para los 9 clips
 _print_lock = threading.Lock()  # serializa líneas de log en modo paralelo
 
 
+def _ts() -> str:
+    """Timestamp prefix para el log paralelo: '[HH:MM:SS TZ]'."""
+    return time.strftime("[%H:%M:%S %Z]")
+
+
 # ── Timestamp helpers ──────────────────────────────────────────────────────────
 
 def parse_timestamp(ts: str) -> int:
@@ -170,14 +175,14 @@ def download_clip(url: str, start: int, duration: int, output: Path, label: str,
         # Parallel mode: no PTY, simple capture; start/done messages via shared lock
         t0 = time.monotonic()
         with _print_lock:
-            print(f"\n▶ [{label}]  {seconds_to_hms(start)} → {seconds_to_hms(end)}")
+            print(f"{_ts()} ▶ [{label}]  {seconds_to_hms(start)} → {seconds_to_hms(end)}")
             sys.stdout.flush()
         result = subprocess.run(cmd, capture_output=True)
         if result.returncode != 0:
             with _print_lock:
                 for line in result.stderr.decode("utf-8", errors="replace").splitlines():
                     if line and "[download]" not in line:
-                        print(line)
+                        print(f"{_ts()} {line}")
             raise subprocess.CalledProcessError(result.returncode, cmd)
     elif sys.stdout.isatty():
         # CLI: yt-dlp writes directly to the terminal → real-time native progress bar
@@ -272,14 +277,14 @@ def download_clip(url: str, start: int, duration: int, output: Path, label: str,
         tmp.unlink()
         if parallel:
             with _print_lock:
-                print(f"✓ [{label}] listo ({int(time.monotonic() - t0)}s)")
+                print(f"{_ts()} ✓ [{label}] listo ({int(time.monotonic() - t0)}s)")
         else:
             print("✓ Clip listo")
     else:
         tmp.rename(output)
         if parallel:
             with _print_lock:
-                print(f"✓ [{label}] listo (sin optimizar, {int(time.monotonic() - t0)}s)")
+                print(f"{_ts()} ✓ [{label}] listo (sin optimizar, {int(time.monotonic() - t0)}s)")
         else:
             print("✓ Clip listo (sin optimizar para streaming)")
 
@@ -584,29 +589,40 @@ def run(
                       f"  {seconds_to_hms(ts)} → {seconds_to_hms(end)}  [dry run]")
                 path.write_bytes(b"")
         else:
-            print(f"\nDescargando {len(timestamps)} clips en paralelo ({DOWNLOAD_WORKERS} workers)...")
+            print(f"{_ts()} Descargando {len(timestamps)} clips en paralelo ({DOWNLOAD_WORKERS} workers)...")
             if not skip_combined:
                 print(f"  → combinado: squat {squat_attempt},"
-                      f" bench {bench_attempt}, deadlift {deadlift_attempt}")
+                      f" bench {bench_attempt}, deadlift {deadlift_attempt}"
+                      f" (descargando deps primero)")
 
             completed_combined_deps: set[int] = set()
             combined_thread: threading.Thread | None = None
+            _bg_error: list[BaseException] = []
 
             def _make_combined_bg() -> None:
-                make_combined(selected, combined_path)
-                if preview_width:
-                    prev = output_dir / "preview" / combined_path.name
-                    make_combined(selected, prev, preview_width=preview_width)
+                try:
+                    make_combined(selected, combined_path)
+                    if preview_width:
+                        prev = output_dir / "preview" / combined_path.name
+                        make_combined(selected, prev, preview_width=preview_width)
+                except BaseException as exc:
+                    _bg_error.append(exc)
 
             with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as ex:
                 fs: dict = {}
-                for idx, (ts, path) in enumerate(zip(timestamps, clip_paths)):
+                # Submit combined dep clips first so make_combined can start early
+                priority_order = sorted(
+                    range(len(timestamps)),
+                    key=lambda i: 0 if i in combined_indices else 1,
+                )
+                for idx in priority_order:
                     movement = MOVEMENTS[idx]
                     attempt = (idx % 3) + 1
                     duration = durations[movement]
                     lbl = f"lift {idx + 1:02d} — {movement} attempt {attempt}"
                     fs[ex.submit(
-                        download_clip, url, ts, duration, path, lbl, parallel=True
+                        download_clip, url, timestamps[idx], duration,
+                        clip_paths[idx], lbl, parallel=True,
                     )] = idx
 
                 for f in as_completed(fs):
@@ -618,13 +634,15 @@ def run(
                             and not skip_combined
                             and len(completed_combined_deps) == 3):
                         with _print_lock:
-                            print("\n[combinado] iniciando encode (deps listas)...")
+                            print(f"{_ts()} [combinado] iniciando encode (deps listas)...")
                         combined_thread = threading.Thread(
                             target=_make_combined_bg, daemon=True)
                         combined_thread.start()
 
             if combined_thread is not None:
                 combined_thread.join()
+                if _bg_error:
+                    raise _bg_error[0]
                 _combined_early_done = True
 
             if preview_width:
