@@ -1,0 +1,3 @@
+# Raw JSON data (can be large) — only keep the summary table
+*.json
+!.gitkeep
