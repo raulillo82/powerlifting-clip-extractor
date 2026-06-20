@@ -59,7 +59,7 @@ FORMATS = {
         "banner_crop":       (0.00, 0.73, 0.80, 0.96),  # franja inferior, sin ticker extremo
         "banner_color":      "blue",
         "banner_min_px":     3000,
-        "timer_crops":       [(0.00, 0.73, 0.30, 0.87)],  # break-timer fondo azul, zona inf-izq
+        "timer_crops":       [(0.00, 0.87, 0.14, 0.99)],  # break-timer inf-izq (x=0-14%, y=87-99%)
         "timer_color":       "blue",
         "has_precomp_timer": False,
     },
