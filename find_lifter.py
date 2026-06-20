@@ -253,8 +253,13 @@ def ocr_banner(path, token, fmt):
     text, found = _match_token(raw, token)
     # Clasificaciones y tablas de resultados muestran el nombre sin timer en directo.
     # Si require_timer_in_banner, rechazar hits donde no hay un patrón MM:SS.
-    if found and fmt.get("require_timer_in_banner") and not _TIMER_IN_TEXT_RE.search(raw):
-        return text, False
+    if found and fmt.get("require_timer_in_banner"):
+        # Aceptar si hay timer MM:SS (SQ/BN) O si hay "RANK" (DL usa formato distinto).
+        # Rechazar si no hay ninguno de los dos: indicativo de tabla de clasificación.
+        has_timer = bool(_TIMER_IN_TEXT_RE.search(raw))
+        has_rank  = bool(re.search(r'\bRANK\b', raw.upper()))
+        if not has_timer and not has_rank:
+            return text, False
     return text, found
 
 
