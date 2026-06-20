@@ -178,21 +178,35 @@ function adjustTs(btn, delta) {
   adjustTsById(input.id, delta);
 }
 
+function _shiftEnd(mov, i, delta) {
+  const endEl = document.getElementById(`end_${mov}_${i}`);
+  if (!endEl) return;
+  const cur = parseFloat(endEl.dataset.endSecs);
+  if (!isNaN(cur)) endEl.dataset.endSecs = cur + delta;
+}
+
 function adjustTsById(id, delta) {
   const input = document.getElementById(id);
   const cur = parseFloat(input.dataset.secs);
   const base = isNaN(cur) ? 0 : cur;
   const newVal = Math.max(0, base + delta);
+  const actual = newVal - base;
   input.dataset.secs = newVal;
   input.value = secsToHms(newVal);
   input.classList.remove('is-invalid');
+  const parts = id.split('_');
+  _shiftEnd(parts[1], parts[2], actual);
 }
 
 function syncTs(input) {
   const s = hmsToSecs(input.value);
   if (!isNaN(s)) {
+    const old = parseFloat(input.dataset.secs);
+    const delta = isNaN(old) ? 0 : s - old;
     input.dataset.secs = s;
     input.classList.remove('is-invalid');
+    const parts = input.id.split('_');
+    _shiftEnd(parts[1], parts[2], delta);
   }
 }
 
