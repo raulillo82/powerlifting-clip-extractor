@@ -16,6 +16,9 @@ from unittest.mock import patch, MagicMock, call
 
 import find_lifter as fl
 
+AEP_FMT = fl.FORMATS["AEP"]
+IPF_FMT = fl.FORMATS["IPF"]
+
 
 @pytest.fixture(autouse=True)
 def _quiet_and_reset():
@@ -27,7 +30,7 @@ def _quiet_and_reset():
 
 def _fake_scan_one(hits):
     """Build a `_scan_one` replacement that reports HIT for any secs in `hits`."""
-    def _impl(url, work_dir, secs, token, prefix):
+    def _impl(url, work_dir, secs, token, prefix, fmt):
         found = secs in hits
         return secs, True, ("NOMBRE" if found else "otro"), found, 100, 50
     return _impl
@@ -108,7 +111,7 @@ class TestScanMovement:
         with patch.object(fl, "_scan_one", _fake_scan_one(set(hits))):
             return fl.scan_movement("u", Path("/tmp"), start_s=start_s,
                                     max_window_s=window, token="X",
-                                    label="SQ", prefix="sq")
+                                    label="SQ", prefix="sq", fmt=AEP_FMT)
 
     def test_groups_split_by_gap(self):
         # Tres grupos separados por > GROUP_GAP_S (90s).
@@ -129,13 +132,13 @@ class TestScanMovement:
         scanned = []
         orig = _fake_scan_one(set(hits))
 
-        def recording(url, wd, secs, token, prefix):
+        def recording(url, wd, secs, token, prefix, fmt):
             scanned.append(secs)
-            return orig(url, wd, secs, token, prefix)
+            return orig(url, wd, secs, token, prefix, fmt)
 
         with patch.object(fl, "_scan_one", recording):
             fl.scan_movement("u", Path("/tmp"), start_s=2000, max_window_s=2000,
-                             token="X", label="SQ", prefix="sq")
+                             token="X", label="SQ", prefix="sq", fmt=AEP_FMT)
         assert max(scanned) < 2800  # cortó poco después de 2620 + 90s
 
     def test_batch_size_does_not_change_result(self):
@@ -159,7 +162,7 @@ class TestRefineGroupBounds:
         hits = {2996, 2998, 3000, 3010, 3020, 3022, 3024, 3026}
         with patch.object(fl, "_scan_one", _fake_scan_one(hits)):
             out = fl.refine_group_bounds("u", Path("/tmp"), [[3000, 3010, 3020]],
-                                         "X", "SQ", "sq")
+                                         "X", "SQ", "sq", fmt=AEP_FMT)
         assert min(out[0]) == 2996
         assert max(out[0]) == 3026
 
@@ -168,13 +171,13 @@ class TestRefineGroupBounds:
         hits = {3000, 3010, 3020, 3026}
         with patch.object(fl, "_scan_one", _fake_scan_one(hits)):
             out = fl.refine_group_bounds("u", Path("/tmp"), [[3000, 3010, 3020]],
-                                         "X", "SQ", "sq")
+                                         "X", "SQ", "sq", fmt=AEP_FMT)
         assert max(out[0]) == 3020  # no extendió
 
     def test_no_change_when_nothing_around(self):
         with patch.object(fl, "_scan_one", _fake_scan_one(set())):
             out = fl.refine_group_bounds("u", Path("/tmp"), [[3000, 3010, 3020]],
-                                         "X", "SQ", "sq")
+                                         "X", "SQ", "sq", fmt=AEP_FMT)
         assert out == [[3000, 3010, 3020]]
 
 
@@ -230,19 +233,18 @@ class TestExtractFrameTimeout:
 class TestScanMovementBailout:
     def test_stops_early_on_consecutive_errors(self):
         # _scan_one always returns ok=False (simulates expired stream URL).
-        def _always_fail(url, work_dir, secs, token, prefix):
+        def _always_fail(url, work_dir, secs, token, prefix, fmt):
             return secs, False, "", False, 30000, 0
 
         scanned = []
-        orig = _always_fail
 
-        def recording(url, wd, secs, token, prefix):
+        def recording(url, wd, secs, token, prefix, fmt):
             scanned.append(secs)
-            return orig(url, wd, secs, token, prefix)
+            return _always_fail(url, wd, secs, token, prefix, fmt)
 
         with patch.object(fl, "_scan_one", recording):
             fl.scan_movement("u", Path("/tmp"), start_s=0, max_window_s=3000,
-                             token="X", label="SQ", prefix="sq")
+                             token="X", label="SQ", prefix="sq", fmt=AEP_FMT)
 
         # Should bail out well before scanning all 300+ frames.
         assert len(scanned) <= (fl.MAX_CONSECUTIVE_ERRORS + 1) * fl.SCAN_BATCH
@@ -259,7 +261,8 @@ class TestDetectBreakTimerBailout:
             return False
 
         with patch.object(fl, "extract_frame", side_effect=_always_fail):
-            result = fl.detect_break_timer("url", Path("/tmp"), 0, "LBL", "pfx")
+            result = fl.detect_break_timer("url", Path("/tmp"), 0, "LBL", "pfx",
+                                           fmt=AEP_FMT)
 
         assert result is None
         # Must bail out after MAX_CONSECUTIVE_ERRORS consecutive failures.
@@ -277,20 +280,20 @@ class TestReadTimerMultiCrop:
         returns = iter([None, 300])
         with patch.object(fl, "_read_timer_crop", side_effect=returns):
             with patch("PIL.Image.open", return_value=self._make_img()):
-                assert fl.read_timer("fake.jpg") == 300
+                assert fl.read_timer("fake.jpg", AEP_FMT) == 300
 
     def test_returns_first_hit_without_trying_second(self):
         mock = MagicMock(return_value=120)
         with patch.object(fl, "_read_timer_crop", mock):
             with patch("PIL.Image.open", return_value=self._make_img()):
-                result = fl.read_timer("fake.jpg")
+                result = fl.read_timer("fake.jpg", AEP_FMT)
         assert result == 120
         assert mock.call_count == 1  # stopped after first hit
 
     def test_all_fail_returns_none(self):
         with patch.object(fl, "_read_timer_crop", return_value=None):
             with patch("PIL.Image.open", return_value=self._make_img()):
-                assert fl.read_timer("fake.jpg") is None
+                assert fl.read_timer("fake.jpg", AEP_FMT) is None
 
 
 # ── detect_break_timer: cap al final del vídeo ───────────────────────────────
@@ -299,7 +302,8 @@ class TestDetectBreakTimerVideoEndCap:
     def test_does_not_probe_past_video_end(self):
         probed = []
         with patch.object(fl, "extract_frame", side_effect=lambda u, s, o: probed.append(s) or False):
-            fl.detect_break_timer("url", Path("/tmp"), 1000, "T", "p", video_end_s=1180)
+            fl.detect_break_timer("url", Path("/tmp"), 1000, "T", "p",
+                                  fmt=AEP_FMT, video_end_s=1180)
         assert probed, "debe haber sondeado al menos un frame"
         assert all(s <= 1180 for s in probed), f"frames más allá del fin: {[s for s in probed if s > 1180]}"
 
@@ -308,7 +312,7 @@ class TestDetectBreakTimerVideoEndCap:
         # pero habría intentado más allá de 1180.
         probed = []
         with patch.object(fl, "extract_frame", side_effect=lambda u, s, o: probed.append(s) or False):
-            fl.detect_break_timer("url", Path("/tmp"), 1000, "T", "p")
+            fl.detect_break_timer("url", Path("/tmp"), 1000, "T", "p", fmt=AEP_FMT)
         assert max(probed) > 1180
 
 
@@ -318,13 +322,13 @@ class TestRefineGroupBoundsVideoEndCap:
     def test_does_not_extend_past_video_end(self):
         called_secs = []
 
-        def _recording(url, wd, secs, token, prefix):
+        def _recording(url, wd, secs, token, prefix, fmt):
             called_secs.append(secs)
             return secs, True, "NOMBRE", True, 100, 50
 
         with patch.object(fl, "_scan_one", _recording):
             fl.refine_group_bounds("u", Path("/tmp"), [[3000, 3010, 3020]],
-                                   "X", "SQ", "sq", video_end_s=3022)
+                                   "X", "SQ", "sq", fmt=AEP_FMT, video_end_s=3022)
 
         after_secs = [s for s in called_secs if s > 3020]
         assert all(s <= 3022 for s in after_secs), f"frames más allá del fin: {[s for s in after_secs if s > 3022]}"
@@ -332,13 +336,53 @@ class TestRefineGroupBoundsVideoEndCap:
     def test_without_cap_extends_further(self):
         called_secs = []
 
-        def _recording(url, wd, secs, token, prefix):
+        def _recording(url, wd, secs, token, prefix, fmt):
             called_secs.append(secs)
             return secs, True, "NOMBRE", True, 100, 50
 
         with patch.object(fl, "_scan_one", _recording):
             fl.refine_group_bounds("u", Path("/tmp"), [[3000, 3010, 3020]],
-                                   "X", "SQ", "sq")
+                                   "X", "SQ", "sq", fmt=AEP_FMT)
 
         after_secs = [s for s in called_secs if s > 3020]
         assert any(s > 3022 for s in after_secs), "sin cap debe intentar más allá de 3022"
+
+
+# ── IPF format: _match_token con banner de dos líneas ────────────────────────
+
+class TestMatchTokenIPF:
+    """El banner IPF muestra "Nombre\\nAPELLIDO(S)". Tras replace("\\n"," ") queda
+    "Nombre APELLIDO(S)"; _match_token busca sub-tokens del apellido y debe encontrarlos
+    sin importar que el nombre de pila aparezca antes."""
+
+    def test_foreign_single_surname(self):
+        # Banner: "Marcus\nANDERSON" → OCR: "Marcus ANDERSON"
+        _, found = fl._match_token("Marcus ANDERSON", "ANDERSON")
+        assert found
+
+    def test_spanish_double_surname(self):
+        # Banner: "Ivan\nCAMPANO DIAZ" → OCR: "Ivan CAMPANO DIAZ"
+        _, found = fl._match_token("Ivan CAMPANO DIAZ", "CAMPANO DIAZ")
+        assert found
+
+    def test_firstname_does_not_cause_false_positive(self):
+        # Token "GARCIA"; OCR "Marcus ANDERSON" → no debe encajar
+        _, found = fl._match_token("Marcus ANDERSON", "GARCIA")
+        assert not found
+
+    def test_accented_surname_normalized(self):
+        # Apellido con tilde: "FERNANDEZ" vs texto OCR con tilde
+        _, found = fl._match_token("Laura FERNÁNDEZ", "FERNANDEZ")
+        assert found
+
+
+# ── IPF: detect_comp_start sin timer pre-competición ─────────────────────────
+
+class TestDetectCompStartIPF:
+    def test_returns_zero_immediately_without_probing(self, tmp_path):
+        called = []
+        with patch.object(fl, "extract_frame", side_effect=lambda *a: called.append(a) or True):
+            with patch.object(fl, "read_timer", return_value=300):
+                result = fl.detect_comp_start("url", tmp_path, IPF_FMT)
+        assert result == 0
+        assert called == [], "no debe extraer ningún frame si has_precomp_timer=False"

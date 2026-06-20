@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-find_lifter.py — Detección automática de timestamps de un levantador en vídeo AEP.
+find_lifter.py — Detección automática de timestamps de un levantador en vídeo de powerlifting.
 
 Uso:
-    python3 find_lifter.py <youtube_url> <apellido> [--work-dir /tmp/find_lifter]
+    python3 find_lifter.py <youtube_url> <apellido> [--federation IPF] [--work-dir /tmp/find_lifter]
 
 Salida (stdout): JSON con los timestamps detectados en segundos.
     {
@@ -39,13 +39,37 @@ from pathlib import Path
 from PIL import Image
 import numpy as np, pytesseract
 
+# ── Configuración por federación ──────────────────────────────────────────────
+
+FORMATS = {
+    "AEP": {
+        "banner_crop":       (0.00, 0.78, 0.45, 1.00),  # inferior-izquierdo
+        "banner_color":      "yellow",
+        "banner_min_px":     150,
+        "timer_crops":       [(0.78, 0.88, 1.00, 1.00),  # esquina inf-der
+                              (0.78, 0.00, 1.00, 0.12)], # esquina sup-der
+        "timer_color":       "red",
+        "has_precomp_timer": True,
+    },
+    "IPF": {
+        # Banner: fondo azul, texto blanco, dos líneas: "Nombre\nAPELLIDO(S)"
+        # Timer entre intentos: esquina inferior-izquierda, fondo azul, dígitos blancos.
+        # No hay timer pre-competición visible → comp_start=0 como fallback.
+        "banner_crop":       (0.00, 0.75, 0.50, 1.00),  # inferior-izquierdo (pendiente ajuste)
+        "banner_color":      "blue",
+        "banner_min_px":     200,
+        "timer_crops":       [(0.00, 0.88, 0.22, 1.00)],  # esquina inf-izq, pequeño
+        "timer_color":       "blue",
+        "has_precomp_timer": False,
+    },
+}
+
 # ── Parámetros de detección ────────────────────────────────────────────────────
 
-BANNER_CROP      = (0.00, 0.78, 0.45, 1.00)  # x0, y0, x1, y1 relativo al frame
-TIMER_CROPS      = [
-    (0.78, 0.88, 1.00, 1.00),  # esquina inf-der (AEP estándar)
-    (0.78, 0.00, 1.00, 0.12),  # esquina sup-der (p.ej. Campeonato Junior 2026)
-]
+# Los valores hardcoded a continuación corresponden al formato AEP (por defecto).
+# El formato activo se selecciona vía --federation y sobreescribe estos valores en main().
+BANNER_CROP      = FORMATS["AEP"]["banner_crop"]
+TIMER_CROPS      = FORMATS["AEP"]["timer_crops"]
 TIMER_CROP       = TIMER_CROPS[0]  # alias de compatibilidad
 YELLOW_H_RANGE   = (10, 33)                   # hue en rango HSV escalado 0-180
 YELLOW_MIN_S     = 100
@@ -133,6 +157,15 @@ def yellow_mask(path):
     return (hh >= lo) & (hh <= hi) & (s >= YELLOW_MIN_S) & (v >= YELLOW_MIN_V)
 
 
+def blue_mask(path, banner_crop):
+    img = Image.open(path).convert("RGB")
+    w, h = img.size
+    x0, y0, x1, y1 = banner_crop
+    crop = img.crop((int(w * x0), int(h * y0), int(w * x1), int(h * y1)))
+    arr = np.array(crop).astype(float)
+    return (arr[:, :, 2] > 120) & (arr[:, :, 0] < 100) & (arr[:, :, 1] < 120)
+
+
 def _token_matches_word(tok, word):
     """True si tok encaja con word mediante ratio difuso o subconjunto."""
     if len(word) < max(4, len(tok) - 2):
@@ -169,12 +202,30 @@ def _match_token(raw, token):
     return text, failures <= max_failures
 
 
-def ocr_banner(path, token):
-    ym = yellow_mask(path)
-    if ym.sum() < YELLOW_MIN_PX:
-        return "", False
-    bin_arr = np.zeros((*ym.shape, 3), dtype=np.uint8)
-    bin_arr[ym] = 255
+def ocr_banner(path, token, fmt):
+    banner_crop = fmt["banner_crop"]
+    banner_color = fmt["banner_color"]
+    min_px = fmt["banner_min_px"]
+
+    if banner_color == "yellow":
+        mask = yellow_mask(path)
+        if mask.sum() < min_px:
+            return "", False
+        bin_arr = np.zeros((*mask.shape, 3), dtype=np.uint8)
+        bin_arr[mask] = 255
+    else:  # blue: fondo azul, texto blanco
+        mask = blue_mask(path, banner_crop)
+        if mask.sum() < min_px:
+            return "", False
+        img = Image.open(path).convert("RGB")
+        w, h = img.size
+        x0, y0, x1, y1 = banner_crop
+        arr = np.array(img.crop((int(w * x0), int(h * y0), int(w * x1), int(h * y1))))
+        # Extraer píxeles blancos (los dígitos/letras) del banner azul
+        white = (arr[:, :, 0] > 200) & (arr[:, :, 1] > 200) & (arr[:, :, 2] > 200)
+        bin_arr = np.zeros((*white.shape, 3), dtype=np.uint8)
+        bin_arr[white] = 255
+
     pil = Image.fromarray(bin_arr).resize(
         (bin_arr.shape[1] * OCR_SCALE, bin_arr.shape[0] * OCR_SCALE), Image.NEAREST)
     raw = pytesseract.image_to_string(
@@ -182,49 +233,74 @@ def ocr_banner(path, token):
     return _match_token(raw, token)
 
 
-def _read_timer_crop(img, w, h, x0, y0, x1, y1):
+def _read_timer_crop(img, w, h, x0, y0, x1, y1, timer_color="red"):
     """Intenta leer el timer en la región especificada. Devuelve segundos o None."""
     crop = img.crop((int(w * x0), int(h * y0), int(w * x1), int(h * y1)))
     arr = np.array(crop)
-    red_mask = (arr[:, :, 0] > 120) & (arr[:, :, 1] < 80) & (arr[:, :, 2] < 80)
-    if red_mask.sum() > 200:
-        rows = np.where(red_mask.any(axis=1))[0]
-        cols = np.where(red_mask.any(axis=0))[0]
+
+    if timer_color == "red":
+        bg_mask = (arr[:, :, 0] > 120) & (arr[:, :, 1] < 80) & (arr[:, :, 2] < 80)
+        min_bg_px = 200
+    else:  # blue
+        bg_mask = (arr[:, :, 2] > 120) & (arr[:, :, 0] < 80) & (arr[:, :, 1] < 80)
+        min_bg_px = 50  # el timer IPF es pequeño
+
+    if bg_mask.sum() > min_bg_px:
+        rows = np.where(bg_mask.any(axis=1))[0]
+        cols = np.where(bg_mask.any(axis=0))[0]
         pad = 4
         r0 = max(0, rows[0] - pad)
         r1 = min(arr.shape[0] - 1, rows[-1] + pad)
         c0 = max(0, cols[0] - pad)
         c1 = min(arr.shape[1] - 1, cols[-1] + pad)
-        crop = Image.fromarray(arr[r0:r1 + 1, c0:c1 + 1])
+        crop_arr = arr[r0:r1 + 1, c0:c1 + 1]
         psm = 7
     else:
+        crop_arr = arr
         psm = 6
-    crop4 = crop.resize((crop.width * TIMER_SCALE, crop.height * TIMER_SCALE), Image.NEAREST)
+
+    if timer_color == "blue":
+        # Dígitos blancos sobre fondo azul: extraer píxeles blancos para el OCR
+        white = (crop_arr[:, :, 0] > 180) & (crop_arr[:, :, 1] > 180) & (crop_arr[:, :, 2] > 180)
+        bin_img = np.zeros(crop_arr.shape[:2], dtype=np.uint8)
+        bin_img[white] = 255
+        crop_pil = Image.fromarray(bin_img)
+    else:
+        crop_pil = Image.fromarray(crop_arr)
+
+    crop4 = crop_pil.resize((crop_pil.width * TIMER_SCALE, crop_pil.height * TIMER_SCALE), Image.NEAREST)
     text = pytesseract.image_to_string(
         crop4, config=f"--oem 3 --psm {psm} -l spa -c tessedit_char_whitelist=0123456789:").strip()
     m = re.search(r"(\d{1,2}):(\d{2})", text)
     return int(m.group(1)) * 60 + int(m.group(2)) if m else None
 
 
-def read_timer(path):
-    """Lee el timer de la esquina derecha del frame. Prueba TIMER_CROPS en orden."""
+def read_timer(path, fmt):
+    """Lee el timer del frame usando las regiones y color de fondo del formato activo."""
     img = Image.open(path).convert("RGB")
     w, h = img.size
-    for crop_box in TIMER_CROPS:
-        t = _read_timer_crop(img, w, h, *crop_box)
+    for crop_box in fmt["timer_crops"]:
+        t = _read_timer_crop(img, w, h, *crop_box, timer_color=fmt["timer_color"])
         if t is not None:
             return t
     return None
 
 
-def detect_comp_start(url, work_dir, max_probe_s=360):
-    """Lee el timer pre-competición en frames tempranos para calcular comp_start."""
+def detect_comp_start(url, work_dir, fmt, max_probe_s=360):
+    """Lee el timer pre-competición en frames tempranos para calcular comp_start.
+
+    Si la federación no tiene timer pre-competición visible, devuelve 0 directamente
+    y el scan de sentadilla arrancará desde el inicio del vídeo.
+    """
+    if not fmt["has_precomp_timer"]:
+        err("  [comp_start] federación sin timer pre-competición → comp_start=0s")
+        return 0
     err("  [comp_start] buscando timer pre-competición...")
     for probe in range(30, max_probe_s + 1, 30):
         out = work_dir / f"pre_{probe:05d}.jpg"
         if not extract_frame(url, probe, out):
             continue
-        t = read_timer(out)
+        t = read_timer(out, fmt)
         err(f"  [comp_start] @{probe}s ({_hms(probe)}) → timer={t!r}")
         if t is not None and 30 < t < 7200:
             comp_start = probe + t
@@ -234,7 +310,7 @@ def detect_comp_start(url, work_dir, max_probe_s=360):
     return 0
 
 
-def _scan_one(url, work_dir, secs, token, prefix):
+def _scan_one(url, work_dir, secs, token, prefix, fmt):
     """Extrae un frame y le pasa el OCR. Devuelve tiempos de ffmpeg y OCR por separado.
 
     Pensado para ejecutarse en un ThreadPool: ffmpeg y tesseract son subprocesos
@@ -246,12 +322,12 @@ def _scan_one(url, work_dir, secs, token, prefix):
     t1 = time.perf_counter()
     if not ok:
         return secs, False, "", False, int((t1 - t0) * 1000), 0
-    text, found = ocr_banner(out, token)
+    text, found = ocr_banner(out, token, fmt)
     t2 = time.perf_counter()
     return secs, True, text, found, int((t1 - t0) * 1000), int((t2 - t1) * 1000)
 
 
-def scan_movement(url, work_dir, start_s, max_window_s, token, label, prefix):
+def scan_movement(url, work_dir, start_s, max_window_s, token, label, prefix, fmt):
     """
     Scan denso de un bloque de movimiento. Para cuando el último de EARLY_STOP_N grupos
     lleva GROUP_GAP_S sin nuevas detecciones (banner de repetición cerrado).
@@ -279,7 +355,7 @@ def scan_movement(url, work_dir, start_s, max_window_s, token, label, prefix):
                 break
             batch = all_secs[b:b + SCAN_BATCH]
             # ex.map preserva el orden de envío → resultados en orden de batch.
-            results = ex.map(lambda s: _scan_one(url, work_dir, s, token, prefix), batch)
+            results = ex.map(lambda s: _scan_one(url, work_dir, s, token, prefix, fmt), batch)
             for secs, ok, text, found, ff_ms, ocr_ms in results:
                 i += 1
                 n_frames += 1
@@ -323,7 +399,7 @@ def scan_movement(url, work_dir, start_s, max_window_s, token, label, prefix):
     return groups
 
 
-def detect_break_timer(url, work_dir, search_from_s, label, prefix, video_end_s=None):
+def detect_break_timer(url, work_dir, search_from_s, label, prefix, fmt, video_end_s=None):
     """
     Escanea cada TIMER_STEP_S desde search_from_s buscando el timer de descanso
     entre movimientos (valor > BREAK_TIMER_MIN). Devuelve el timestamp de inicio
@@ -345,7 +421,7 @@ def detect_break_timer(url, work_dir, search_from_s, label, prefix, video_end_s=
                 break
             err(f"  [{label}] {ts}  ERROR"); continue
         consecutive_errors = 0
-        t = read_timer(out)
+        t = read_timer(out, fmt)
         err(f"  [{label}] {ts}  timer={t!r}")
         if t is not None and t > BREAK_TIMER_MIN:
             next_start = secs + t
@@ -355,7 +431,7 @@ def detect_break_timer(url, work_dir, search_from_s, label, prefix, video_end_s=
     return None
 
 
-def refine_group_bounds(url, work_dir, groups, token, label, prefix, video_end_s=None):
+def refine_group_bounds(url, work_dir, groups, token, label, prefix, fmt, video_end_s=None):
     """
     Scan denso (REFINE_STEP_S) alrededor de min(g) y max(g) de cada grupo.
     Reduce la incertidumbre ±SCAN_STEP_S/2 del scan principal a ±REFINE_STEP_S/2.
@@ -372,7 +448,7 @@ def refine_group_bounds(url, work_dir, groups, token, label, prefix, video_end_s
             before = list(range(max(0, g_min - REFINE_BEFORE_S), g_min, REFINE_STEP_S))
             pre = f"{prefix}_rb{gi}"
             for secs, ok, _t, found, ff_ms, ocr_ms in ex.map(
-                    lambda s, p=pre: _scan_one(url, work_dir, s, token, p), before):
+                    lambda s, p=pre: _scan_one(url, work_dir, s, token, p, fmt), before):
                 n_frames += 1; tot_ff += ff_ms; tot_ocr += ocr_ms
                 if ok and found:
                     err(f"  [{label}] refine intento {gi+1} inicio ✓ {secs}s ({_hms(secs)}) (era {g_min}s / {_hms(g_min)})")
@@ -387,7 +463,7 @@ def refine_group_bounds(url, work_dir, groups, token, label, prefix, video_end_s
             after = list(range(g_max + REFINE_STEP_S, after_end, REFINE_STEP_S))
             pst = f"{prefix}_re{gi}"
             for secs, ok, _t, found, ff_ms, ocr_ms in ex.map(
-                    lambda s, p=pst: _scan_one(url, work_dir, s, token, p), after):
+                    lambda s, p=pst: _scan_one(url, work_dir, s, token, p, fmt), after):
                 n_frames += 1; tot_ff += ff_ms; tot_ocr += ocr_ms
                 if ok and found:
                     err(f"  [{label}] refine intento {gi+1} fin ✓ {secs}s ({_hms(secs)}) (era {g_max}s / {_hms(g_max)})")
@@ -443,22 +519,26 @@ def trim_isolated_starts(groups, label):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Detecta timestamps de un levantador en vídeo AEP.")
+    parser = argparse.ArgumentParser(
+        description="Detecta timestamps de un levantador en vídeo de powerlifting.")
     parser.add_argument("url", help="URL de YouTube del vídeo de competición")
-    parser.add_argument("apellido", help="Primer apellido del levantador (p.ej. OSUNA)")
+    parser.add_argument("apellido", help="Apellido(s) del levantador (p.ej. OSUNA o 'CAMPANO DIAZ')")
+    parser.add_argument("--federation", default="AEP", choices=list(FORMATS.keys()),
+                        help="Federación: determina posición y color del banner y timer (default: AEP)")
     parser.add_argument("--work-dir", default="/tmp/find_lifter",
                         help="Directorio temporal para frames (default: /tmp/find_lifter)")
     parser.add_argument("--duration", type=float, default=None,
                         help="Duración del vídeo en segundos (evita buscar frames inexistentes)")
     args = parser.parse_args()
 
+    fmt = FORMATS[args.federation.upper()]
     work_dir = Path(args.work_dir)
     work_dir.mkdir(parents=True, exist_ok=True)
     token = _normalize(args.apellido)
     video_end_s = int(args.duration) if args.duration else None
 
     t_start = time.perf_counter()
-    err(f"find_lifter.py — URL: {args.url}  token: {token}"
+    err(f"find_lifter.py — federación: {args.federation.upper()}  URL: {args.url}  token: {token}"
         + (f"  duración: {_hms(video_end_s)}" if video_end_s else ""))
     err("Leyenda líneas de scan OCR:")
     err("  [MOV nnn] pos  marca  ffXms ocrYms  texto")
@@ -487,7 +567,7 @@ def main():
 
     # ── 1. Inicio de competición ─────────────────────────────────────────────
     err("=== Fase 1: inicio de competición ===")
-    comp_start = detect_comp_start(url, work_dir)
+    comp_start = detect_comp_start(url, work_dir, fmt)
     result["comp_start"] = comp_start
 
     # ── 2. Sentadilla ────────────────────────────────────────────────────────
@@ -499,9 +579,10 @@ def main():
         token=token,
         label="SQ",
         prefix="sq",
+        fmt=fmt,
     )
     squat_groups = refine_group_bounds(url, work_dir, squat_groups, token, "SQ", "sq",
-                                       video_end_s=video_end_s)
+                                       fmt=fmt, video_end_s=video_end_s)
     squat_groups = trim_isolated_starts(squat_groups, "SQ")
     squat_ts = groups_to_timestamps(squat_groups)
     result["squat"] = squat_ts
@@ -528,7 +609,7 @@ def main():
     else:
         search_from = (max(squat_ts) + 300) if squat_ts else (comp_start + 3600)
     bench_start = detect_break_timer(url, work_dir, search_from, "SQ→BN", "brk_sq",
-                                      video_end_s=video_end_s)
+                                      fmt=fmt, video_end_s=video_end_s)
     if bench_start is None:
         # Fallback: estimar desde duración del grupo de sentadilla
         if len(squat_ts) >= 2:
@@ -554,9 +635,10 @@ def main():
         token=token,
         label="BN",
         prefix="bn",
+        fmt=fmt,
     )
     bench_groups = refine_group_bounds(url, work_dir, bench_groups, token, "BN", "bn",
-                                       video_end_s=video_end_s)
+                                       fmt=fmt, video_end_s=video_end_s)
     bench_groups = trim_isolated_starts(bench_groups, "BN")
     bench_ts = groups_to_timestamps(bench_groups)
     result["bench"] = bench_ts
@@ -572,7 +654,7 @@ def main():
     else:
         search_from_dl = (max(bench_ts) + 300) if bench_ts else (bench_start + 3600)
     dl_start = detect_break_timer(url, work_dir, search_from_dl, "BN→DL", "brk_bn",
-                                   video_end_s=video_end_s)
+                                   fmt=fmt, video_end_s=video_end_s)
     if dl_start is None:
         if len(bench_ts) >= 2:
             group_dur = max(bench_ts) - bench_start
@@ -600,9 +682,10 @@ def main():
         token=token,
         label="DL",
         prefix="dl",
+        fmt=fmt,
     )
     dl_groups = refine_group_bounds(url, work_dir, dl_groups, token, "DL", "dl",
-                                    video_end_s=video_end_s)
+                                    fmt=fmt, video_end_s=video_end_s)
     dl_groups = trim_isolated_starts(dl_groups, "DL")
     dl_ts = groups_to_timestamps(dl_groups)
     result["deadlift"] = dl_ts
