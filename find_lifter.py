@@ -169,13 +169,24 @@ def blue_mask(path, banner_crop):
 
 
 def _token_matches_word(tok, word):
-    """True si tok encaja con word mediante ratio difuso o subconjunto."""
+    """True si tok encaja con word mediante ratio difuso o subconjunto.
+
+    Incluye sliding-window fuzzy: busca tok dentro de una palabra más larga
+    comparando ventanas de la misma longitud. Esto detecta casos donde el OCR
+    pega dos apellidos como uno solo ("EAMPANODIAZ" → contiene "CAMPANO").
+    """
     if len(word) < max(4, len(tok) - 2):
         return False
     if difflib.SequenceMatcher(None, tok, word).ratio() >= FUZZY_RATIO:
         return True
     if abs(len(tok) - len(word)) <= 2 and (tok in word or word in tok):
         return True
+    # Sliding window: busca tok en ventanas del mismo tamaño dentro de palabras largas
+    n = len(tok)
+    if n >= 4 and len(word) > n:
+        for i in range(len(word) - n + 1):
+            if difflib.SequenceMatcher(None, tok, word[i:i + n]).ratio() >= FUZZY_RATIO:
+                return True
     return False
 
 
@@ -223,8 +234,9 @@ def ocr_banner(path, token, fmt):
         w, h = img.size
         x0, y0, x1, y1 = banner_crop
         arr = np.array(img.crop((int(w * x0), int(h * y0), int(w * x1), int(h * y1))))
-        # Extraer píxeles blancos (los dígitos/letras) del banner azul
-        white = (arr[:, :, 0] > 200) & (arr[:, :, 1] > 200) & (arr[:, :, 2] > 200)
+        # Extraer píxeles blancos (los dígitos/letras) del banner azul.
+        # Umbral 175 (no 200) para recuperar píxeles intermedios y espacios entre letras.
+        white = (arr[:, :, 0] > 175) & (arr[:, :, 1] > 175) & (arr[:, :, 2] > 175)
         bin_arr = np.zeros((*white.shape, 3), dtype=np.uint8)
         bin_arr[white] = 255
 
