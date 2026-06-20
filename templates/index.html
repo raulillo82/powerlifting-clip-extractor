@@ -140,10 +140,18 @@
 
       {# ── OCR apellido area (shown only in OCR mode) ── #}
       <div id="ocr-apellido-area" class="d-none mb-3">
+        <div class="mb-2">
+          <label class="form-label" for="ocr_federation">Federación</label>
+          <select class="form-select" id="ocr_federation" name="ocr_federation"
+                  style="max-width:200px" disabled>
+            <option value="AEP">AEP</option>
+            <option value="IPF">IPF / EPF / USAPL</option>
+          </select>
+        </div>
         <label class="form-label" for="ocr_apellido" data-i18n="label.ocr.apellido">Apellido</label>
         <input type="text" class="form-control" id="ocr_apellido" name="ocr_apellido"
-               style="max-width:300px" maxlength="22"
-               placeholder="Ej: GONZALEZ FERNANDEZ David"
+               style="max-width:300px" maxlength="60"
+               placeholder="Ej: CAMPANO DIAZ"
                data-i18n-placeholder="ph.ocr.apellido" disabled
                oninput="normalizeApellido(this)">
         <div class="form-text text-muted" data-i18n="ts.ocr.hint">
@@ -799,6 +807,7 @@ function onTsInputModeChange() {
   document.getElementById('manual-ts-area').classList.toggle('d-none', isOcr);
   document.getElementById('ocr-apellido-area').classList.toggle('d-none', !isOcr);
   document.getElementById('ocr_apellido').disabled = !isOcr;
+  document.getElementById('ocr_federation').disabled = !isOcr;
   document.getElementById('duration-row')?.classList.toggle('d-none', isOcr);
 
   // Disable timestamps inputs so they don't get submitted in OCR mode

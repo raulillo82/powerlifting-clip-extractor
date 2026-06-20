@@ -476,10 +476,12 @@ def _ocr_worker(job_id: str, job: dict) -> None:
     started_at = time.time()
     url = job["submitted_url"]
     apellido = job.get("ocr_apellido", "")
+    federation = job.get("ocr_federation", "AEP").upper()
     work_dir = Path(job["output_dir"]) / "ocr"
     work_dir.mkdir(parents=True, exist_ok=True)
     try:
-        cmd = [sys.executable, str(_FIND_LIFTER), url, apellido, "--work-dir", str(work_dir)]
+        cmd = [sys.executable, str(_FIND_LIFTER), url, apellido,
+               "--federation", federation, "--work-dir", str(work_dir)]
         if job.get("video_duration"):
             cmd += ["--duration", str(int(job["video_duration"]))]
         proc = subprocess.Popen(
@@ -789,6 +791,9 @@ def _ocr_estimate_min(duration_s):
 def start_ocr_job():
     url = request.form.get("url", "").strip()
     apellido = request.form.get("ocr_apellido", "").strip()[:60]
+    federation = request.form.get("ocr_federation", "AEP").strip().upper()
+    if federation not in ("AEP", "IPF"):
+        federation = "AEP"
 
     if not url:
         return render_template("index.html", error="URL de YouTube obligatoria.",
@@ -806,6 +811,7 @@ def start_ocr_job():
         "is_admin": current_user.is_admin,
         "submitted_url": url,
         "ocr_apellido": apellido,
+        "ocr_federation": federation,
         "video_duration": _parse_float(request.form.get("ocr_video_duration")),
         "source": request.form.get("source", "").strip(),
         "session_label": request.form.get("session_label", "").strip(),
@@ -838,6 +844,7 @@ def relaunch_ocr_job(job_id: str):
         "is_admin": current_user.is_admin,
         "submitted_url": original.get("submitted_url", ""),
         "ocr_apellido": original.get("ocr_apellido", ""),
+        "ocr_federation": original.get("ocr_federation", "AEP"),
         "video_duration": original.get("video_duration"),
         "source": original.get("source", ""),
         "session_label": original.get("session_label", ""),
