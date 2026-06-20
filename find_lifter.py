@@ -56,12 +56,15 @@ FORMATS = {
         # Nombre en dos líneas: "Firstname" / "APELLIDO(S)".
         # Timer del intento (01:00) en la zona derecha del mismo banner.
         # No hay timer pre-competición visible → comp_start=0 como fallback.
-        "banner_crop":       (0.00, 0.73, 0.80, 0.96),  # franja inferior, sin ticker extremo
-        "banner_color":      "blue",
-        "banner_min_px":     3000,
-        "timer_crops":       [(0.00, 0.87, 0.14, 0.99)],  # break-timer inf-izq (x=0-14%, y=87-99%)
-        "timer_color":       "blue",
-        "has_precomp_timer": False,
+        # require_timer_in_banner: filtra falsos positivos de clasificaciones (tablas de
+        # resultados que muestran el nombre del levantador pero sin timer en directo).
+        "banner_crop":            (0.00, 0.73, 0.80, 0.96),
+        "banner_color":           "blue",
+        "banner_min_px":          3000,
+        "timer_crops":            [(0.00, 0.87, 0.14, 0.99)],
+        "timer_color":            "blue",
+        "has_precomp_timer":      False,
+        "require_timer_in_banner": True,
     },
 }
 
@@ -215,6 +218,9 @@ def _match_token(raw, token):
     return text, failures <= max_failures
 
 
+_TIMER_IN_TEXT_RE = re.compile(r'\b\d{1,2}:\d{2}\b')
+
+
 def ocr_banner(path, token, fmt):
     banner_crop = fmt["banner_crop"]
     banner_color = fmt["banner_color"]
@@ -244,7 +250,12 @@ def ocr_banner(path, token, fmt):
         (bin_arr.shape[1] * OCR_SCALE, bin_arr.shape[0] * OCR_SCALE), Image.NEAREST)
     raw = pytesseract.image_to_string(
         pil, config="--oem 3 --psm 6 -l spa").replace("\n", " ").strip()
-    return _match_token(raw, token)
+    text, found = _match_token(raw, token)
+    # Clasificaciones y tablas de resultados muestran el nombre sin timer en directo.
+    # Si require_timer_in_banner, rechazar hits donde no hay un patrón MM:SS.
+    if found and fmt.get("require_timer_in_banner") and not _TIMER_IN_TEXT_RE.search(raw):
+        return text, False
+    return text, found
 
 
 def _read_timer_crop(img, w, h, x0, y0, x1, y1, timer_color="red"):
