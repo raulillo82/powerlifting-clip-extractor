@@ -52,13 +52,14 @@ FORMATS = {
         "has_precomp_timer": True,
     },
     "IPF": {
-        # Banner: fondo azul, texto blanco, dos líneas: "Nombre\nAPELLIDO(S)"
-        # Timer entre intentos: esquina inferior-izquierda, fondo azul, dígitos blancos.
+        # Overlay inferior: fondo azul oscuro (R≈34, G≈64, B≈118), texto blanco.
+        # Nombre en dos líneas: "Firstname" / "APELLIDO(S)".
+        # Timer del intento (01:00) en la zona derecha del mismo banner.
         # No hay timer pre-competición visible → comp_start=0 como fallback.
-        "banner_crop":       (0.00, 0.75, 0.50, 1.00),  # inferior-izquierdo (pendiente ajuste)
+        "banner_crop":       (0.00, 0.73, 0.80, 0.96),  # franja inferior, sin ticker extremo
         "banner_color":      "blue",
-        "banner_min_px":     200,
-        "timer_crops":       [(0.00, 0.88, 0.22, 1.00)],  # esquina inf-izq, pequeño
+        "banner_min_px":     3000,
+        "timer_crops":       [(0.00, 0.73, 0.30, 0.87)],  # break-timer fondo azul, zona inf-izq
         "timer_color":       "blue",
         "has_precomp_timer": False,
     },
@@ -163,7 +164,8 @@ def blue_mask(path, banner_crop):
     x0, y0, x1, y1 = banner_crop
     crop = img.crop((int(w * x0), int(h * y0), int(w * x1), int(h * y1)))
     arr = np.array(crop).astype(float)
-    return (arr[:, :, 2] > 120) & (arr[:, :, 0] < 100) & (arr[:, :, 1] < 120)
+    # Umbral permisivo: cubre el azul oscuro IPF (R≈34, G≈64, B≈118) y azules más saturados.
+    return (arr[:, :, 2] > 80) & (arr[:, :, 0] < 80) & (arr[:, :, 1] < 100)
 
 
 def _token_matches_word(tok, word):
@@ -242,8 +244,8 @@ def _read_timer_crop(img, w, h, x0, y0, x1, y1, timer_color="red"):
         bg_mask = (arr[:, :, 0] > 120) & (arr[:, :, 1] < 80) & (arr[:, :, 2] < 80)
         min_bg_px = 200
     else:  # blue
-        bg_mask = (arr[:, :, 2] > 120) & (arr[:, :, 0] < 80) & (arr[:, :, 1] < 80)
-        min_bg_px = 50  # el timer IPF es pequeño
+        bg_mask = (arr[:, :, 2] > 80) & (arr[:, :, 0] < 80) & (arr[:, :, 1] < 100)
+        min_bg_px = 50
 
     if bg_mask.sum() > min_bg_px:
         rows = np.where(bg_mask.any(axis=1))[0]
