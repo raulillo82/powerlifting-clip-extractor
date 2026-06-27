@@ -88,10 +88,11 @@ class TestMatchToken:
         _, found = fl._match_token("OSUNA SANCHEZ INFANTE", "OSUNA SANCHEZ-INFANTE")
         assert found
 
-    def test_short_token_requires_all(self):
-        # 2 sub_tokens (<3) → max_failures=0, exige ambos.
+    def test_two_tokens_first_is_required(self):
+        # Con 2 tokens: el 1º (apellido) es obligatorio, el 2º (nombre) es opcional.
+        # "OSUNA" está en el texto → HIT aunque "PEREZ" (nombre) no aparezca.
         _, found = fl._match_token("OSUNA", "OSUNA PEREZ")
-        assert not found
+        assert found
 
     def test_empty_token(self):
         # token sin sub_tokens >=3 → nunca encuentra.
@@ -373,6 +374,21 @@ class TestMatchTokenIPF:
     def test_accented_surname_normalized(self):
         # Apellido con tilde: "FERNANDEZ" vs texto OCR con tilde
         _, found = fl._match_token("Laura FERNÁNDEZ", "FERNANDEZ")
+        assert found
+
+    def test_ticker_only_surname_matches(self):
+        # Ticker IPF muestra solo apellido; con 2 tokens, solo el primero (apellido) es obligatorio.
+        _, found = fl._match_token("OP-59KG 00:59 USA SLABIC 212.5 225.0", "SLABIC MICHAEL")
+        assert found
+
+    def test_ticker_only_surname_wrong_person(self):
+        # El apellido requerido no está → no debe encajar aunque el nombre opcional coincida.
+        _, found = fl._match_token("OP-59KG 00:59 USA SLABIC 212.5 225.0", "JONES MICHAEL")
+        assert not found
+
+    def test_banner_full_name_matches(self):
+        # Banner IPF con nombre + apellido: ambos tokens presentes → HIT.
+        _, found = fl._match_token("Michael SLABIC", "SLABIC MICHAEL")
         assert found
 
 

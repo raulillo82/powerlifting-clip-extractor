@@ -211,11 +211,21 @@ def _match_token(raw, token):
     if not sub_tokens:
         return text, False
 
-    # N≥3: allow 1 failure (N-1 of N); N<3: require all
-    failures = sum(1 for tok in sub_tokens
+    # Regla apellido/nombre:
+    # 1 token  → obligatorio
+    # 2 tokens → 1º obligatorio (apellido), 2º opcional (nombre de pila)
+    # 3 tokens → 1º+2º obligatorios (apellido compuesto), 3º opcional (nombre)
+    # 4+       → 1º+2º obligatorios, resto ignorado
+    n = len(sub_tokens)
+    if n >= 3:
+        required = sub_tokens[:2]
+    elif n == 2:
+        required = sub_tokens[:1]
+    else:
+        required = sub_tokens
+    failures = sum(1 for tok in required
                    if not any(_token_matches_word(tok, w) for w in ocr_words))
-    max_failures = 1 if len(sub_tokens) >= 3 else 0
-    return text, failures <= max_failures
+    return text, failures == 0
 
 
 _TIMER_IN_TEXT_RE = re.compile(r'\b\d{1,2}:\d{2}\b')
