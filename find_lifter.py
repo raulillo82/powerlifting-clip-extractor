@@ -33,10 +33,39 @@ import os, sys, argparse, subprocess, time, difflib, re, json, unicodedata, thre
 # setdefault para respetar un valor externo si se fija a propósito.
 os.environ.setdefault("OMP_THREAD_LIMIT", "1")
 
-# Un único proceso Tesseract a la vez: el engine LSTM bajo carga CPU concurrente
-# (varios ffmpeg simultáneos) produce resultados distintos en ARM (RPi5).
-# ffmpeg sigue corriendo en paralelo; solo el OCR se serializa.
-_ocr_lock = threading.Lock()
+# Read-write lock: múltiples ffmpeg OK (lectura), OCR exclusivo (escritura).
+# El engine LSTM bajo carga CPU concurrente (varios ffmpeg simultáneos) produce
+# resultados distintos en ARM (RPi5). OCR espera a que todos los ffmpeg en curso
+# terminen, y bloquea nuevos ffmpeg mientras corre Tesseract.
+class _FfmpegOcrLock:
+    def __init__(self):
+        self._cond = threading.Condition()
+        self._ffmpeg = 0
+        self._ocr = False
+
+    def ffmpeg_enter(self):
+        with self._cond:
+            while self._ocr:
+                self._cond.wait()
+            self._ffmpeg += 1
+
+    def ffmpeg_exit(self):
+        with self._cond:
+            self._ffmpeg -= 1
+            self._cond.notify_all()
+
+    def ocr_enter(self):
+        with self._cond:
+            while self._ffmpeg > 0 or self._ocr:
+                self._cond.wait()
+            self._ocr = True
+
+    def ocr_exit(self):
+        with self._cond:
+            self._ocr = False
+            self._cond.notify_all()
+
+_scan_rw = _FfmpegOcrLock()
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -126,14 +155,18 @@ def _normalize(text: str) -> str:
 
 
 def extract_frame(url, secs, out):
+    _scan_rw.ffmpeg_enter()
     try:
-        subprocess.run(
-            ["ffmpeg", "-ss", str(secs), "-i", url, "-frames:v", "1",
-             "-q:v", "3", "-vf", "scale=1280:-1", str(out), "-y"],
-            capture_output=True, timeout=30)
-        return out.exists() and out.stat().st_size > 0
-    except subprocess.TimeoutExpired:
-        return False
+        try:
+            subprocess.run(
+                ["ffmpeg", "-ss", str(secs), "-i", url, "-frames:v", "1",
+                 "-q:v", "3", "-vf", "scale=1280:-1", str(out), "-y"],
+                capture_output=True, timeout=30)
+            return out.exists() and out.stat().st_size > 0
+        except subprocess.TimeoutExpired:
+            return False
+    finally:
+        _scan_rw.ffmpeg_exit()
 
 
 def _hsv_hue(arr):
@@ -268,9 +301,12 @@ def ocr_banner(path, token, fmt):
 
     pil = Image.fromarray(bin_arr).resize(
         (bin_arr.shape[1] * OCR_SCALE, bin_arr.shape[0] * OCR_SCALE), Image.NEAREST)
-    with _ocr_lock:
+    _scan_rw.ocr_enter()
+    try:
         raw = pytesseract.image_to_string(
             pil, config="--oem 3 --psm 6 -l spa").replace("\n", " ").strip()
+    finally:
+        _scan_rw.ocr_exit()
     text, found = _match_token(raw, token)
     # Clasificaciones y tablas de resultados muestran el nombre sin timer en directo.
     # Si require_timer_in_banner, rechazar hits donde no hay un patrón MM:SS.
