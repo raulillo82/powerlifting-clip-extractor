@@ -253,6 +253,11 @@ def ocr_banner(path, token, fmt):
         # Extraer píxeles blancos (los dígitos/letras) del banner azul.
         # Umbral 175 (no 200) para recuperar píxeles intermedios y espacios entre letras.
         white = (arr[:, :, 0] > 175) & (arr[:, :, 1] > 175) & (arr[:, :, 2] > 175)
+        # Filtrar: solo filas que tengan píxeles azules significativos.
+        # El crop puede incluir el fondo de la sala (beige/blanco) por encima del overlay;
+        # esas filas tienen 0 píxeles azules y generan ruido que confunde al OCR.
+        row_has_blue = mask.sum(axis=1) > 20
+        white[~row_has_blue] = False
         bin_arr = np.zeros((*white.shape, 3), dtype=np.uint8)
         bin_arr[white] = 255
 
