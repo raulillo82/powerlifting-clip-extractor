@@ -257,9 +257,17 @@ def ocr_banner(path, token, fmt):
         # El crop puede incluir el fondo de la sala (beige/blanco) por encima del overlay;
         # esas filas tienen 0 píxeles azules y generan ruido que confunde al OCR.
         row_has_blue = mask.sum(axis=1) > 20
+        white_before = int(white.sum())
         white[~row_has_blue] = False
+        white_after = int(white.sum())
+        err(f"    [ocr_debug] blue={mask.sum()} rows_blue={row_has_blue.sum()} white={white_before}→{white_after}")
         bin_arr = np.zeros((*white.shape, 3), dtype=np.uint8)
         bin_arr[white] = 255
+        # DEBUG: guardar imagen binaria junto al frame para inspección
+        try:
+            Image.fromarray(bin_arr).save(str(path).replace(".jpg", "_bin.jpg"))
+        except Exception:
+            pass
 
     pil = Image.fromarray(bin_arr).resize(
         (bin_arr.shape[1] * OCR_SCALE, bin_arr.shape[0] * OCR_SCALE), Image.NEAREST)
