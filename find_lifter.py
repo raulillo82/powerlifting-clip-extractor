@@ -24,7 +24,7 @@ Instalación en OpenSUSE Tumbleweed:
         python3-pytesseract python3-Pillow python3-numpy
 """
 
-import os, sys, argparse, subprocess, time, difflib, re, json, unicodedata
+import os, sys, argparse, subprocess, time, difflib, re, json, unicodedata, threading
 
 # Tesseract lanza hilos OpenMP internos. Con varios procesos OCR concurrentes
 # (ver SCAN_WORKERS) eso sobre-suscribe la CPU y dispara el tiempo por frame
@@ -32,6 +32,11 @@ import os, sys, argparse, subprocess, time, difflib, re, json, unicodedata
 # crops minúsculos OMP no aporta nada, y además hace el OCR más reproducible.
 # setdefault para respetar un valor externo si se fija a propósito.
 os.environ.setdefault("OMP_THREAD_LIMIT", "1")
+
+# Un único proceso Tesseract a la vez: el engine LSTM bajo carga CPU concurrente
+# (varios ffmpeg simultáneos) produce resultados distintos en ARM (RPi5).
+# ffmpeg sigue corriendo en paralelo; solo el OCR se serializa.
+_ocr_lock = threading.Lock()
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -257,22 +262,15 @@ def ocr_banner(path, token, fmt):
         # El crop puede incluir el fondo de la sala (beige/blanco) por encima del overlay;
         # esas filas tienen 0 píxeles azules y generan ruido que confunde al OCR.
         row_has_blue = mask.sum(axis=1) > 20
-        white_before = int(white.sum())
         white[~row_has_blue] = False
-        white_after = int(white.sum())
-        err(f"    [ocr_debug] blue={mask.sum()} rows_blue={row_has_blue.sum()} white={white_before}→{white_after}")
         bin_arr = np.zeros((*white.shape, 3), dtype=np.uint8)
         bin_arr[white] = 255
-        # DEBUG: guardar imagen binaria junto al frame para inspección
-        try:
-            Image.fromarray(bin_arr).save(str(path).replace(".jpg", "_bin.jpg"))
-        except Exception:
-            pass
 
     pil = Image.fromarray(bin_arr).resize(
         (bin_arr.shape[1] * OCR_SCALE, bin_arr.shape[0] * OCR_SCALE), Image.NEAREST)
-    raw = pytesseract.image_to_string(
-        pil, config="--oem 3 --psm 6 -l spa").replace("\n", " ").strip()
+    with _ocr_lock:
+        raw = pytesseract.image_to_string(
+            pil, config="--oem 3 --psm 6 -l spa").replace("\n", " ").strip()
     text, found = _match_token(raw, token)
     # Clasificaciones y tablas de resultados muestran el nombre sin timer en directo.
     # Si require_timer_in_banner, rechazar hits donde no hay un patrón MM:SS.
