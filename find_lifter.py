@@ -99,6 +99,10 @@ FORMATS = {
         "timer_color":            "blue",
         "has_precomp_timer":      False,
         "require_timer_in_banner": True,
+        # PSM 3 (auto layout) en vez de PSM 6 (bloque uniforme): el banner IPF tiene
+        # dos filas de texto a tamaños distintos (OP-59kg pequeño + APELLIDO grande)
+        # que confunden a PSM 6, que omite el apellido. PSM 3 analiza el layout primero.
+        "ocr_psm":                3,
     },
 }
 
@@ -301,10 +305,11 @@ def ocr_banner(path, token, fmt):
 
     pil = Image.fromarray(bin_arr).resize(
         (bin_arr.shape[1] * OCR_SCALE, bin_arr.shape[0] * OCR_SCALE), Image.NEAREST)
+    psm = fmt.get("ocr_psm", 6)
     _scan_rw.ocr_enter()
     try:
         raw = pytesseract.image_to_string(
-            pil, config="--oem 3 --psm 6 -l spa").replace("\n", " ").strip()
+            pil, config=f"--oem 3 --psm {psm} -l spa").replace("\n", " ").strip()
     finally:
         _scan_rw.ocr_exit()
     text, found = _match_token(raw, token)
