@@ -309,13 +309,16 @@ def ocr_banner(path, token, fmt):
         _scan_rw.ocr_exit()
     text, found = _match_token(raw, token)
     # Clasificaciones y tablas de resultados muestran el nombre sin timer en directo.
-    # Si require_timer_in_banner, rechazar hits donde no hay un patrón MM:SS.
+    # Si require_timer_in_banner, rechazar hits donde no hay señal de ticker en vivo.
     if found and fmt.get("require_timer_in_banner"):
-        # Aceptar si hay timer MM:SS (SQ/BN) O si hay "RANK" (DL usa formato distinto).
-        # Rechazar si no hay ninguno de los dos: indicativo de tabla de clasificación.
-        has_timer = bool(_TIMER_IN_TEXT_RE.search(raw))
-        has_rank  = bool(re.search(r'\bRANK\b', raw.upper()))
-        if not has_timer and not has_rank:
+        # Aceptar si: (a) hay timer MM:SS, (b) hay "RANK" (DL usa formato distinto),
+        # o (c) hay patrón IPF de ticker en vivo "OP-<peso>KG" — cubre el caso donde el
+        # timer existe en el frame pero el OCR lo garblifica (lee "1"" en vez de "00:58").
+        # Las tablas de clasificación nunca contienen "OP-<N>KG" en el OCR.
+        has_timer      = bool(_TIMER_IN_TEXT_RE.search(raw))
+        has_rank       = bool(re.search(r'\bRANK\b', raw.upper()))
+        has_ipf_ticker = bool(re.search(r'OP-\d', raw.upper()))
+        if not has_timer and not has_rank and not has_ipf_ticker:
             return text, False
     return text, found
 

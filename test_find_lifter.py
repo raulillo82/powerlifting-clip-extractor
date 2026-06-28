@@ -392,6 +392,42 @@ class TestMatchTokenIPF:
         assert found
 
 
+class TestRequireTimerInBanner:
+    """require_timer_in_banner filtra tablas de clasificación pero no tickers en vivo."""
+
+    FMT = fl.FORMATS["IPF"]
+
+    def _run(self, raw, token):
+        """Ejecuta la lógica de require_timer_in_banner directamente."""
+        import re
+        text, found = fl._match_token(raw, token)
+        if not found:
+            return False
+        if not self.FMT.get("require_timer_in_banner"):
+            return found
+        has_timer = bool(fl._TIMER_IN_TEXT_RE.search(raw))
+        has_rank  = bool(re.search(r'\bRANK\b', raw.upper()))
+        has_ipf   = bool(re.search(r'OP-\d', raw.upper()))
+        return has_timer or has_rank or has_ipf
+
+    def test_ticker_with_clean_timer_accepted(self):
+        # Timer MM:SS claro → aceptado
+        assert self._run("OP-59KG 00:58 USA SLABIC 212.5", "SLABIC MICHAEL")
+
+    def test_ticker_with_garbled_timer_accepted_via_op_pattern(self):
+        # Timer garblificado por OCR ("1"" en vez de "00:58") pero "OP-59KG" presente → aceptado.
+        # Caso real: Mundial IPF Lithuania 2026, Slabic SQ1 a 31:20.
+        assert self._run('JOP-59KG _ USA ==SLÁBIC O H 1" EM O RA O A', "SLABIC MICHAEL")
+
+    def test_classification_table_rejected(self):
+        # Tabla de clasificación: nombres pero sin timer ni OP-<N>KG → rechazado
+        assert not self._run("JPN TAKIVAMA 58.45 GHA NYARKO 58.40 USA SLABIC 57.90", "SLABIC MICHAEL")
+
+    def test_rank_table_accepted(self):
+        # Pantalla con RANK (deadlift final) → aceptado
+        assert self._run("RANK 1 USA SLABIC TOTAL 600", "SLABIC MICHAEL")
+
+
 # ── IPF: detect_comp_start sin timer pre-competición ─────────────────────────
 
 class TestDetectCompStartIPF:
