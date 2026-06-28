@@ -42,12 +42,14 @@
         ('deadlift', 'ocr.deadlift', deadlift_ts, deadlift_ends),
     ] %}
     {% set mov_idx = loop.index0 %}
-    {# Compute average diff of attempts with valid end timestamps for this movement #}
+    {# Compute average diff of attempts with plausible end timestamps (≥35s).
+       Ends shorter than 35s are OCR artefacts (e.g. IPF overlay disappears
+       before the lift starts) and must not skew the average. #}
     {% set ns = namespace(diff_sum=0, diff_count=0) %}
     {% for j in range(3) %}
       {% set s = ts_list[j] if j < ts_list|length else none %}
       {% set e = end_list[j] if j < end_list|length else none %}
-      {% if s is not none and e is not none and e > s %}
+      {% if s is not none and e is not none and (e - s) >= 35 %}
         {% set ns.diff_sum = ns.diff_sum + (e - s) %}
         {% set ns.diff_count = ns.diff_count + 1 %}
       {% endif %}
@@ -60,15 +62,12 @@
           {% for i in range(3) %}
           {% set secs = ts_list[i] if i < ts_list|length else none %}
           {% set end_secs = end_list[i] if i < end_list|length else none %}
-          {% if secs is not none and end_secs is not none %}
-            {% if end_secs > secs %}
-              {# diff > 0: trust the formula (refinement scan improved precision); 20s floor #}
-              {% set clip_dur = [[(end_secs - secs + 2) | int, 300] | min, 20] | max %}
-            {% else %}
-              {# diff = 0: use movement average as estimate #}
-              {% set clip_dur = [[45, (avg_diff + 2) | int] | max, 300] | min %}
-            {% endif %}
+          {% if secs is not none and end_secs is not none and (end_secs - secs) >= 35 %}
+            {# Plausible OCR end: trust the formula; cap to 300s #}
+            {% set clip_dur = [[(end_secs - secs + 2) | int, 300] | min, 20] | max %}
           {% else %}
+            {# Short/missing end (IPF overlay disappears before lift, or no end detected):
+               use movement average, with 45s floor so clips are never too tight. #}
             {% set clip_dur = [[45, (avg_diff + 2) | int] | max, 300] | min %}
           {% endif %}
           <input type="hidden" id="dur_{{ mov }}_{{ i }}" name="clip_duration_{{ mov_idx * 3 + i }}" value="{{ clip_dur }}">
@@ -178,21 +177,35 @@ function adjustTs(btn, delta) {
   adjustTsById(input.id, delta);
 }
 
+function _shiftEnd(mov, i, delta) {
+  const endEl = document.getElementById(`end_${mov}_${i}`);
+  if (!endEl) return;
+  const cur = parseFloat(endEl.dataset.endSecs);
+  if (!isNaN(cur)) endEl.dataset.endSecs = cur + delta;
+}
+
 function adjustTsById(id, delta) {
   const input = document.getElementById(id);
   const cur = parseFloat(input.dataset.secs);
   const base = isNaN(cur) ? 0 : cur;
   const newVal = Math.max(0, base + delta);
+  const actual = newVal - base;
   input.dataset.secs = newVal;
   input.value = secsToHms(newVal);
   input.classList.remove('is-invalid');
+  const parts = id.split('_');
+  _shiftEnd(parts[1], parts[2], actual);
 }
 
 function syncTs(input) {
   const s = hmsToSecs(input.value);
   if (!isNaN(s)) {
+    const old = parseFloat(input.dataset.secs);
+    const delta = isNaN(old) ? 0 : s - old;
     input.dataset.secs = s;
     input.classList.remove('is-invalid');
+    const parts = input.id.split('_');
+    _shiftEnd(parts[1], parts[2], delta);
   }
 }
 

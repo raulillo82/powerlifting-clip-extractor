@@ -476,10 +476,12 @@ def _ocr_worker(job_id: str, job: dict) -> None:
     started_at = time.time()
     url = job["submitted_url"]
     apellido = job.get("ocr_apellido", "")
+    federation = "IPF" if job.get("source", "").lower() != "aep" else "AEP"
     work_dir = Path(job["output_dir"]) / "ocr"
     work_dir.mkdir(parents=True, exist_ok=True)
     try:
-        cmd = [sys.executable, str(_FIND_LIFTER), url, apellido, "--work-dir", str(work_dir)]
+        cmd = [sys.executable, str(_FIND_LIFTER), url, apellido,
+               "--federation", federation, "--work-dir", str(work_dir)]
         if job.get("video_duration"):
             cmd += ["--duration", str(int(job["video_duration"]))]
         proc = subprocess.Popen(
