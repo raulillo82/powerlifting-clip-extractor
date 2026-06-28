@@ -32,7 +32,12 @@ jobs:
           systemctl --user is-active powerlifting
 
   deploy-staging:
-    if: github.event_name == 'workflow_dispatch' && inputs.target == 'staging'
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.target == 'staging') ||
+      (github.event_name == 'push' &&
+       vars.STAGING_BRANCH != '' &&
+       vars.STAGING_BRANCH != 'none' &&
+       github.ref == format('refs/heads/{0}', vars.STAGING_BRANCH))
     runs-on: self-hosted
     concurrency:
       group: deploy-staging
@@ -43,7 +48,7 @@ jobs:
           cd ~/powerlifting-clip-extractor-staging
           git fetch
           git checkout ${{ vars.STAGING_BRANCH }}
-          git pull
+          git reset --hard origin/${{ vars.STAGING_BRANCH }}
           podman build -t localhost/powerlifting-staging:latest .
           systemctl --user restart powerlifting-staging
           systemctl --user is-active powerlifting-staging
