@@ -99,10 +99,11 @@ FORMATS = {
         "timer_color":            "blue",
         "has_precomp_timer":      False,
         "require_timer_in_banner": True,
-        # PSM 3 (auto layout) en vez de PSM 6 (bloque uniforme): el banner IPF tiene
-        # dos filas de texto a tamaños distintos (OP-59kg pequeño + APELLIDO grande)
-        # que confunden a PSM 6, que omite el apellido. PSM 3 analiza el layout primero.
-        "ocr_psm":                3,
+        # PSM 11 (sparse text) en vez de PSM 6 (bloque uniforme): el banner IPF tiene
+        # dos filas a tamaños distintos ("Michael" pequeño + "SLABIC" grande). PSM 6
+        # omite el apellido grande; PSM 3 falla en otros frames. PSM 11 extrae todo
+        # el texto disponible sin asumir layout uniforme y funciona en ambos casos.
+        "ocr_psm":                11,
     },
 }
 
