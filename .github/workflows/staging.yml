@@ -34,7 +34,7 @@ jobs:
           git fetch
           git checkout ${{ github.head_ref }}
           git pull
-          podman build -t localhost/powerlifting-staging:latest .
+          podman build --pull=newer -t localhost/powerlifting-staging:latest .
           systemctl --user restart powerlifting-staging
           systemctl --user is-active powerlifting-staging
 
