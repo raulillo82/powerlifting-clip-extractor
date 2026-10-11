@@ -1472,6 +1472,40 @@ class TestOcrReview:
         assert data["ocr_result"]["squat"] == OCR_RESULT["squat"]
 
 
+class TestOcrProxyPrefix:
+    """The OCR flow was written before the app moved under a URL prefix."""
+
+    def test_run_ocr_redirect_includes_prefix(self, client):
+        with patch("app._save_job"), patch("app._job_queue.put"):
+            r = client.post("/run-ocr", data=OCR_FORM_BASE, headers=PREFIX,
+                            follow_redirects=False)
+        assert r.status_code == 302
+        assert r.headers["Location"].startswith("/powerlifting/status/")
+
+    def test_relaunch_redirect_includes_prefix(self, client):
+        flask_app.jobs["failedocr"] = {
+            "status": "error", "log": "", "output_dir": "lifts/failedoc",
+            "expires_at": None, "mode": "ocr", "user_id": "1",
+            "submitted_url": "https://www.youtube.com/watch?v=test",
+            "ocr_apellido": "OSUNA", "ocr_result": None,
+        }
+        with patch("app._save_job"), patch("app._job_queue.put"):
+            r = client.post("/ocr/failedocr/relaunch", headers=PREFIX,
+                            follow_redirects=False)
+        assert r.status_code == 302
+        assert r.headers["Location"].startswith("/powerlifting/status/")
+
+    def test_review_page_urls_include_prefix(self, client):
+        job_id = TestOcrReview()._make_ocr_done_job()
+        r = client.get(f"/ocr/{job_id}/review", headers=PREFIX)
+        assert r.status_code == 200
+        assert b'action="/powerlifting/run"' in r.data
+        frame_urls = _re.findall(rb'data-frame-url="([^"]+)"', r.data)
+        assert frame_urls
+        assert all(u.startswith(f"/powerlifting/ocr/{job_id}/frame/".encode())
+                   for u in frame_urls)
+
+
 # ── _ocr_worker unit tests ─────────────────────────────────────────────────────
 
 class TestOcrWorker:
@@ -1681,3 +1715,48 @@ class TestOcrJobTimeout:
 
         assert job["status"] == "ocr_done"
         assert job["ocr_result"] is not None
+
+
+# ── Templates: no hardcoded absolute paths ────────────────────────────────────
+#
+# The app is served under /powerlifting and /powerlifting-staging, so a literal
+# "/register" or "/staging/" in a template escapes the prefix and 404s (or lands
+# on the other environment). Every internal URL must come from url_for.
+
+_ABSOLUTE_URL_RES = [
+    _re.compile(r"""(?<![.\w])(?:href|src|action|formaction)\s*=\s*["'](/(?!/)[^"']*)["']"""),
+    _re.compile(r"""(?:fetch|EventSource)\(\s*["'`](/(?!/)[^"'`]*)"""),
+    _re.compile(r"""location(?:\.href)?\s*=\s*["'`](/(?!/)[^"'`]*)"""),
+    _re.compile(r"""location\.(?:assign|replace)\(\s*["'`](/(?!/)[^"'`]*)"""),
+]
+
+# Deliberate cross-environment links in the admin panel.
+_ALLOWED_ABSOLUTE_URLS = {
+    ("admin/index.html", "/powerlifting/"),
+    ("admin/index.html", "/powerlifting-staging/"),
+}
+
+
+def _absolute_urls(source):
+    return [m.group(1) for rx in _ABSOLUTE_URL_RES for m in rx.finditer(source)]
+
+
+class TestNoAbsolutePathsInTemplates:
+    def test_detector_catches_known_offenders(self):
+        assert _absolute_urls('<a href="/register">') == ["/register"]
+        assert _absolute_urls("fetch(`/api/x?q=${q}`)") == ["/api/x?q=${q}"]
+        assert _absolute_urls("window.location.href = '/login'") == ["/login"]
+        assert _absolute_urls('<form action="{{ url_for(\'run\') }}">') == []
+        assert _absolute_urls('<script src="//cdn.example/x.js">') == []
+        assert _absolute_urls("fetch(`api/channel-videos`)") == []
+
+    def test_templates_have_no_absolute_paths(self):
+        templates = _ROOT / "templates"
+        offenders = []
+        for path in sorted(templates.rglob("*.html")):
+            rel = path.relative_to(templates).as_posix()
+            for lineno, line in enumerate(path.read_text().splitlines(), 1):
+                for url in _absolute_urls(line):
+                    if (rel, url) not in _ALLOWED_ABSOLUTE_URLS:
+                        offenders.append(f"{rel}:{lineno}: {url}")
+        assert not offenders, "use url_for instead of:\n" + "\n".join(offenders)
