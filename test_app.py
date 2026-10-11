@@ -682,6 +682,97 @@ class TestStagingGate:
         assert staging_client.get("/").status_code == 200
 
 
+# ── Proxy prefix (/powerlifting, /powerlifting-staging) ───────────────────────
+
+PREFIX = {"X-Forwarded-Prefix": "/powerlifting"}
+
+
+def _set_cookies(resp):
+    """Map cookie name -> list of raw Set-Cookie headers in the response."""
+    out = {}
+    for header in resp.headers.getlist("Set-Cookie"):
+        out.setdefault(header.split("=", 1)[0], []).append(header)
+    return out
+
+
+class TestProxyPrefix:
+    def test_redirects_include_prefix(self, client):
+        client.get("/logout")
+        r = client.get("/", headers=PREFIX, follow_redirects=False)
+        assert r.status_code == 302
+        assert r.headers["Location"] == "/powerlifting/login"
+
+    def test_links_include_prefix(self, client):
+        client.get("/logout")
+        r = client.get("/login", headers=PREFIX)
+        assert b'href="/powerlifting/register"' in r.data
+        assert b'href="/register"' not in r.data
+
+    def test_no_prefix_without_header(self, client):
+        client.get("/logout")
+        r = client.get("/", follow_redirects=False)
+        assert r.headers["Location"] == "/login"
+
+    def test_login_cookies_scoped_to_prefix(self, client):
+        client.get("/logout")
+        r = client.post("/login", headers=PREFIX,
+                        data={"username": "testadmin", "password": "testpass"})
+        assert r.headers["Location"] == "/powerlifting/"
+        cookies = _set_cookies(r)
+        for name in ("session", "remember_token", "device_token"):
+            assert any("Path=/powerlifting" in c for c in cookies[name]), name
+
+    def test_login_cookies_use_root_without_prefix(self, client):
+        client.get("/logout")
+        r = client.post("/login", data={"username": "testadmin", "password": "testpass"})
+        cookies = _set_cookies(r)
+        for name in ("session", "remember_token", "device_token"):
+            assert all(c.split("Path=")[1].split(";")[0] == "/" for c in cookies[name]), name
+            assert not any("Max-Age=0" in c for c in cookies[name]), name
+
+    def test_logout_expires_root_cookies(self, client):
+        # `client` logged in without a prefix, so it holds Path=/ cookies like
+        # the ones issued before the app moved under /powerlifting.
+        r = client.get("/logout", headers=PREFIX, follow_redirects=False)
+        assert r.headers["Location"] == "/powerlifting/login"
+        cookies = _set_cookies(r)
+        for name in ("session", "remember_token"):
+            assert any("Max-Age=0" in c and "Path=/;" in c + ";" for c in cookies[name]), name
+
+    def test_logout_keeps_device_token(self, client):
+        # The device binding must survive a logout, or the user could not log back in
+        r = client.get("/logout", headers=PREFIX, follow_redirects=False)
+        assert "device_token" not in _set_cookies(r)
+
+    def test_login_moves_root_device_token_under_prefix(self, client):
+        with db.get_db() as conn:
+            conn.execute(
+                "INSERT INTO users (username, display_name, password_hash, device_token)"
+                " VALUES (?,?,?,?)",
+                ("agata_sitko", "Agata Sitko", generate_password_hash("pass"), "device-XYZ"),
+            )
+            conn.commit()
+        client.get("/logout")
+        # Cookie issued with Path=/ before the app moved under /powerlifting
+        client.set_cookie("device_token", "device-XYZ", path="/")
+        r = client.post("/login", headers=PREFIX,
+                        data={"username": "agata_sitko", "password": "pass"})
+        assert r.status_code == 302
+        issued = _set_cookies(r)["device_token"]
+        assert any(c.startswith("device_token=device-XYZ;") and "Path=/powerlifting" in c
+                   for c in issued)
+        assert any("Max-Age=0" in c and "Path=/;" in c + ";" for c in issued)
+
+    def test_login_without_prefix_keeps_root_device_token(self, client):
+        client.get("/logout")
+        r = client.post("/login", data={"username": "testadmin", "password": "testpass"})
+        assert not any("Max-Age=0" in c for c in _set_cookies(r)["device_token"])
+
+    def test_admin_links_to_sibling_environment(self, client):
+        r = client.get("/admin/")
+        assert b'href="/powerlifting-staging/"' in r.data
+
+
 class TestStagingAdminRoutes:
     def test_grant_creates_access(self, client, tmp_path, monkeypatch):
         monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")

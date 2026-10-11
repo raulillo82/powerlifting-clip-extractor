@@ -4,6 +4,7 @@ from functools import wraps
 
 from altcha import ChallengeOptionsV1, create_challenge_v1, verify_solution_v1
 from flask import Blueprint, current_app, jsonify, make_response, redirect, render_template, request, url_for
+from flask.sessions import SecureCookieSessionInterface
 from flask_login import LoginManager, UserMixin, current_user, login_required, login_user, logout_user
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -60,6 +61,39 @@ def load_user(user_id):
 @login_manager.unauthorized_handler
 def unauthorized():
     return redirect(url_for("auth.login"))
+
+
+def cookie_path() -> str:
+    """Path to scope cookies to: the proxy prefix this app is mounted under."""
+    return request.script_root or "/"
+
+
+class PrefixedSessionInterface(SecureCookieSessionInterface):
+    """Scope the session cookie to the proxy prefix so apps sharing the host don't see it."""
+
+    def get_cookie_path(self, app):
+        return cookie_path()
+
+
+def _expire_root_cookies(resp, device_token=False):
+    """Drop cookies issued with Path=/ before the app moved under a prefix.
+
+    Without this the session/remember cookies outlive a logout and Flask-Login
+    signs the user back in.
+
+    device_token identifies the device, not the session: it is what lets a
+    bound account log back in and what blocks a second registration. So it is
+    only dropped (device_token=True) on a response that re-issues it under the
+    prefix, i.e. a successful login — never on logout.
+    """
+    if cookie_path() == "/":
+        return
+    names = [current_app.config["SESSION_COOKIE_NAME"],
+             current_app.config.get("REMEMBER_COOKIE_NAME", "remember_token")]
+    if device_token:
+        names.append("device_token")
+    for name in names:
+        resp.delete_cookie(name, path="/")
 
 
 def admin_required(f):
@@ -124,8 +158,9 @@ def login():
                 resp = make_response(
                     redirect(request.args.get("next") or url_for("index"))
                 )
-                resp.set_cookie("device_token", new_token,
+                resp.set_cookie("device_token", new_token, path=cookie_path(),
                                 max_age=365 * 24 * 3600, httponly=True, samesite="Lax")
+                _expire_root_cookies(resp, device_token=True)
                 return resp
 
     return render_template("login.html", error=error, prefill=prefill)
@@ -135,7 +170,9 @@ def login():
 @login_required
 def logout():
     logout_user()
-    return redirect(url_for("auth.login"))
+    resp = redirect(url_for("auth.login"))
+    _expire_root_cookies(resp)
+    return resp
 
 
 def _altcha_key() -> str:
@@ -221,7 +258,7 @@ def register():
             admin_creating=admin_creating,
         ))
         if device_token:
-            resp.set_cookie("device_token", device_token,
+            resp.set_cookie("device_token", device_token, path=cookie_path(),
                             max_age=365 * 24 * 3600, httponly=True, samesite="Lax")
         return resp
 
