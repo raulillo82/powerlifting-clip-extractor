@@ -320,6 +320,8 @@ server {
 ```
 
 > Para servir la app bajo un prefijo (p. ej. `/powerlifting/`), usa `location /powerlifting/` con `proxy_pass http://127.0.0.1:5000/;` y añade `proxy_set_header X-Forwarded-Prefix /powerlifting;`. La app genera enlaces, redirecciones y cookies con ese prefijo. Como la app confía en las cabeceras `X-Forwarded-*`, no publiques el puerto 5000 fuera de `127.0.0.1`.
+>
+> **Webhook de GitHub:** si la raíz (`/`) redirige al prefijo, conserva una ruta exacta `location = /webhook/github` que haga proxy a la app, definida antes de la redirección. GitHub no sigue redirecciones, así que un POST a la URL antigua recibiría un 302 y el evento se perdería. En el despliegue de este proyecto (`ansible/deploy.yml`) esa ruta es permanente y deliberada: el webhook registrado en GitHub sigue apuntando a `/webhook/github` y no hay que cambiarlo.
 
 ```bash
 sudo systemctl enable --now nginx
@@ -794,6 +796,8 @@ server {
 ```
 
 > To serve the app under a prefix (e.g. `/powerlifting/`), use `location /powerlifting/` with `proxy_pass http://127.0.0.1:5000/;` and add `proxy_set_header X-Forwarded-Prefix /powerlifting;`. The app builds links, redirects and cookies with that prefix. Since the app trusts the `X-Forwarded-*` headers, do not publish port 5000 outside `127.0.0.1`.
+>
+> **GitHub webhook:** if the root (`/`) redirects to the prefix, keep an exact `location = /webhook/github` that proxies to the app, defined before the redirect. GitHub does not follow redirects, so a POST to the old URL would get a 302 and the event would be lost. In this project's deployment (`ansible/deploy.yml`) that route is permanent and deliberate: the webhook registered in GitHub still points at `/webhook/github` and must not be changed.
 
 ```bash
 sudo systemctl enable --now nginx
