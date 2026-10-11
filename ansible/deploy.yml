@@ -256,7 +256,29 @@
               client_max_body_size 20M;
               access_log /var/log/nginx/powerlifting.log;
 
-              location /staging/ {
+              location = /powerlifting {
+                  return 302 /powerlifting/;
+              }
+
+              location /powerlifting/ {
+                  proxy_pass         http://app_prod/;
+                  proxy_http_version 1.1;
+                  proxy_set_header   Connection "";
+                  proxy_set_header   Host              $host;
+                  proxy_set_header   X-Real-IP         $remote_addr;
+                  proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+                  proxy_set_header   X-Forwarded-Proto $scheme;
+                  proxy_set_header   X-Forwarded-Prefix /powerlifting;
+                  proxy_connect_timeout 5s;
+                  proxy_read_timeout 600;
+                  proxy_send_timeout 600;
+              }
+
+              location = /powerlifting-staging {
+                  return 302 /powerlifting-staging/;
+              }
+
+              location /powerlifting-staging/ {
                   proxy_pass         http://app_staging/;
                   proxy_http_version 1.1;
                   proxy_set_header   Connection "";
@@ -264,13 +286,39 @@
                   proxy_set_header   X-Real-IP         $remote_addr;
                   proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
                   proxy_set_header   X-Forwarded-Proto $scheme;
-                  proxy_set_header   X-Forwarded-Prefix /staging;
+                  proxy_set_header   X-Forwarded-Prefix /powerlifting-staging;
                   proxy_connect_timeout 5s;
                   proxy_read_timeout 600;
                   proxy_send_timeout 600;
               }
 
-              location / {
+              # Separate project (traductor); its app listens on 127.0.0.1:5002
+              location = /traductor {
+                  return 302 /traductor/;
+              }
+
+              location /traductor/ {
+                  client_max_body_size 100M;      # subida de PDFs; el límite real lo aplica la app
+                  proxy_pass         http://127.0.0.1:5002/;
+                  proxy_http_version 1.1;
+                  proxy_set_header   Connection "";
+                  proxy_set_header   Host              $host;
+                  proxy_set_header   X-Real-IP         $remote_addr;
+                  proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+                  proxy_set_header   X-Forwarded-Proto $scheme;
+                  proxy_set_header   X-Forwarded-Prefix /traductor;
+                  proxy_connect_timeout 5s;
+                  proxy_read_timeout 600;
+                  proxy_send_timeout 600;
+                  proxy_request_buffering off;
+              }
+
+              # GitHub webhook (issues) — permanent, deliberate compatibility route.
+              # The hook registered in GitHub still points at /webhook/github, and
+              # GitHub does not follow redirects: without this exact match the POST
+              # would get the 302 below and the event would be lost. Keep it, and
+              # keep it before "location /".
+              location = /webhook/github {
                   proxy_pass         http://app_prod;
                   proxy_http_version 1.1;
                   proxy_set_header   Connection "";
@@ -278,9 +326,15 @@
                   proxy_set_header   X-Real-IP         $remote_addr;
                   proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
                   proxy_set_header   X-Forwarded-Proto $scheme;
+                  proxy_set_header   X-Forwarded-Prefix /powerlifting;
                   proxy_connect_timeout 5s;
                   proxy_read_timeout 600;
                   proxy_send_timeout 600;
+              }
+
+              # Old root URLs (/, /login, /register...) keep working: / -> /powerlifting/
+              location / {
+                  return 302 /powerlifting$request_uri;
               }
           }
       notify: Reload nginx
@@ -373,6 +427,58 @@
         daemon_reload: true
       ignore_errors: "{{ ansible_check_mode }}"
 
+    # ── TLS certificate renewal ─────────────────────────────────────────────
+    # acme.sh is installed with --no-cron (the hosts have no cron daemon), so
+    # nothing renews the certificate unless this timer runs `acme.sh --cron`.
+
+    - name: Check for acme.sh (only the host that issues the certificate has it)
+      stat:
+        path: /home/{{ ansible_user }}/.acme.sh/acme.sh
+      register: acme_stat
+
+    - name: Deploy acme-renew systemd service
+      copy:
+        dest: /home/{{ ansible_user }}/.config/systemd/user/acme-renew.service
+        content: |
+          [Unit]
+          Description=Renew TLS certificates with acme.sh
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=%h/.acme.sh/acme.sh --cron --home %h/.acme.sh
+          StandardOutput=journal
+          StandardError=journal
+      when: acme_stat.stat.exists
+
+    - name: Deploy acme-renew systemd timer (daily renewal check)
+      copy:
+        dest: /home/{{ ansible_user }}/.config/systemd/user/acme-renew.timer
+        content: |
+          [Unit]
+          Description=Daily acme.sh renewal check for the TLS certificate
+
+          [Timer]
+          OnCalendar=*-*-* 04:30:00
+          RandomizedDelaySec=1h
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+      when: acme_stat.stat.exists
+      notify: Reload acme timer
+
+    - name: Enable acme-renew timer
+      systemd:
+        name: acme-renew.timer
+        enabled: true
+        state: started
+        scope: user
+        daemon_reload: true
+      when: acme_stat.stat.exists
+      ignore_errors: "{{ ansible_check_mode }}"
+
   handlers:
 
     - name: Restart app
@@ -393,6 +499,14 @@
     - name: Reload geoip timer
       systemd:
         name: geoip-update.timer
+        state: started
+        scope: user
+        daemon_reload: true
+      ignore_errors: "{{ ansible_check_mode }}"
+
+    - name: Reload acme timer
+      systemd:
+        name: acme-renew.timer
         state: started
         scope: user
         daemon_reload: true

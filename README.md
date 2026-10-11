@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> 🌐 **Accede a la herramienta → [raulillo82.duckdns.org](https://raulillo82.duckdns.org)**
+> 🌐 **Accede a la herramienta → [raulillo82.duckdns.org/powerlifting](https://raulillo82.duckdns.org/powerlifting/)**
 > *(Puedes crear tu cuenta gratis desde la propia web mientras haya plazas disponibles / You can register for free directly from the site while slots are available)*
 
 > 🖥️ ¿Eres administrador y quieres montar tu propia instancia? → [Guía de despliegue (ES)](#despliegue-en-producción) &nbsp;·&nbsp; [Deployment guide (EN)](#production-deployment)
@@ -50,7 +50,7 @@
 | ✅ | Rate limiting (Flask-Limiter): `/register` 3/15 min, `/run` 1/2 min por usuario, `/login` 20/min | — |
 | ✅ | Despliegue en producción (RPi5, nginx, gunicorn, HTTPS) | — |
 | ✅ | **Modo un solo levantamiento** (1 tiempo, 1 movimiento; audio original / solo música / mezclado) | — |
-| ✅ | Entorno staging en RPi5 (`/staging/`): badge STAGING, acceso admin solo, exención de rate limiting | — |
+| ✅ | Entorno staging en RPi5 (`/powerlifting-staging/`): badge STAGING, acceso admin solo, exención de rate limiting | — |
 | ✅ | Buscador por nombre dentro del canal (para competiciones fuera de playlist) | — |
 | ✅ | Progreso de descarga en tiempo real (ticker cada 5 s) | — |
 | ✅ | Música por defecto al 50%; filtrado de vídeos privados/eliminados del cascade | — |
@@ -350,6 +350,10 @@ server {
 }
 ```
 
+> Para servir la app bajo un prefijo (p. ej. `/powerlifting/`), usa `location /powerlifting/` con `proxy_pass http://127.0.0.1:5000/;` y añade `proxy_set_header X-Forwarded-Prefix /powerlifting;`. La app genera enlaces, redirecciones y cookies con ese prefijo. Como la app confía en las cabeceras `X-Forwarded-*`, no publiques el puerto 5000 fuera de `127.0.0.1`.
+>
+> **Webhook de GitHub:** si la raíz (`/`) redirige al prefijo, conserva una ruta exacta `location = /webhook/github` que haga proxy a la app, definida antes de la redirección. GitHub no sigue redirecciones, así que un POST a la URL antigua recibiría un 302 y el evento se perdería. En el despliegue de este proyecto (`ansible/deploy.yml`) esa ruta es permanente y deliberada: el webhook registrado en GitHub sigue apuntando a `/webhook/github` y no hay que cambiarlo.
+
 ```bash
 sudo systemctl enable --now nginx
 ```
@@ -374,7 +378,12 @@ sudo mkdir -p /etc/nginx/ssl
   --reloadcmd "sudo systemctl reload nginx"
 ```
 
-La renovación se gestiona automáticamente mediante el cron que instala acme.sh.
+acme.sh se instala con `--no-cron`, así que **no renueva nada por sí solo**. La renovación la hace un timer de systemd de usuario (`acme-renew.timer`, comprobación diaria) que ejecuta `acme.sh --cron`; el playbook `ansible/deploy.yml` lo despliega automáticamente. Para comprobarlo:
+
+```bash
+systemctl --user list-timers acme-renew.timer
+journalctl --user -u acme-renew.service -n 20
+```
 
 #### 6. Ajustes de seguridad
 
@@ -548,7 +557,7 @@ En los tests, el rate limiting se desactiva en el fixture `client` mediante `mon
 | ✅ | Rate limiting (Flask-Limiter): `/register` 3/15 min, `/run` 1/2 min per user, `/login` 20/min | — |
 | ✅ | Production deployment (RPi5, nginx, gunicorn, HTTPS) | — |
 | ✅ | **Single lift mode** (1 timestamp, 1 movement; original / music-only / mixed audio) | — |
-| ✅ | Staging environment on RPi5 (`/staging/`): STAGING badge, admin-only access, rate limit exemption | — |
+| ✅ | Staging environment on RPi5 (`/powerlifting-staging/`): STAGING badge, admin-only access, rate limit exemption | — |
 | ✅ | In-channel search (for competitions not in any playlist) | — |
 | ✅ | Real-time download progress ticker (every 5 s) | — |
 | ✅ | Music default 50%; private/deleted video filtering in cascade | — |
@@ -848,6 +857,10 @@ server {
 }
 ```
 
+> To serve the app under a prefix (e.g. `/powerlifting/`), use `location /powerlifting/` with `proxy_pass http://127.0.0.1:5000/;` and add `proxy_set_header X-Forwarded-Prefix /powerlifting;`. The app builds links, redirects and cookies with that prefix. Since the app trusts the `X-Forwarded-*` headers, do not publish port 5000 outside `127.0.0.1`.
+>
+> **GitHub webhook:** if the root (`/`) redirects to the prefix, keep an exact `location = /webhook/github` that proxies to the app, defined before the redirect. GitHub does not follow redirects, so a POST to the old URL would get a 302 and the event would be lost. In this project's deployment (`ansible/deploy.yml`) that route is permanent and deliberate: the webhook registered in GitHub still points at `/webhook/github` and must not be changed.
+
 ```bash
 sudo systemctl enable --now nginx
 ```
@@ -872,7 +885,12 @@ sudo mkdir -p /etc/nginx/ssl
   --reloadcmd "sudo systemctl reload nginx"
 ```
 
-Renewal is handled automatically by the cron job acme.sh installs.
+acme.sh is installed with `--no-cron`, so it **does not renew anything on its own**. Renewal is done by a systemd user timer (`acme-renew.timer`, daily check) that runs `acme.sh --cron`; the `ansible/deploy.yml` playbook deploys it automatically. To check it:
+
+```bash
+systemctl --user list-timers acme-renew.timer
+journalctl --user -u acme-renew.service -n 20
+```
 
 #### 6. Security settings
 

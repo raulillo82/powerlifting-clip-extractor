@@ -28,8 +28,9 @@ _FIND_LIFTER = Path(__file__).with_name("find_lifter.py")
 from altcha import verify_solution_v1
 from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import current_user, login_required
+from werkzeug.middleware.proxy_fix import ProxyFix
 
-from auth import auth_bp, login_manager
+from auth import PrefixedSessionInterface, auth_bp, cookie_path, login_manager
 from admin import admin_bp
 import geoip
 import github_issues
@@ -71,10 +72,20 @@ app.register_blueprint(admin_bp)
 
 init_db()
 
-if os.environ.get("STAGING"):
-    from werkzeug.middleware.proxy_fix import ProxyFix
-    app.wsgi_app = ProxyFix(app.wsgi_app, x_prefix=1)
+# The app is always served behind nginx under a path prefix (/powerlifting,
+# /powerlifting-staging). Trust the X-Forwarded-* headers nginx sets — the
+# container only listens on 127.0.0.1, so nothing else can reach it.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_prefix=1)
+app.session_interface = PrefixedSessionInterface()
 
+
+@app.before_request
+def _scope_remember_cookie():
+    # Flask-Login only takes the remember-me cookie path from config
+    app.config["REMEMBER_COOKIE_PATH"] = cookie_path()
+
+
+if os.environ.get("STAGING"):
     @limiter.request_filter
     def _staging_admin_exempt():
         return current_user.is_authenticated and current_user.is_admin

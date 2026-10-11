@@ -682,6 +682,97 @@ class TestStagingGate:
         assert staging_client.get("/").status_code == 200
 
 
+# ── Proxy prefix (/powerlifting, /powerlifting-staging) ───────────────────────
+
+PREFIX = {"X-Forwarded-Prefix": "/powerlifting"}
+
+
+def _set_cookies(resp):
+    """Map cookie name -> list of raw Set-Cookie headers in the response."""
+    out = {}
+    for header in resp.headers.getlist("Set-Cookie"):
+        out.setdefault(header.split("=", 1)[0], []).append(header)
+    return out
+
+
+class TestProxyPrefix:
+    def test_redirects_include_prefix(self, client):
+        client.get("/logout")
+        r = client.get("/", headers=PREFIX, follow_redirects=False)
+        assert r.status_code == 302
+        assert r.headers["Location"] == "/powerlifting/login"
+
+    def test_links_include_prefix(self, client):
+        client.get("/logout")
+        r = client.get("/login", headers=PREFIX)
+        assert b'href="/powerlifting/register"' in r.data
+        assert b'href="/register"' not in r.data
+
+    def test_no_prefix_without_header(self, client):
+        client.get("/logout")
+        r = client.get("/", follow_redirects=False)
+        assert r.headers["Location"] == "/login"
+
+    def test_login_cookies_scoped_to_prefix(self, client):
+        client.get("/logout")
+        r = client.post("/login", headers=PREFIX,
+                        data={"username": "testadmin", "password": "testpass"})
+        assert r.headers["Location"] == "/powerlifting/"
+        cookies = _set_cookies(r)
+        for name in ("session", "remember_token", "device_token"):
+            assert any("Path=/powerlifting" in c for c in cookies[name]), name
+
+    def test_login_cookies_use_root_without_prefix(self, client):
+        client.get("/logout")
+        r = client.post("/login", data={"username": "testadmin", "password": "testpass"})
+        cookies = _set_cookies(r)
+        for name in ("session", "remember_token", "device_token"):
+            assert all(c.split("Path=")[1].split(";")[0] == "/" for c in cookies[name]), name
+            assert not any("Max-Age=0" in c for c in cookies[name]), name
+
+    def test_logout_expires_root_cookies(self, client):
+        # `client` logged in without a prefix, so it holds Path=/ cookies like
+        # the ones issued before the app moved under /powerlifting.
+        r = client.get("/logout", headers=PREFIX, follow_redirects=False)
+        assert r.headers["Location"] == "/powerlifting/login"
+        cookies = _set_cookies(r)
+        for name in ("session", "remember_token"):
+            assert any("Max-Age=0" in c and "Path=/;" in c + ";" for c in cookies[name]), name
+
+    def test_logout_keeps_device_token(self, client):
+        # The device binding must survive a logout, or the user could not log back in
+        r = client.get("/logout", headers=PREFIX, follow_redirects=False)
+        assert "device_token" not in _set_cookies(r)
+
+    def test_login_moves_root_device_token_under_prefix(self, client):
+        with db.get_db() as conn:
+            conn.execute(
+                "INSERT INTO users (username, display_name, password_hash, device_token)"
+                " VALUES (?,?,?,?)",
+                ("agata_sitko", "Agata Sitko", generate_password_hash("pass"), "device-XYZ"),
+            )
+            conn.commit()
+        client.get("/logout")
+        # Cookie issued with Path=/ before the app moved under /powerlifting
+        client.set_cookie("device_token", "device-XYZ", path="/")
+        r = client.post("/login", headers=PREFIX,
+                        data={"username": "agata_sitko", "password": "pass"})
+        assert r.status_code == 302
+        issued = _set_cookies(r)["device_token"]
+        assert any(c.startswith("device_token=device-XYZ;") and "Path=/powerlifting" in c
+                   for c in issued)
+        assert any("Max-Age=0" in c and "Path=/;" in c + ";" for c in issued)
+
+    def test_login_without_prefix_keeps_root_device_token(self, client):
+        client.get("/logout")
+        r = client.post("/login", data={"username": "testadmin", "password": "testpass"})
+        assert not any("Max-Age=0" in c for c in _set_cookies(r)["device_token"])
+
+    def test_admin_links_to_sibling_environment(self, client):
+        r = client.get("/admin/")
+        assert b'href="/powerlifting-staging/"' in r.data
+
+
 class TestStagingAdminRoutes:
     def test_grant_creates_access(self, client, tmp_path, monkeypatch):
         monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
@@ -1381,6 +1472,40 @@ class TestOcrReview:
         assert data["ocr_result"]["squat"] == OCR_RESULT["squat"]
 
 
+class TestOcrProxyPrefix:
+    """The OCR flow was written before the app moved under a URL prefix."""
+
+    def test_run_ocr_redirect_includes_prefix(self, client):
+        with patch("app._save_job"), patch("app._job_queue.put"):
+            r = client.post("/run-ocr", data=OCR_FORM_BASE, headers=PREFIX,
+                            follow_redirects=False)
+        assert r.status_code == 302
+        assert r.headers["Location"].startswith("/powerlifting/status/")
+
+    def test_relaunch_redirect_includes_prefix(self, client):
+        flask_app.jobs["failedocr"] = {
+            "status": "error", "log": "", "output_dir": "lifts/failedoc",
+            "expires_at": None, "mode": "ocr", "user_id": "1",
+            "submitted_url": "https://www.youtube.com/watch?v=test",
+            "ocr_apellido": "OSUNA", "ocr_result": None,
+        }
+        with patch("app._save_job"), patch("app._job_queue.put"):
+            r = client.post("/ocr/failedocr/relaunch", headers=PREFIX,
+                            follow_redirects=False)
+        assert r.status_code == 302
+        assert r.headers["Location"].startswith("/powerlifting/status/")
+
+    def test_review_page_urls_include_prefix(self, client):
+        job_id = TestOcrReview()._make_ocr_done_job()
+        r = client.get(f"/ocr/{job_id}/review", headers=PREFIX)
+        assert r.status_code == 200
+        assert b'action="/powerlifting/run"' in r.data
+        frame_urls = _re.findall(rb'data-frame-url="([^"]+)"', r.data)
+        assert frame_urls
+        assert all(u.startswith(f"/powerlifting/ocr/{job_id}/frame/".encode())
+                   for u in frame_urls)
+
+
 # ── _ocr_worker unit tests ─────────────────────────────────────────────────────
 
 class TestOcrWorker:
@@ -1590,3 +1715,48 @@ class TestOcrJobTimeout:
 
         assert job["status"] == "ocr_done"
         assert job["ocr_result"] is not None
+
+
+# ── Templates: no hardcoded absolute paths ────────────────────────────────────
+#
+# The app is served under /powerlifting and /powerlifting-staging, so a literal
+# "/register" or "/staging/" in a template escapes the prefix and 404s (or lands
+# on the other environment). Every internal URL must come from url_for.
+
+_ABSOLUTE_URL_RES = [
+    _re.compile(r"""(?<![.\w])(?:href|src|action|formaction)\s*=\s*["'](/(?!/)[^"']*)["']"""),
+    _re.compile(r"""(?:fetch|EventSource)\(\s*["'`](/(?!/)[^"'`]*)"""),
+    _re.compile(r"""location(?:\.href)?\s*=\s*["'`](/(?!/)[^"'`]*)"""),
+    _re.compile(r"""location\.(?:assign|replace)\(\s*["'`](/(?!/)[^"'`]*)"""),
+]
+
+# Deliberate cross-environment links in the admin panel.
+_ALLOWED_ABSOLUTE_URLS = {
+    ("admin/index.html", "/powerlifting/"),
+    ("admin/index.html", "/powerlifting-staging/"),
+}
+
+
+def _absolute_urls(source):
+    return [m.group(1) for rx in _ABSOLUTE_URL_RES for m in rx.finditer(source)]
+
+
+class TestNoAbsolutePathsInTemplates:
+    def test_detector_catches_known_offenders(self):
+        assert _absolute_urls('<a href="/register">') == ["/register"]
+        assert _absolute_urls("fetch(`/api/x?q=${q}`)") == ["/api/x?q=${q}"]
+        assert _absolute_urls("window.location.href = '/login'") == ["/login"]
+        assert _absolute_urls('<form action="{{ url_for(\'run\') }}">') == []
+        assert _absolute_urls('<script src="//cdn.example/x.js">') == []
+        assert _absolute_urls("fetch(`api/channel-videos`)") == []
+
+    def test_templates_have_no_absolute_paths(self):
+        templates = _ROOT / "templates"
+        offenders = []
+        for path in sorted(templates.rglob("*.html")):
+            rel = path.relative_to(templates).as_posix()
+            for lineno, line in enumerate(path.read_text().splitlines(), 1):
+                for url in _absolute_urls(line):
+                    if (rel, url) not in _ALLOWED_ABSOLUTE_URLS:
+                        offenders.append(f"{rel}:{lineno}: {url}")
+        assert not offenders, "use url_for instead of:\n" + "\n".join(offenders)
