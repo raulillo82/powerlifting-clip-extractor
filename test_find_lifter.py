@@ -229,6 +229,64 @@ class TestExtractFrameTimeout:
         assert result is False
 
 
+# ── get_stream_url: retry when YouTube hands out a URL that answers 403 ──────
+
+def _ytdlp_returning(*urls):
+    """`subprocess.run` replacement: each yt-dlp call returns the next URL."""
+    it = iter(urls)
+    return lambda *a, **k: MagicMock(stdout=next(it) + "\n", returncode=0)
+
+
+class TestGetStreamUrl:
+    def test_returns_first_url_when_it_works(self, tmp_path):
+        with patch("subprocess.run", _ytdlp_returning("good")), \
+             patch.object(fl, "extract_frame", return_value=True) as probe:
+            assert fl.get_stream_url("video", tmp_path) == "good"
+        assert probe.call_count == 1
+
+    def test_asks_again_when_url_is_forbidden(self, tmp_path):
+        with patch("subprocess.run", _ytdlp_returning("bad", "bad2", "good")), \
+             patch.object(fl, "extract_frame", lambda url, secs, out: url == "good"):
+            assert fl.get_stream_url("video", tmp_path) == "good"
+
+    def test_gives_up_after_max_attempts(self, tmp_path):
+        calls = []
+
+        def run(*a, **k):
+            calls.append(a)
+            return MagicMock(stdout="bad\n", returncode=0)
+
+        with patch("subprocess.run", run), \
+             patch.object(fl, "extract_frame", return_value=False):
+            assert fl.get_stream_url("video", tmp_path) is None
+        assert len(calls) == fl.STREAM_URL_ATTEMPTS
+
+    def test_ytdlp_timeout_and_empty_output_count_as_failed_attempts(self, tmp_path):
+        results = iter([subprocess.TimeoutExpired("yt-dlp", 30),
+                        MagicMock(stdout="", returncode=1),
+                        MagicMock(stdout="good\n", returncode=0)])
+
+        def run(*a, **k):
+            r = next(results)
+            if isinstance(r, Exception):
+                raise r
+            return r
+
+        with patch("subprocess.run", run), \
+             patch.object(fl, "extract_frame", return_value=True):
+            assert fl.get_stream_url("video", tmp_path) == "good"
+
+    def test_leaves_no_probe_frame_behind(self, tmp_path):
+        def fake_extract(url, secs, out):
+            out.write_bytes(b"jpg")
+            return True
+
+        with patch("subprocess.run", _ytdlp_returning("good")), \
+             patch.object(fl, "extract_frame", fake_extract):
+            fl.get_stream_url("video", tmp_path)
+        assert list(tmp_path.iterdir()) == []
+
+
 # ── scan_movement bail-out on consecutive extraction errors ──────────────────
 
 class TestScanMovementBailout:

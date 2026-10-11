@@ -174,6 +174,35 @@ def extract_frame(url, secs, out):
         _scan_rw.ffmpeg_exit()
 
 
+STREAM_URL_ATTEMPTS = 5   # nº de URLs de stream a pedir antes de rendirse
+_STREAM_FORMAT = "bestvideo[height<=720][ext=mp4]/bestvideo[height<=720]"
+
+
+def get_stream_url(video_url, work_dir):
+    """Pide a yt-dlp la URL directa del stream y comprueba que sirve.
+
+    YouTube entrega de vez en cuando una URL que responde 403 a todas las
+    peticiones: con ella fallarían todos los frames del scan. Se valida sacando
+    un frame y, si no sale, se pide otra URL. Devuelve None si ninguna sirve.
+    """
+    probe = work_dir / "probe.jpg"
+    for attempt in range(1, STREAM_URL_ATTEMPTS + 1):
+        try:
+            r = subprocess.run(
+                ["yt-dlp", "--get-url", "-f", _STREAM_FORMAT, video_url],
+                capture_output=True, text=True, timeout=30)
+            lines = r.stdout.strip().splitlines()
+        except subprocess.TimeoutExpired:
+            lines = []
+        if lines:
+            probe.unlink(missing_ok=True)
+            if extract_frame(lines[0], 0, probe):
+                probe.unlink(missing_ok=True)
+                return lines[0]
+        err(f"  URL de stream no válida (intento {attempt}/{STREAM_URL_ATTEMPTS})")
+    return None
+
+
 def _hsv_hue(arr):
     r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
     mx = np.maximum(np.maximum(r, g), b)
@@ -648,13 +677,9 @@ def main():
 
     # URL directa del stream
     err("\nObteniendo URL stream...")
-    try:
-        r = subprocess.run(
-            ["yt-dlp", "--get-url", "-f", "bestvideo[height<=720][ext=mp4]/bestvideo[height<=720]",
-             args.url], capture_output=True, text=True, timeout=30)
-        url = r.stdout.strip().splitlines()[0]
-    except subprocess.TimeoutExpired:
-        err("ERROR: yt-dlp tardó más de 30s — URL no disponible")
+    url = get_stream_url(args.url, work_dir)
+    if not url:
+        err("ERROR: no se pudo obtener una URL de stream válida")
         sys.exit(1)
     err("OK\n")
 
