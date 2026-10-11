@@ -373,6 +373,58 @@
         daemon_reload: true
       ignore_errors: "{{ ansible_check_mode }}"
 
+    # ── TLS certificate renewal ─────────────────────────────────────────────
+    # acme.sh is installed with --no-cron (the hosts have no cron daemon), so
+    # nothing renews the certificate unless this timer runs `acme.sh --cron`.
+
+    - name: Check for acme.sh (only the host that issues the certificate has it)
+      stat:
+        path: /home/{{ ansible_user }}/.acme.sh/acme.sh
+      register: acme_stat
+
+    - name: Deploy acme-renew systemd service
+      copy:
+        dest: /home/{{ ansible_user }}/.config/systemd/user/acme-renew.service
+        content: |
+          [Unit]
+          Description=Renew TLS certificates with acme.sh
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=%h/.acme.sh/acme.sh --cron --home %h/.acme.sh
+          StandardOutput=journal
+          StandardError=journal
+      when: acme_stat.stat.exists
+
+    - name: Deploy acme-renew systemd timer (daily renewal check)
+      copy:
+        dest: /home/{{ ansible_user }}/.config/systemd/user/acme-renew.timer
+        content: |
+          [Unit]
+          Description=Daily acme.sh renewal check for the TLS certificate
+
+          [Timer]
+          OnCalendar=*-*-* 04:30:00
+          RandomizedDelaySec=1h
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+      when: acme_stat.stat.exists
+      notify: Reload acme timer
+
+    - name: Enable acme-renew timer
+      systemd:
+        name: acme-renew.timer
+        enabled: true
+        state: started
+        scope: user
+        daemon_reload: true
+      when: acme_stat.stat.exists
+      ignore_errors: "{{ ansible_check_mode }}"
+
   handlers:
 
     - name: Restart app
@@ -393,6 +445,14 @@
     - name: Reload geoip timer
       systemd:
         name: geoip-update.timer
+        state: started
+        scope: user
+        daemon_reload: true
+      ignore_errors: "{{ ansible_check_mode }}"
+
+    - name: Reload acme timer
+      systemd:
+        name: acme-renew.timer
         state: started
         scope: user
         daemon_reload: true

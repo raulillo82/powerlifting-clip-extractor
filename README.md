@@ -343,7 +343,12 @@ sudo mkdir -p /etc/nginx/ssl
   --reloadcmd "sudo systemctl reload nginx"
 ```
 
-La renovación se gestiona automáticamente mediante el cron que instala acme.sh.
+acme.sh se instala con `--no-cron`, así que **no renueva nada por sí solo**. La renovación la hace un timer de systemd de usuario (`acme-renew.timer`, comprobación diaria) que ejecuta `acme.sh --cron`; el playbook `ansible/deploy.yml` lo despliega automáticamente. Para comprobarlo:
+
+```bash
+systemctl --user list-timers acme-renew.timer
+journalctl --user -u acme-renew.service -n 20
+```
 
 #### 6. Ajustes de seguridad
 
@@ -810,7 +815,12 @@ sudo mkdir -p /etc/nginx/ssl
   --reloadcmd "sudo systemctl reload nginx"
 ```
 
-Renewal is handled automatically by the cron job acme.sh installs.
+acme.sh is installed with `--no-cron`, so it **does not renew anything on its own**. Renewal is done by a systemd user timer (`acme-renew.timer`, daily check) that runs `acme.sh --cron`; the `ansible/deploy.yml` playbook deploys it automatically. To check it:
+
+```bash
+systemctl --user list-timers acme-renew.timer
+journalctl --user -u acme-renew.service -n 20
+```
 
 #### 6. Security settings
 
