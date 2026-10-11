@@ -34,6 +34,7 @@ DEFAULT_DURATION = 60
 DEFAULT_OUTPUT_DIR = "lifts"
 DEFAULT_TIMES_FILE = "times.txt"
 DOWNLOAD_WORKERS = 3            # workers paralelos para los 9 clips
+DOWNLOAD_ATTEMPTS = 4           # intentos de yt-dlp por clip antes de rendirse
 _print_lock = threading.Lock()  # serializa líneas de log en modo paralelo
 
 
@@ -152,31 +153,10 @@ def get_clip_duration(path: Path) -> float:
     return float(result.stdout.strip())
 
 
-def download_clip(url: str, start: int, duration: int, output: Path, label: str,
-                  *, parallel: bool = False) -> None:
-    """Download a single timed section from YouTube using yt-dlp."""
-    end = start + duration
-    section = f"*{seconds_to_hms(start)}-{seconds_to_hms(end)}"
-
-    tmp = output.with_suffix(".tmp.mp4")
-    cmd = [
-        "yt-dlp",
-        "--download-sections", section,
-        "-f", "bestvideo[vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
-        "--merge-output-format", "mp4",
-        "-N", "1",                             # sequential fragments → gradual progress
-        "--newline",                           # one progress line per update (no \r)
-        "-o", str(tmp),
-        "--no-playlist",
-        url,
-    ]
-
+def _run_ytdlp(cmd: list[str], *, parallel: bool) -> None:
+    """Run one yt-dlp download attempt; raise CalledProcessError if it fails."""
     if parallel:
         # Parallel mode: no PTY, simple capture; start/done messages via shared lock
-        t0 = time.monotonic()
-        with _print_lock:
-            print(f"{_ts()} ▶ [{label}]  {seconds_to_hms(start)} → {seconds_to_hms(end)}")
-            sys.stdout.flush()
         result = subprocess.run(cmd, capture_output=True)
         if result.returncode != 0:
             with _print_lock:
@@ -264,6 +244,50 @@ def download_clip(url: str, start: int, duration: int, output: Path, label: str,
                 if line and "[download]" not in line:
                     print(line)
             raise subprocess.CalledProcessError(proc.returncode, cmd)
+
+
+def download_clip(url: str, start: int, duration: int, output: Path, label: str,
+                  *, parallel: bool = False) -> None:
+    """Download a single timed section from YouTube using yt-dlp."""
+    end = start + duration
+    section = f"*{seconds_to_hms(start)}-{seconds_to_hms(end)}"
+
+    tmp = output.with_suffix(".tmp.mp4")
+    cmd = [
+        "yt-dlp",
+        "--download-sections", section,
+        "-f", "bestvideo[vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
+        "--merge-output-format", "mp4",
+        "-N", "1",                             # sequential fragments → gradual progress
+        "--newline",                           # one progress line per update (no \r)
+        "-o", str(tmp),
+        "--no-playlist",
+        url,
+    ]
+
+    if parallel:
+        t0 = time.monotonic()
+        with _print_lock:
+            print(f"{_ts()} ▶ [{label}]  {seconds_to_hms(start)} → {seconds_to_hms(end)}")
+            sys.stdout.flush()
+
+    # YouTube now and then hands yt-dlp a stream URL that answers 403 to every
+    # request; a new yt-dlp run gets a fresh URL, so retry before giving up.
+    for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
+        try:
+            _run_ytdlp(cmd, parallel=parallel)
+            break
+        except subprocess.CalledProcessError:
+            if attempt == DOWNLOAD_ATTEMPTS:
+                raise
+            tmp.unlink(missing_ok=True)
+            retry = f"reintentando descarga ({attempt + 1}/{DOWNLOAD_ATTEMPTS})"
+            if parallel:
+                with _print_lock:
+                    print(f"{_ts()} ↻ [{label}] {retry}")
+            else:
+                print(f"↻ {retry}")
+            sys.stdout.flush()
 
     # Apply faststart for faster browser playback (stream-copy, lossless).
     # If ffmpeg can't process the file (e.g. unsupported codec build), fall back to the raw file.

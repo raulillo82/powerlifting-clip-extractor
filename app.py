@@ -878,6 +878,7 @@ def ocr_review(job_id: str):
 
 
 _OCR_MOV_PREFIX = {"squat": "sq", "bench": "bn", "deadlift": "dl"}
+OCR_FRAME_URL_ATTEMPTS = 3
 
 
 @app.route("/ocr/<job_id>/frame/<mov>/<int:attempt>/<ftype>")
@@ -905,19 +906,24 @@ def ocr_frame(job_id: str, mov: str, attempt: int, ftype: str):
             if not submitted_url:
                 abort(404)
             try:
-                r = subprocess.run(
-                    ["yt-dlp", "--get-url",
-                     "-f", "best[height<=720][ext=mp4]/best[height<=720]/best",
-                     submitted_url],
-                    capture_output=True, text=True, timeout=30)
-                stream_url = r.stdout.strip().split("\n")[0] if r.returncode == 0 else None
-                if not stream_url:
-                    abort(404)
-                subprocess.run(
-                    ["ffmpeg", "-ss", str(requested), "-i", stream_url,
-                     "-frames:v", "1", "-q:v", "3", "-vf", "scale=1280:-1",
-                     str(exact_path), "-y"],
-                    capture_output=True, timeout=30)
+                # YouTube now and then hands out a stream URL that answers 403;
+                # asking yt-dlp again gets a fresh one.
+                for _ in range(OCR_FRAME_URL_ATTEMPTS):
+                    r = subprocess.run(
+                        ["yt-dlp", "--get-url",
+                         "-f", "best[height<=720][ext=mp4]/best[height<=720]/best",
+                         submitted_url],
+                        capture_output=True, text=True, timeout=30)
+                    stream_url = r.stdout.strip().split("\n")[0] if r.returncode == 0 else None
+                    if not stream_url:
+                        continue
+                    subprocess.run(
+                        ["ffmpeg", "-ss", str(requested), "-i", stream_url,
+                         "-frames:v", "1", "-q:v", "3", "-vf", "scale=1280:-1",
+                         str(exact_path), "-y"],
+                        capture_output=True, timeout=30)
+                    if exact_path.exists() and exact_path.stat().st_size > 0:
+                        break
             except Exception:
                 abort(404)
         if not exact_path.exists() or exact_path.stat().st_size == 0:
