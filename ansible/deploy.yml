@@ -58,7 +58,7 @@
       register: git_result
 
     - name: Build container image
-      command: podman build -t "{{ image_name }}" "{{ app_dir }}"
+      command: podman build --pull=newer -t "{{ image_name }}" "{{ app_dir }}"
       changed_when: true
       when: git_result.changed or ansible_check_mode == false
 

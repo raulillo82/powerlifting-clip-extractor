@@ -1,11 +1,18 @@
 FROM registry.opensuse.org/opensuse/tumbleweed
 
+# Tumbleweed is a rolling release: installing today's packages on top of an
+# older base image leaves mismatched libraries (ffmpeg fails to start), so
+# bring the base up to date first. Build with --pull=newer so the cached
+# layers, and with them yt-dlp, do not go stale: YouTube answers 403 to
+# stream URLs obtained with a yt-dlp that is a few months old.
+
 # Packman Essentials provides a full-featured ffmpeg build (libx264, libx265, etc.)
 # which the standard OpenSUSE package omits due to patent restrictions.
 RUN zypper addrepo -cfp 90 \
         'https://ftp.gwdg.de/pub/linux/misc/packman/suse/openSUSE_Tumbleweed/Essentials' \
         packman-essentials \
     && zypper --gpg-auto-import-keys refresh \
+    && zypper dup -y \
     && zypper install -y \
         python3 \
         python3-pip \

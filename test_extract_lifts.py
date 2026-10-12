@@ -486,6 +486,51 @@ class TestDownloadClipParallel:
             with pytest.raises(subprocess.CalledProcessError):
                 fl_el.download_clip("url", 0, 60, out, "lift 01", parallel=True)
 
+    def test_retries_download_and_succeeds(self, tmp_path):
+        out = tmp_path / "clip.mp4"
+        attempts = []
+
+        def flaky(cmd, *, parallel):
+            attempts.append(cmd)
+            if len(attempts) < 3:
+                raise subprocess.CalledProcessError(1, cmd)
+            (tmp_path / "clip.tmp.mp4").write_bytes(b"")
+
+        with patch.object(fl_el, "_run_ytdlp", flaky), \
+             patch("subprocess.run", return_value=MagicMock(returncode=0)):
+            fl_el.download_clip("url", 0, 60, out, "lift 01", parallel=True)
+        assert len(attempts) == 3
+
+    def test_gives_up_after_max_attempts(self, tmp_path):
+        out = tmp_path / "clip.mp4"
+        attempts = []
+
+        def always_fail(cmd, *, parallel):
+            attempts.append(cmd)
+            raise subprocess.CalledProcessError(1, cmd)
+
+        with patch.object(fl_el, "_run_ytdlp", always_fail):
+            with pytest.raises(subprocess.CalledProcessError):
+                fl_el.download_clip("url", 0, 60, out, "lift 01", parallel=True)
+        assert len(attempts) == fl_el.DOWNLOAD_ATTEMPTS
+
+    def test_retry_discards_partial_download(self, tmp_path):
+        out = tmp_path / "clip.mp4"
+        tmp = tmp_path / "clip.tmp.mp4"
+        seen_partial = []
+
+        def flaky(cmd, *, parallel):
+            seen_partial.append(tmp.exists())
+            if len(seen_partial) == 1:
+                tmp.write_bytes(b"partial")
+                raise subprocess.CalledProcessError(1, cmd)
+            tmp.write_bytes(b"full")
+
+        with patch.object(fl_el, "_run_ytdlp", flaky), \
+             patch("subprocess.run", return_value=MagicMock(returncode=0)):
+            fl_el.download_clip("url", 0, 60, out, "lift 01", parallel=True)
+        assert seen_partial == [False, False]
+
 
 # ── run() — parallel downloads ────────────────────────────────────────────────
 
