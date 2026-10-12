@@ -105,6 +105,12 @@
 
           [Service]
           Type=simple
+          # The host may have no RTC: it boots with an old date until chrony
+          # steps the clock (20-60 s). Wait for a sane date, at most 2 minutes,
+          # so sessions and timestamps are not created in the past. The
+          # threshold (2026-09-21) only has to stay in the past.
+          TimeoutStartSec=180
+          ExecStartPre=/usr/bin/sh -c 'i=0; while [ "$$(date +%%s)" -lt 1790000000 ] && [ $$i -lt 120 ]; do i=$$((i+1)); sleep 1; done'
           ExecStartPre=-/usr/bin/podman rm -f {{ service_name }}
           ExecStart=/usr/bin/podman run \
               --name {{ service_name }} \
