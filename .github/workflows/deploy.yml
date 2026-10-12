@@ -27,7 +27,7 @@ jobs:
         run: |
           cd ~/powerlifting-clip-extractor
           git pull
-          podman build -t localhost/powerlifting:latest .
+          podman build --pull=newer -t localhost/powerlifting:latest .
           systemctl --user restart powerlifting
           systemctl --user is-active powerlifting
 
@@ -49,6 +49,6 @@ jobs:
           git fetch
           git checkout ${{ vars.STAGING_BRANCH }}
           git reset --hard origin/${{ vars.STAGING_BRANCH }}
-          podman build -t localhost/powerlifting-staging:latest .
+          podman build --pull=newer -t localhost/powerlifting-staging:latest .
           systemctl --user restart powerlifting-staging
           systemctl --user is-active powerlifting-staging
