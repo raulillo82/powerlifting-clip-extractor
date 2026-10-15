@@ -1,7 +1,10 @@
 import json
+import shutil
 import time
+from pathlib import Path
 
-from flask import Blueprint, redirect, render_template, request, url_for
+from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask_login import current_user
 from auth import admin_required
 from db import get_all_feedback, get_all_staging_access, get_db, get_stats, grant_staging_access, revoke_staging_access
 
@@ -79,6 +82,32 @@ def staging_grant(user_id):
 @admin_required
 def staging_revoke(user_id):
     revoke_staging_access(user_id)
+    return redirect(url_for("admin.index"))
+
+
+@admin_bp.route("/clear-jobs", methods=["POST"])
+@admin_required
+def clear_jobs():
+    from app import jobs as _jobs
+    uid = str(current_user.get_id())
+    lifts_root = Path("lifts")
+    deleted = 0
+    if lifts_root.exists():
+        for job_dir in lifts_root.iterdir():
+            if not job_dir.is_dir():
+                continue
+            status_file = job_dir / "status.json"
+            if not status_file.exists():
+                continue
+            try:
+                data = json.loads(status_file.read_text())
+            except Exception:
+                continue
+            if str(data.get("user_id")) == uid:
+                _jobs.pop(data.get("job_id"), None)
+                shutil.rmtree(job_dir, ignore_errors=True)
+                deleted += 1
+    flash(f"{deleted} job(s) eliminados.", "success")
     return redirect(url_for("admin.index"))
 
 
