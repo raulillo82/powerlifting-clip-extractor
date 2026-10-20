@@ -127,6 +127,7 @@ YOUTUBE_CHANNEL_WHITELIST: list[str] = [
     "gbpowerfed",                # British Powerlifting
     "@usapowerlifting1",         # USA Powerlifting (USAPL)
     "@canadapowerlifting",       # Canadian Powerlifting Union (CPU)
+    "@powerliftingamerica",      # Powerlifting America (IPF affiliate, USA)
 ]
 
 
@@ -162,6 +163,18 @@ _SOURCES: dict[str, str] = {
     "usapl": "https://www.youtube.com/@USAPowerlifting1/playlists",
     "bp":   "https://www.youtube.com/@gbpowerfed-britishpowerlifting/playlists",
     "cpu":  "https://www.youtube.com/@canadapowerlifting/playlists",
+    "pa":   "https://www.youtube.com/@powerliftingamerica/playlists",
+}
+
+# Competitions of a source that are streamed on another channel, e.g. IPF
+# championships broadcast by the host country's federation. Listed one by one
+# because those channels also publish highlight reels that a title filter
+# would let through. Shown first in their year.
+_EXTRA_PLAYLISTS: dict[str, list[dict]] = {
+    "ipf": [
+        {"title": "IPF World Masters Powerlifting 2026 · Powerlifting America",
+         "url": "https://www.youtube.com/playlist?list=PLcCFHlHUogXw"},
+    ],
 }
 
 # (timestamp, grouped_data)
@@ -222,6 +235,11 @@ def _fetch_channel_playlists(source: str) -> dict:
         m = _re.search(r"\b(20\d{2})\b", raw_title)
         year = m.group(1) if m else "?"
         by_year.setdefault(year, []).append({"title": title, "url": url})
+
+    for extra in reversed(_EXTRA_PLAYLISTS.get(source, [])):
+        m = _re.search(r"\b(20\d{2})\b", extra["title"])
+        year = m.group(1) if m else "?"
+        by_year.setdefault(year, []).insert(0, dict(extra))
 
     return dict(sorted(by_year.items(), reverse=True))
 
