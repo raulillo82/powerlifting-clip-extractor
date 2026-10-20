@@ -838,6 +838,9 @@ class TestChannelWhitelisted:
         assert flask_app._channel_whitelisted(
             "https://www.youtube.com/@gbpowerfed-britishpowerlifting"
         )
+        assert flask_app._channel_whitelisted(
+            "https://www.youtube.com/@powerliftingamerica"
+        )
 
 class TestChannelSearch:
     YT_RESULT = json.dumps({
@@ -906,10 +909,52 @@ class TestChannelSearch:
 
     def test_new_sources_are_valid(self, client):
         client.post("/login", data={"username": "admin", "password": "adminpass"})
-        for source in ("usapl", "bp", "cpu"):
+        for source in ("usapl", "bp", "cpu", "pa"):
             r = client.get(f"/api/channel-search?source={source}&q=")
             assert r.status_code == 200, f"source={source} returned {r.status_code}"
         assert r.get_json() == []
+
+
+class TestExtraPlaylists:
+    @staticmethod
+    def _playlist(title, list_id):
+        url = f"https://www.youtube.com/playlist?list={list_id}"
+        return json.dumps({"title": title, "url": url, "webpage_url": url})
+
+    def _fetch(self, source, entries, extras):
+        stdout = "\n".join(entries) + "\n"
+        mock_result = type("R", (), {"stdout": stdout, "returncode": 0})()
+        with patch("subprocess.run", return_value=mock_result), \
+             patch.dict(flask_app._EXTRA_PLAYLISTS, extras, clear=True):
+            return flask_app._fetch_channel_playlists(source)
+
+    def test_extras_go_first_in_their_year(self):
+        extra = {"title": "World Masters 2026 · Host Federation",
+                 "url": "https://www.youtube.com/playlist?list=EXTRA"}
+        data = self._fetch("ipf", [
+            self._playlist("2026 IPF World Open Classic", "A"),
+            self._playlist("2025 IPF World Bench Press", "B"),
+        ], {"ipf": [extra]})
+        assert [e["url"] for e in data["2026"]] == [
+            extra["url"], "https://www.youtube.com/playlist?list=A"]
+        assert len(data["2025"]) == 1
+
+    def test_extras_create_missing_year(self):
+        extra = {"title": "World Masters 2027", "url": "https://www.youtube.com/playlist?list=X"}
+        data = self._fetch("ipf", [self._playlist("2026 Worlds", "A")], {"ipf": [extra]})
+        assert list(data) == ["2027", "2026"]
+        assert data["2027"] == [extra]
+
+    def test_extras_only_apply_to_their_source(self):
+        extra = {"title": "World Masters 2026", "url": "https://www.youtube.com/playlist?list=X"}
+        data = self._fetch("aep", [self._playlist("Nacional 2026", "A")], {"ipf": [extra]})
+        assert [e["url"] for e in data["2026"]] == ["https://www.youtube.com/playlist?list=A"]
+
+    def test_configured_extras_are_valid_playlists(self):
+        for source, extras in flask_app._EXTRA_PLAYLISTS.items():
+            assert source in flask_app._SOURCES
+            for extra in extras:
+                assert "youtube.com/playlist?list=" in extra["url"]
 
 
 class TestHistory:
