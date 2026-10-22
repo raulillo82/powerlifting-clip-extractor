@@ -136,6 +136,40 @@ class TestRun:
         r = self._post(client, {"timestamps_text": "0:21:27\n0:29:55"})
         assert b"is-invalid" in r.data
 
+    def test_invalid_timestamp_returns_400(self, client):
+        bad = VALID_TIMESTAMPS.replace(VALID_TIMESTAMPS.splitlines()[0], "oops", 1)
+        r = self._post(client, {"timestamps_text": bad})
+        assert r.status_code == 400
+        assert b"is-invalid" in r.data
+        assert b"oops" in r.data
+
+    def test_invalid_timestamp_names_line_and_formats(self, client):
+        lines = VALID_TIMESTAMPS.splitlines()
+        lines[3] = "4 o'clock"
+        r = self._post(client, {"timestamps_text": "\n".join(lines)})
+        html = r.get_data(as_text=True)
+        assert "Line 4" in html
+        assert "1h6m2s" in html
+        # Translatable on the page: key plus arguments, escaped for the attribute
+        assert 'data-i18n-msg="ts.error.line"' in html
+        assert "&#34;line&#34;: 4" in html
+        assert "4 o&#39;clock" in html
+
+    def test_invalid_timestamp_in_file_returns_400(self, client):
+        bad = VALID_TIMESTAMPS.replace(VALID_TIMESTAMPS.splitlines()[0], "oops", 1)
+        r = self._post(client, {
+            "timestamps_mode": "file",
+            "timestamps_file": (io.BytesIO(bad.encode()), "times.txt"),
+        })
+        assert r.status_code == 400
+        assert b"is-invalid" in r.data
+
+    def test_youtube_style_timestamps_accepted(self, client):
+        ts = "\n".join(f"{m}m{s:02d}s" for m, s in
+                       [(18, 6), (29, 32), (39, 38), (72, 46), (82, 16),
+                        (92, 11), (128, 15), (136, 7), (144, 10)])
+        assert self._post(client, {"timestamps_text": ts}).status_code == 302
+
     def test_valid_form_redirects_to_status(self, client):
         r = self._post(client)
         assert r.status_code == 302
@@ -560,6 +594,16 @@ class TestSingleLift:
         r = self._submit(client, {"single_timestamp": ""})
         assert r.status_code == 400
         assert b"single_timestamp" in r.data or b"is-invalid" in r.data
+
+    def test_invalid_timestamp_explains_formats(self, client):
+        r = self._submit(client, {"single_timestamp": "half past"})
+        html = r.get_data(as_text=True)
+        assert r.status_code == 400
+        assert '"half past" is not a valid time' in html.replace("&#34;", '"')
+        assert 'data-i18n-msg="ts.error.single"' in html
+
+    def test_youtube_style_timestamp_accepted(self, client):
+        assert self._submit(client, {"single_timestamp": "11m42s"}).status_code == 302
 
     def test_missing_music_returns_400(self, client):
         r = self._submit(client, {"audio_mode": "music_only", "music": ""})

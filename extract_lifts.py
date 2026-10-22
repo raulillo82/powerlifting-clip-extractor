@@ -48,10 +48,15 @@ def _ts() -> str:
 def parse_timestamp(ts: str) -> int:
     """Parse mixed-format timestamp string to total seconds.
 
-    Handles: HH:MM:SS, H:MM:SS, MM:SS, XhMM:SS, Xh:MM:SS
-    Examples: '0:21:27', '1h23:30', '2h33:4'
+    Handles: HH:MM:SS, H:MM:SS, MM:SS, XhMM:SS, Xh:MM:SS and YouTube-style
+    unit suffixes (XhYmZs, any part optional, as in '?t=11m42s' links).
+    Examples: '0:21:27', '1h23:30', '2h33:4', '11m42s', '1h2m3s'
     """
     ts = ts.strip()
+    m = re.fullmatch(r'(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?', ts, re.IGNORECASE)
+    if m and any(m.groups()):
+        h, mins, secs = (int(g or 0) for g in m.groups())
+        return h * 3600 + mins * 60 + secs
     ts = re.sub(r'^(\d+)h:?(\d+):(\d+)$', r'\1:\2:\3', ts)  # normalise XhMM:SS
     parts = ts.split(':')
     try:
