@@ -10,13 +10,16 @@ FROM registry.opensuse.org/opensuse/tumbleweed
 # which the standard OpenSUSE package omits due to patent restrictions.
 RUN zypper addrepo -cfp 90 \
         'https://ftp.gwdg.de/pub/linux/misc/packman/suse/openSUSE_Tumbleweed/Essentials' \
-        packman-essentials \
+        packman \
     && zypper --gpg-auto-import-keys refresh \
     && zypper dup -y \
     && zypper install -y \
         python3 \
         python3-pip \
         yt-dlp \
+        tesseract-ocr \
+        tesseract-ocr-traineddata-spa \
+    && zypper install -y --from packman --allow-vendor-change \
         ffmpeg \
     && zypper clean -a
 
