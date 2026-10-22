@@ -1595,6 +1595,39 @@ class TestOcrProxyPrefix:
                    for u in frame_urls)
 
 
+class TestOcrFrameExact:
+    """Exact-frame preview: yt-dlp URL + one ffmpeg frame, on demand."""
+
+    def _get(self, client, tmp_path, urls):
+        job_id = TestOcrReview()._make_ocr_done_job()
+        flask_app.jobs[job_id]["output_dir"] = str(tmp_path / "job")
+        (tmp_path / "job" / "ocr").mkdir(parents=True)
+        pending = iter(urls)
+        asked = []
+
+        def run(cmd, **kwargs):
+            if cmd[0] == "yt-dlp":
+                asked.append(cmd)
+                return MagicMock(returncode=0, stdout=next(pending) + "\n")
+            if "good" in cmd:  # ffmpeg only gets a frame out of a working URL
+                Path(cmd[-2]).write_bytes(b"jpg")
+            return MagicMock(returncode=0)
+
+        with patch("subprocess.run", run):
+            r = client.get(f"/ocr/{job_id}/frame/squat/0/start?t=1287&exact=1")
+        return r, len(asked)
+
+    def test_asks_for_another_url_when_first_is_forbidden(self, client, tmp_path):
+        r, asked = self._get(client, tmp_path, ["bad", "good"])
+        assert r.status_code == 200
+        assert asked == 2
+
+    def test_gives_up_after_max_attempts(self, client, tmp_path):
+        r, asked = self._get(client, tmp_path, ["bad"] * 10)
+        assert r.status_code == 404
+        assert asked == flask_app.OCR_FRAME_URL_ATTEMPTS
+
+
 # ── _ocr_worker unit tests ─────────────────────────────────────────────────────
 
 class TestOcrWorker:
