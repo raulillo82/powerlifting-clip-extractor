@@ -1,10 +1,13 @@
 {% extends "base.html" %}
+{% macro error_text() -%}
+<span{% if error_i18n %} data-i18n-msg="{{ error_i18n[0] }}" data-i18n-args="{{ error_i18n[1]|tojson|forceescape }}"{% endif %}>{{ error }}</span>
+{%- endmacro %}
 {% block content %}
 
 <h2 class="mb-4" data-i18n="page.new">New extraction</h2>
 
 {% if error %}
-<div class="alert alert-danger">{{ error }}</div>
+<div class="alert alert-danger">{{ error_text() }}</div>
 {% endif %}
 
 <form method="post" action="{{ url_for('start_job') }}" enctype="multipart/form-data">
@@ -142,8 +145,9 @@
         <textarea class="form-control font-monospace {% if error_field == 'timestamps_text' %}is-invalid{% endif %}"
                   id="timestamps_text" name="timestamps_text" rows="9"
                   placeholder="0:21:27&#10;0:29:55&#10;0:38:15&#10;1h23:30&#10;1h32:21&#10;1h41:30&#10;2h26:15&#10;2h33:4&#10;2h41:35">{{ form_data.get('timestamps_text', '') if form_data else '' }}</textarea>
+        <div class="form-text" data-i18n="ts.formats.hint">Accepted formats: 1:06:02 · 66:02 · 1h06:02 · 1h6m2s</div>
         {% if error_field == 'timestamps_text' %}
-        <div class="invalid-feedback">{{ error }}</div>
+        <div class="invalid-feedback">{{ error_text() }}</div>
         {% endif %}
       </div>
 
@@ -155,8 +159,9 @@
         <input type="file" accept=".txt"
                class="form-control {% if error_field == 'timestamps_file' %}is-invalid{% endif %}"
                id="timestamps_file" name="timestamps_file">
+        <div class="form-text" data-i18n="ts.formats.hint">Accepted formats: 1:06:02 · 66:02 · 1h06:02 · 1h6m2s</div>
         {% if error_field == 'timestamps_file' %}
-        <div class="invalid-feedback">{{ error }}</div>
+        <div class="invalid-feedback">{{ error_text() }}</div>
         {% endif %}
       </div>
     </div>
@@ -282,8 +287,9 @@
                    id="single_timestamp" name="single_timestamp"
                    value="{{ form_data.get('single_timestamp', '') if form_data else '' }}"
                    placeholder="2h26:15 ó 2:26:15" {% if not is_single %}disabled{% endif %}>
+            <div class="form-text" data-i18n="ts.formats.hint">Accepted formats: 1:06:02 · 66:02 · 1h06:02 · 1h6m2s</div>
             {% if error_field == 'single_timestamp' %}
-            <div class="invalid-feedback">{{ error }}</div>
+            <div class="invalid-feedback">{{ error_text() }}</div>
             {% endif %}
           </div>
           <div class="col-md-3">
@@ -710,7 +716,10 @@ function _validateDuration() {
   const hms = s => new Date(s*1000).toISOString().slice(11,19);
 
   function parseTs(str) {
-    const p = str.split(':').map(Number);
+    const u = str.trim().match(/^(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?$/i);
+    if (u && (u[1] || u[2] || u[3]))
+      return (+u[1] || 0)*3600 + (+u[2] || 0)*60 + (+u[3] || 0);
+    const p = str.replace(/^(\d+)h:?/i, '$1:').split(':').map(Number);
     if (p.length === 3) return p[0]*3600 + p[1]*60 + p[2];
     if (p.length === 2) return p[0]*60 + p[1];
     return 0;
