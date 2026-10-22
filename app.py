@@ -612,9 +612,35 @@ def _worker(job_id: str, job: dict, run_kwargs: dict, mode: str = "full") -> Non
 # ── Form parsing ───────────────────────────────────────────────────────────────
 
 class FormError(ValueError):
-    def __init__(self, message: str, field: str = ""):
+    """Form validation error shown on `field`.
+
+    `i18n` is an optional (key, args) pair the page uses to show the message
+    in the visitor's language; the message itself is the English fallback.
+    """
+    def __init__(self, message: str, field: str = "", i18n: tuple[str, dict] | None = None):
         super().__init__(message)
         self.field = field
+        self.i18n = i18n
+
+
+def _timestamp_error(value: str, field: str, line: int | None = None) -> FormError:
+    """FormError for a timestamp parse_timestamp rejected, naming the accepted formats."""
+    formats = "1:06:02, 66:02, 1h6m2s"
+    if line is None:
+        return FormError(f'"{value}" is not a valid time. Use e.g. {formats}.', field=field,
+                         i18n=("ts.error.single", {"value": value}))
+    return FormError(f'Line {line}: "{value}" is not a valid time. Use e.g. {formats}.', field=field,
+                     i18n=("ts.error.line", {"line": line, "value": value}))
+
+
+def _parse_timestamps(lines: list[str], field: str) -> list[int]:
+    timestamps = []
+    for n, line in enumerate(lines, start=1):
+        try:
+            timestamps.append(parse_timestamp(line))
+        except ValueError:
+            raise _timestamp_error(line, field, line=n)
+    return timestamps
 
 
 def _build_single_run_kwargs(form, url: str, output_dir: Path) -> dict:
@@ -623,8 +649,8 @@ def _build_single_run_kwargs(form, url: str, output_dir: Path) -> dict:
         raise FormError("El timestamp es obligatorio.", field="single_timestamp")
     try:
         timestamp = parse_timestamp(ts_raw)
-    except ValueError as e:
-        raise FormError(str(e), field="single_timestamp")
+    except ValueError:
+        raise _timestamp_error(ts_raw, "single_timestamp")
 
     movement = form.get("single_movement", "squat")
     if movement not in ("squat", "bench", "deadlift"):
@@ -694,12 +720,12 @@ def _build_run_kwargs(form, files, output_dir: Path) -> dict:
         lines = [l.strip() for l in content.splitlines() if l.strip()]
         if len(lines) != 9:
             raise FormError(f"Expected 9 timestamps, got {len(lines)}.", field="timestamps_file")
-        timestamps = [parse_timestamp(l) for l in lines]
+        timestamps = _parse_timestamps(lines, field="timestamps_file")
     else:
         lines = [l.strip() for l in form.get("timestamps_text", "").splitlines() if l.strip()]
         if len(lines) != 9:
             raise FormError(f"Expected 9 timestamps, got {len(lines)}.", field="timestamps_text")
-        timestamps = [parse_timestamp(l) for l in lines]
+        timestamps = _parse_timestamps(lines, field="timestamps_text")
 
     duration = int(form.get("duration") or 60)
     durations = {
@@ -772,6 +798,7 @@ def start_job():
         return render_template("index.html",
                                error=str(e),
                                error_field=e.field,
+                               error_i18n=e.i18n,
                                form_data=request.form), 400
 
     mode = run_kwargs.pop("_mode", "full")
