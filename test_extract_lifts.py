@@ -48,6 +48,29 @@ class TestParseTimestamp:
     def test_strips_whitespace(self):
         assert parse_timestamp("  0:21:27  ") == 21 * 60 + 27
 
+    def test_youtube_minutes_seconds(self):
+        assert parse_timestamp("11m42s") == 11 * 60 + 42
+
+    def test_youtube_hours_minutes_seconds(self):
+        assert parse_timestamp("1h2m3s") == 3600 + 2 * 60 + 3
+
+    def test_youtube_partial_units(self):
+        assert parse_timestamp("42s") == 42
+        assert parse_timestamp("11m") == 11 * 60
+        assert parse_timestamp("2h") == 2 * 3600
+        assert parse_timestamp("1h05s") == 3600 + 5
+
+    def test_youtube_spaces_and_case(self):
+        assert parse_timestamp(" 11M 42S ") == 11 * 60 + 42
+
+    def test_bare_number_raises(self):
+        with pytest.raises(ValueError):
+            parse_timestamp("42")
+
+    def test_empty_raises(self):
+        with pytest.raises(ValueError):
+            parse_timestamp("")
+
     def test_invalid_raises(self):
         with pytest.raises(ValueError):
             parse_timestamp("not-a-time")
