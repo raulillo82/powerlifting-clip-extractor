@@ -456,6 +456,52 @@
         daemon_reload: true
       ignore_errors: "{{ ansible_check_mode }}"
 
+    # ── Deploys ──────────────────────────────────────────────────────────────
+    # The host polls the public repository and deploys by itself, so no
+    # GitHub runner has to live on it. Nothing here needs a token.
+
+    - name: Deploy the deploy script
+      copy:
+        src: files/powerlifting-deploy.sh
+        dest: /home/{{ ansible_user }}/.local/bin/powerlifting-deploy.sh
+        mode: "0755"
+
+    - name: Deploy powerlifting-deploy systemd service
+      copy:
+        dest: /home/{{ ansible_user }}/.config/systemd/user/powerlifting-deploy.service
+        content: |
+          [Unit]
+          Description=Deploy new commits of powerlifting-clip-extractor
+
+          [Service]
+          Type=oneshot
+          ExecStart=%h/.local/bin/powerlifting-deploy.sh
+          StandardOutput=journal
+          StandardError=journal
+
+    - name: Deploy powerlifting-deploy systemd timer (a minute after each run)
+      copy:
+        dest: /home/{{ ansible_user }}/.config/systemd/user/powerlifting-deploy.timer
+        content: |
+          [Unit]
+          Description=Check for new commits of powerlifting-clip-extractor
+
+          [Timer]
+          OnBootSec=3min
+          OnUnitInactiveSec=1min
+
+          [Install]
+          WantedBy=timers.target
+
+    - name: Enable powerlifting-deploy timer
+      systemd:
+        name: powerlifting-deploy.timer
+        enabled: true
+        state: started
+        scope: user
+        daemon_reload: true
+      ignore_errors: "{{ ansible_check_mode }}"
+
     # ── TLS certificate renewal ─────────────────────────────────────────────
     # acme.sh is installed with --no-cron (the hosts have no cron daemon), so
     # nothing renews the certificate unless this timer runs `acme.sh --cron`.
