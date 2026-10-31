@@ -29,7 +29,9 @@ COPY . .
 
 # Persistent data is bind-mounted from the host at runtime:
 #   users.db, secret.key, lifts/
-RUN mkdir -p lifts
+# The app runs as UID 1000 (podman --userns keep-id) and SQLite needs to create
+# its journal next to users.db.
+RUN mkdir -p lifts && chown 1000:1000 /app
 
 EXPOSE 5000
 
