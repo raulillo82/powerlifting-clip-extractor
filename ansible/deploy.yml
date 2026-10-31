@@ -187,13 +187,17 @@
           ExecStart=/usr/bin/podman run \
               --name {{ service_name }} \
               --rm \
+              --userns keep-id:uid=1000,gid=1000 \
+              --cap-drop all \
+              --security-opt no-new-privileges \
+              -e HOME=/tmp \
               -p {{ container_port }} \
               -v {{ users_db_real.stdout }}:/app/users.db:Z \
-              -v {{ app_dir }}/secret.key:/app/secret.key:Z \
+              -v {{ app_dir }}/secret.key:/app/secret.key:ro,Z \
               -v {{ app_dir }}/lifts:/app/lifts:Z \
-              -v {{ app_dir }}/GeoLite2-City.mmdb:/app/GeoLite2-City.mmdb:Z \
-              -v {{ app_dir }}/github_pat.key:/app/github_pat.key:Z \
-              -v {{ app_dir }}/webhook_secret.key:/app/webhook_secret.key:Z \
+              -v {{ app_dir }}/GeoLite2-City.mmdb:/app/GeoLite2-City.mmdb:ro,Z \
+              -v {{ app_dir }}/github_pat.key:/app/github_pat.key:ro,Z \
+              -v {{ app_dir }}/webhook_secret.key:/app/webhook_secret.key:ro,Z \
               {{ image_name }}
           ExecStop=/usr/bin/podman stop {{ service_name }}
           Restart=always
