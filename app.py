@@ -65,6 +65,14 @@ app.secret_key = _key_file.read_bytes() if _key_file.exists() else (
     lambda k: (_key_file.write_bytes(k), k)[1]
 )(os.urandom(24))
 
+# Only ever served over HTTPS, behind nginx
+app.config.update(
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    REMEMBER_COOKIE_SECURE=True,
+    REMEMBER_COOKIE_SAMESITE="Lax",
+)
+
 login_manager.init_app(app)
 limiter.init_app(app)
 app.register_blueprint(auth_bp)

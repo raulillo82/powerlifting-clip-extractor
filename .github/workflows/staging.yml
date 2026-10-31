@@ -1,55 +1,66 @@
 name: Staging
 
+# Chooses what staging runs by writing the branch name to the deploy-state
+# branch. The server polls that branch and does the deploy itself (see
+# ansible/files/powerlifting-deploy.sh): nothing here runs on the server.
+
 on:
   pull_request:
     branches: [main]
     types: [opened, reopened, synchronize, closed]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy to staging, or "none"'
+        required: true
+        type: string
 
-permissions:
-  actions: write
+permissions: {}
 
 jobs:
-  deploy:
-    if: github.event.action != 'closed'
-    runs-on: self-hosted
+  select:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     concurrency:
-      group: deploy-staging
+      group: deploy-state
       cancel-in-progress: false
     steps:
-      - name: Set STAGING_BRANCH variable
-        env:
-          PAT: ${{ secrets.GH_PAT }}
-        run: |
-          response=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH \
-            -H "Authorization: Bearer $PAT" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_BRANCH" \
-            -d '{"name":"STAGING_BRANCH","value":"${{ github.head_ref }}"}')
-          echo "HTTP $response"
-          [ "$response" = "204" ] || { echo "Failed to update STAGING_BRANCH (HTTP $response) — create GH_PAT secret with repo scope"; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          ref: deploy-state
 
-      - name: Deploy to staging
-        run: |
-          cd ~/powerlifting-clip-extractor-staging
-          git fetch
-          git checkout ${{ github.head_ref }}
-          git reset --hard origin/${{ github.head_ref }}
-          podman build --pull=newer -t localhost/powerlifting-staging:latest .
-          systemctl --user restart powerlifting-staging
-          systemctl --user is-active powerlifting-staging
-
-  clear:
-    if: github.event.action == 'closed'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Clear STAGING_BRANCH
+      - name: Update the staging branch
         env:
-          PAT: ${{ secrets.GH_PAT }}
+          EVENT_ACTION: ${{ github.event.action }}
+          HEAD_REF: ${{ github.head_ref }}
+          INPUT_BRANCH: ${{ inputs.branch }}
         run: |
-          response=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH \
-            -H "Authorization: Bearer $PAT" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_BRANCH" \
-            -d '{"name":"STAGING_BRANCH","value":"none"}')
-          echo "HTTP $response"
-          [ "$response" = "204" ]
+          current=$(cat staging_branch)
+          if [ -n "$INPUT_BRANCH" ]; then
+            target=$INPUT_BRANCH
+          elif [ "$EVENT_ACTION" != closed ]; then
+            target=$HEAD_REF
+          elif [ "$current" = "$HEAD_REF" ]; then
+            target=none
+          else
+            target=$current
+          fi
+
+          if ! [[ "$target" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then
+            echo "::error::Invalid branch name"
+            exit 1
+          fi
+          if [ "$target" = "$current" ]; then
+            echo "Staging already set to $target"
+            exit 0
+          fi
+
+          printf '%s\n' "$target" > staging_branch
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -qam "Staging: $target"
+          git push origin deploy-state

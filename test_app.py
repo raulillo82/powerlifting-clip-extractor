@@ -1849,3 +1849,57 @@ class TestNoAbsolutePathsInTemplates:
                     if (rel, url) not in _ALLOWED_ABSOLUTE_URLS:
                         offenders.append(f"{rel}:{lineno}: {url}")
         assert not offenders, "use url_for instead of:\n" + "\n".join(offenders)
+
+# ── Cookie attributes ──────────────────────────────────────────────────────────
+
+HTTPS = {"X-Forwarded-Proto": "https", "X-Forwarded-Prefix": "/powerlifting"}
+
+
+class TestCookieAttributes:
+    def test_login_cookies_are_secure_and_samesite(self, client):
+        client.get("/logout")
+        r = client.post("/login", headers=HTTPS,
+                        data={"username": "testadmin", "password": "testpass"})
+        cookies = _set_cookies(r)
+        for name in ("session", "remember_token", "device_token"):
+            issued = [c for c in cookies[name] if "Max-Age=0" not in c]
+            assert issued, name
+            for cookie in issued:
+                assert "Secure" in cookie, name
+                assert "HttpOnly" in cookie, name
+                assert "SameSite=Lax" in cookie, name
+
+    def test_registration_device_cookie_is_secure(self, anon_client_limited):
+        r = anon_client_limited.post("/register", headers=HTTPS)
+        assert "Secure" in _set_cookies(r)["device_token"][0]
+
+    def test_old_cookies_are_reissued_once_as_secure(self, client):
+        client.get("/logout")
+        client.post("/login", data={"username": "testadmin", "password": "testpass"})
+        with client.session_transaction() as sess:
+            sess.pop("cookies_secure", None)
+
+        first = _set_cookies(client.get("/login", headers=HTTPS))
+        for name in ("session", "remember_token", "device_token"):
+            issued = [c for c in first[name] if "Max-Age=0" not in c]
+            assert issued and all("Secure" in c for c in issued), name
+
+        second = _set_cookies(client.get("/login", headers=HTTPS))
+        assert "device_token" not in second
+        assert "remember_token" not in second
+
+    def test_visitor_without_cookies_gets_no_session(self, anon_client_limited):
+        r = anon_client_limited.get("/login", headers=HTTPS)
+        assert "session" not in _set_cookies(r)
+
+
+class TestLoginRedirect:
+    @pytest.mark.parametrize("target", [
+        "https://example.test/x", "//example.test", "/\\example.test",
+    ])
+    def test_next_is_ignored(self, client, target):
+        client.get("/logout")
+        r = client.post("/login", query_string={"next": target}, headers=HTTPS,
+                        data={"username": "testadmin", "password": "testpass"})
+        assert r.status_code == 302
+        assert r.headers["Location"] == "/powerlifting/"
