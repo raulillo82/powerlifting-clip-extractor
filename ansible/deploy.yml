@@ -265,7 +265,7 @@
 
               # Covers every app on this host. Inherited by the locations as
               # long as they define no add_header of their own.
-              add_header Strict-Transport-Security "max-age=300" always;
+              add_header Strict-Transport-Security "max-age=15552000" always;
 
               client_max_body_size 20M;
               access_log /var/log/nginx/powerlifting.log;
