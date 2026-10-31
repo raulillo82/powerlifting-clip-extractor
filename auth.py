@@ -3,7 +3,7 @@ import uuid
 from functools import wraps
 
 from altcha import ChallengeOptionsV1, create_challenge_v1, verify_solution_v1
-from flask import Blueprint, current_app, jsonify, make_response, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, jsonify, make_response, redirect, render_template, request, session, url_for
 from flask.sessions import SecureCookieSessionInterface
 from flask_login import LoginManager, UserMixin, current_user, login_required, login_user, logout_user
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -96,6 +96,34 @@ def _expire_root_cookies(resp, device_token=False):
         resp.delete_cookie(name, path="/")
 
 
+def _set_device_cookie(resp, token):
+    resp.set_cookie("device_token", token, path=cookie_path(),
+                    max_age=365 * 24 * 3600, secure=True, httponly=True, samesite="Lax")
+
+
+@auth_bp.after_app_request
+def _reissue_old_cookies(resp):
+    """Replace, once, cookies issued before they were marked Secure.
+
+    They last a year and browsers keep their attributes until they are set
+    again. Runs before Flask-Login's own after_request, which turns "_remember"
+    into a new remember cookie. Can go once a year has passed since it shipped.
+    """
+    device_token = request.cookies.get("device_token")
+    remember = current_app.config.get("REMEMBER_COOKIE_NAME", "remember_token")
+    has_remember = remember in request.cookies
+    if (session.get("cookies_secure") or not request.is_secure
+            or not (device_token or has_remember)):
+        return resp
+    session["cookies_secure"] = True
+    if has_remember and current_user.is_authenticated:
+        session["_remember"] = "set"
+    if device_token:
+        _set_device_cookie(resp, device_token)
+        _expire_root_cookies(resp, device_token=True)
+    return resp
+
+
 def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -155,11 +183,8 @@ def login():
                         conn.commit()
 
                 login_user(User(row), remember=True)
-                resp = make_response(
-                    redirect(request.args.get("next") or url_for("index"))
-                )
-                resp.set_cookie("device_token", new_token, path=cookie_path(),
-                                max_age=365 * 24 * 3600, httponly=True, samesite="Lax")
+                resp = make_response(redirect(url_for("index")))
+                _set_device_cookie(resp, new_token)
                 _expire_root_cookies(resp, device_token=True)
                 return resp
 
@@ -258,8 +283,7 @@ def register():
             admin_creating=admin_creating,
         ))
         if device_token:
-            resp.set_cookie("device_token", device_token, path=cookie_path(),
-                            max_age=365 * 24 * 3600, httponly=True, samesite="Lax")
+            _set_device_cookie(resp, device_token)
         return resp
 
     return render_template("register.html", slots_left=slots_left)
