@@ -3,9 +3,26 @@ import uuid
 from functools import wraps
 
 from altcha import ChallengeOptionsV1, create_challenge_v1, verify_solution_v1
-from flask import Blueprint, current_app, jsonify, make_response, redirect, render_template, request, session, url_for
+from flask import (
+    Blueprint,
+    current_app,
+    jsonify,
+    make_response,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
 from flask.sessions import SecureCookieSessionInterface
-from flask_login import LoginManager, UserMixin, current_user, login_required, login_user, logout_user
+from flask_login import (
+    LoginManager,
+    UserMixin,
+    current_user,
+    login_required,
+    login_user,
+    logout_user,
+)
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from db import get_db

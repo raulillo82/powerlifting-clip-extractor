@@ -215,3 +215,8 @@ def test_host_without_staging_deploys_production(host):
     host.commit("app.py")
     host.run()
     assert len(host.builds()) == 1
+
+
+def test_dependabot_pull_requests_do_not_select_staging():
+    workflow = (SCRIPT.parent.parent.parent / ".github" / "workflows" / "staging.yml").read_text()
+    assert "github.event.pull_request.user.login != 'dependabot[bot]'" in workflow

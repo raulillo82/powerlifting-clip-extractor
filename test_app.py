@@ -1,11 +1,12 @@
 """Flask route tests using the built-in test client."""
 import io
 import json
+import re as _re
 import shutil
 import subprocess
 import time
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from werkzeug.security import generate_password_hash
@@ -1373,7 +1374,7 @@ class TestGithubWebhook:
         import github_issues as gi
         monkeypatch.setattr(gi, "_SECRET_PATH",
                             type("P", (), {"read_text": lambda s: secret})())
-        issue = {"number": issue_number, "labels": [{"name": l} for l in (labels or [])]}
+        issue = {"number": issue_number, "labels": [{"name": label} for label in (labels or [])]}
         if state_reason:
             issue["state_reason"] = state_reason
         payload = json.dumps({"action": action, "issue": issue}).encode()
@@ -1618,7 +1619,6 @@ class TestOcrWorker:
         job = self._make_job(tmp_path)
         fake_result = json.dumps(OCR_RESULT)
 
-        import subprocess as sp
         class _FakeStdout:
             def read(self): return fake_result
         mock_proc = type("P", (), {
@@ -1659,8 +1659,6 @@ class TestOcrWorker:
 # verifican el *contrato* entre los marcadores que find_lifter.py imprime y los
 # que status.html parsea, para cazar bugs como el "fase 7 de 6" (contar
 # 'Terminado en' como una 7ª fase) o que backend y frontend se desincronicen.
-
-import re as _re
 
 _ROOT = Path(__file__).parent
 
