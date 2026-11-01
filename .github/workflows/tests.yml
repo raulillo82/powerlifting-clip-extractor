@@ -12,6 +12,9 @@ on:
       - 'prompt.txt'
       - '.gitignore'
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -22,6 +25,8 @@ jobs:
         with:
           python-version: "3.13"
 
-      - run: pip3 install pytest -r requirements.txt
+      - run: pip3 install pytest ruff==0.17.3 -r requirements.txt
+
+      - run: ruff check .
 
       - run: pytest test_extract_lifts.py test_app.py test_deploy.py -v

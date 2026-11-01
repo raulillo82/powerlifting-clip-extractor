@@ -9,23 +9,23 @@ No network or media files needed — external calls (yt-dlp, ffmpeg) are mocked.
 """
 
 import subprocess
-import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 import extract_lifts as fl_el
 from extract_lifts import (
-    parse_timestamp,
-    seconds_to_hms,
-    load_timestamps_file,
-    resolve_music,
-    build_parser,
-    run,
-    get_clip_duration,
-    add_music,
     add_mixed_audio,
+    add_music,
+    build_parser,
+    get_clip_duration,
+    load_timestamps_file,
+    parse_timestamp,
+    resolve_music,
+    run,
+    seconds_to_hms,
 )
-
 
 # ── parse_timestamp ────────────────────────────────────────────────────────────
 
@@ -404,7 +404,7 @@ class TestGetClipDuration:
     def test_returns_float_parsed_from_ffprobe(self, tmp_path):
         fake = tmp_path / "clip.mp4"
         fake.write_bytes(b"")
-        with patch("subprocess.run", return_value=self._make_result("123.456\n")) as mock_run:
+        with patch("subprocess.run", return_value=self._make_result("123.456\n")):
             result = get_clip_duration(fake)
         assert result == pytest.approx(123.456)
 

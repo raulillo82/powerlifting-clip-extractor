@@ -1372,7 +1372,7 @@ class TestGithubWebhook:
         import github_issues as gi
         monkeypatch.setattr(gi, "_SECRET_PATH",
                             type("P", (), {"read_text": lambda s: secret})())
-        issue = {"number": issue_number, "labels": [{"name": l} for l in (labels or [])]}
+        issue = {"number": issue_number, "labels": [{"name": label} for label in (labels or [])]}
         if state_reason:
             issue["state_reason"] = state_reason
         payload = json.dumps({"action": action, "issue": issue}).encode()

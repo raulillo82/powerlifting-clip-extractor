@@ -1,0 +1,4 @@
+[tool.ruff.lint]
+# Real errors and sorted imports. E501 stays out: some texts and queries are long
+select = ["E", "F", "I"]
+ignore = ["E501"]

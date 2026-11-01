@@ -1,9 +1,16 @@
-import json
 import time
 
 from flask import Blueprint, redirect, render_template, request, url_for
+
 from auth import admin_required
-from db import get_all_feedback, get_all_staging_access, get_db, get_stats, grant_staging_access, revoke_staging_access
+from db import (
+    get_all_feedback,
+    get_all_staging_access,
+    get_db,
+    get_stats,
+    grant_staging_access,
+    revoke_staging_access,
+)
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
