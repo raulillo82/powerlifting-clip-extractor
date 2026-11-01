@@ -2,6 +2,7 @@
 import io
 import json
 import shutil
+import threading
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -1500,3 +1501,72 @@ class TestLoginRedirect:
                         data={"username": "testadmin", "password": "testpass"})
         assert r.status_code == 302
         assert r.headers["Location"] == "/powerlifting/"
+
+
+class TestJobLogIsolation:
+    """Two jobs run at once in worker threads and must keep separate logs."""
+
+    def _run_jobs_together(self, body, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+        barrier = threading.Barrier(2, timeout=5)
+
+        def fake_run(label, dry_run):
+            barrier.wait()
+            body(label)
+            barrier.wait()
+
+        jobs = {
+            label: {"status": "running", "log": "", "output_dir": str(tmp_path),
+                    "queued_at": time.time(), "mode": "full", "source": "ipf", "_geo": {}}
+            for label in "ab"
+        }
+        with patch("app.run", fake_run), patch("app._save_job"):
+            threads = [
+                threading.Thread(target=flask_app._worker,
+                                 args=(f"job-{label}", jobs[label],
+                                       {"label": label, "dry_run": True}, "full"))
+                for label in "ab"
+            ]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=10)
+        return jobs
+
+    def test_concurrent_jobs_do_not_share_their_logs(self, tmp_path, monkeypatch):
+        def body(label):
+            for i in range(50):
+                print(f"{label}-{i}")
+
+        jobs = self._run_jobs_together(body, tmp_path, monkeypatch)
+
+        assert "a-49" in jobs["a"]["log"] and "b-" not in jobs["a"]["log"]
+        assert "b-49" in jobs["b"]["log"] and "a-" not in jobs["b"]["log"]
+
+    def test_stdout_goes_back_to_normal_after_the_jobs(self, tmp_path, monkeypatch, capsys):
+        self._run_jobs_together(lambda label: print(label), tmp_path, monkeypatch)
+
+        print("after the jobs")
+
+        assert "after the jobs" in capsys.readouterr().out
+
+    def test_threads_started_by_a_job_write_to_its_log(self, tmp_path):
+        log = io.StringIO()
+        with patch("extract_lifts.download_clip", side_effect=lambda *a, **k: print("in-pool")), \
+             patch("extract_lifts.make_combined", side_effect=lambda *a, **k: print("in-combined")), \
+             patch("extract_lifts.get_clip_duration", return_value=1.0), \
+             flask_app._capture_stdout(log):
+            flask_app.run(
+                url="https://yt.com/v",
+                timestamps=list(range(0, 900, 100)),
+                durations={"squat": 60, "bench": 60, "deadlift": 45},
+                squat_attempt=3, bench_attempt=3, deadlift_attempt=3,
+                output_dir=tmp_path,
+                skip_individual=False,
+                skip_combined=False,
+                preview_width=0,
+            )
+
+        assert "in-pool" in log.getvalue()
+        assert "in-combined" in log.getvalue()

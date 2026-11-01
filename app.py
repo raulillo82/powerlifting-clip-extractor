@@ -9,6 +9,7 @@ From another machine on the same network: http://mordor:5000
 """
 
 import contextlib
+import contextvars
 import io
 import json
 import os
@@ -16,6 +17,7 @@ import queue
 import re as _re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import urllib.parse
@@ -505,13 +507,42 @@ class _LiveLog(io.StringIO):
         return result
 
 
+_job_log: contextvars.ContextVar = contextvars.ContextVar("job_log", default=None)
+
+
+class _JobStdout:
+    """sys.stdout that writes to the log of the job running in this context.
+
+    Jobs run at the same time in worker threads, and redirect_stdout would swap
+    stdout for the whole process, so each job would write into the other's log.
+    """
+    def __init__(self, fallback):
+        self._fallback = fallback
+
+    def __getattr__(self, name):
+        log = _job_log.get()
+        return getattr(self._fallback if log is None else log, name)
+
+
+@contextlib.contextmanager
+def _capture_stdout(log):
+    """Send this context's stdout to log. Threads a job starts need a copy of it."""
+    if not isinstance(sys.stdout, _JobStdout):
+        sys.stdout = _JobStdout(sys.stdout)
+    token = _job_log.set(log)
+    try:
+        yield
+    finally:
+        _job_log.reset(token)
+
+
 # ── Worker ─────────────────────────────────────────────────────────────────────
 
 def _worker(job_id: str, job: dict, run_kwargs: dict, mode: str = "full") -> None:
     buf = _LiveLog(job_id, job)
     started_at = time.time()
     try:
-        with contextlib.redirect_stdout(buf):
+        with _capture_stdout(buf):
             if mode == "single":
                 run_single(**run_kwargs)
             else:
