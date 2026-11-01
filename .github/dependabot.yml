@@ -1,4 +1,12 @@
 version: 2
+# Dependabot only reaches registries listed here, and an entry needs credentials.
+# This registry is public: both secrets hold made-up values it ignores.
+registries:
+  opensuse:
+    type: docker-registry
+    url: https://registry.opensuse.org
+    username: ${{secrets.OPENSUSE_REGISTRY_USERNAME}}
+    password: ${{secrets.OPENSUSE_REGISTRY_PASSWORD}}
 updates:
   - package-ecosystem: pip
     directory: /
@@ -6,6 +14,8 @@ updates:
       interval: monthly
   - package-ecosystem: docker
     directory: /
+    registries:
+      - opensuse
     schedule:
       interval: monthly
   - package-ecosystem: github-actions
