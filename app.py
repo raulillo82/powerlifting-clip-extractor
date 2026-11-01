@@ -13,6 +13,7 @@ import io
 import json
 import os
 import queue
+import re as _re
 import shutil
 import subprocess
 import threading
@@ -23,16 +24,31 @@ import zipfile
 from pathlib import Path
 
 from altcha import verify_solution_v1
-from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, url_for
+from flask import (
+    Flask,
+    abort,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    url_for,
+)
 from flask_login import current_user, login_required
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from auth import PrefixedSessionInterface, auth_bp, cookie_path, login_manager
-from admin import admin_bp
 import geoip
 import github_issues
-from db import (add_feedback, get_feedback_for_user, get_staging_access,
-                init_db, record_job_stat, update_feedback_from_github)
+from admin import admin_bp
+from auth import PrefixedSessionInterface, auth_bp, cookie_path, login_manager
+from db import (
+    add_feedback,
+    get_feedback_for_user,
+    get_staging_access,
+    init_db,
+    record_job_stat,
+    update_feedback_from_github,
+)
 from extract_lifts import parse_timestamp, run, run_single
 from limiter import limiter
 
@@ -184,8 +200,6 @@ _EXTRA_PLAYLISTS: dict[str, list[dict]] = {
 _channel_cache: dict[str, tuple[float, dict]] = {}
 _playlist_cache: dict[str, tuple[float, list]] = {}
 _CACHE_TTL = 6 * 3600  # 6 hours
-
-import re as _re
 
 _TITLE_NOISE = _re.compile(
     r"^[\U00010000-\U0010ffff☀-➿︀-️‍\s]*"  # leading emoji/spaces
@@ -643,12 +657,12 @@ def _build_run_kwargs(form, files, output_dir: Path) -> dict:
         if not uploaded or uploaded.filename == "":
             raise FormError("Please select a timestamps file.", field="timestamps_file")
         content = uploaded.read().decode("utf-8")
-        lines = [l.strip() for l in content.splitlines() if l.strip()]
+        lines = [line.strip() for line in content.splitlines() if line.strip()]
         if len(lines) != 9:
             raise FormError(f"Expected 9 timestamps, got {len(lines)}.", field="timestamps_file")
         timestamps = _parse_timestamps(lines, field="timestamps_file")
     else:
-        lines = [l.strip() for l in form.get("timestamps_text", "").splitlines() if l.strip()]
+        lines = [line.strip() for line in form.get("timestamps_text", "").splitlines() if line.strip()]
         if len(lines) != 9:
             raise FormError(f"Expected 9 timestamps, got {len(lines)}.", field="timestamps_text")
         timestamps = _parse_timestamps(lines, field="timestamps_text")

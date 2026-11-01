@@ -5,8 +5,10 @@ Usage:
     python3 create_admin.py <username> <password>
 """
 import sys
+
 from werkzeug.security import generate_password_hash
-from db import init_db, get_db
+
+from db import get_db, init_db
 
 
 def main():

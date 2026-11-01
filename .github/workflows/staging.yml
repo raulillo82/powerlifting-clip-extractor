@@ -19,9 +19,12 @@ permissions: {}
 
 jobs:
   select:
+    # Dependabot pull requests must not take staging over: they open on their
+    # own, and a rebuild would interrupt whatever staging is running.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      github.event.pull_request.head.repo.full_name == github.repository
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.user.login != 'dependabot[bot]')
     runs-on: ubuntu-latest
     permissions:
       contents: write
