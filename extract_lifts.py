@@ -77,10 +77,10 @@ def seconds_to_hms(total: int) -> str:
 
 def load_timestamps_file(path: Path) -> list[int]:
     """Read exactly 9 timestamps from a file (one per line, blank lines skipped)."""
-    lines = [l.strip() for l in path.read_text().splitlines() if l.strip()]
+    lines = [line.strip() for line in path.read_text().splitlines() if line.strip()]
     if len(lines) != 9:
         sys.exit(f"Error: expected 9 timestamps in '{path}', found {len(lines)}")
-    return [parse_timestamp(l) for l in lines]
+    return [parse_timestamp(line) for line in lines]
 
 
 # ── Interactive prompt helpers ─────────────────────────────────────────────────
@@ -357,7 +357,7 @@ def make_combined(clips: list[Path], output: Path, preview_width: int = 0) -> No
         "-y",
         str(output),
     ]
-    print(f"\n[combined] ⏳ Creando vídeo combinado...")
+    print("\n[combined] ⏳ Creando vídeo combinado...")
     sys.stdout.flush()
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
     print("✓ Vídeo combinado listo")
@@ -462,7 +462,7 @@ def add_music(
         "-movflags", "+faststart",
         "-y", str(output),
     ]
-    print(f"\n[music] ⏳ Aplicando música...")
+    print("\n[music] ⏳ Aplicando música...")
     sys.stdout.flush()
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     print("✓ Música aplicada")
@@ -518,7 +518,7 @@ def add_mixed_audio(
         "-movflags", "+faststart",
         "-y", str(output),
     ]
-    print(f"\n[mixed] ⏳ Mezclando audio original y música...")
+    print("\n[mixed] ⏳ Mezclando audio original y música...")
     sys.stdout.flush()
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     print("✓ Audio mezclado")
@@ -545,7 +545,7 @@ def resolve_music(source: str, interactive: bool = True) -> str:
     print()
 
     if not interactive:
-        print(f"  → Auto-selecting result 1 (pass a URL with --music for full control)")
+        print("  → Auto-selecting result 1 (pass a URL with --music for full control)")
         return results[0]["url"]
 
     while True:
@@ -696,7 +696,7 @@ def run(
             sys.exit("Missing clips (run without --skip-individual first):\n" +
                      "\n".join(f"  {p}" for p in missing))
         if preview_width and not dry_run:
-            print(f"\nGenerating previews from existing clips...")
+            print("\nGenerating previews from existing clips...")
             for path in clip_paths:
                 prev = output_dir / "preview" / path.name
                 print(f"  {path.name} → preview/{path.name}")

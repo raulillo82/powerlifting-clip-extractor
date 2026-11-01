@@ -17,8 +17,11 @@ Workflows en `.github/workflows/`:
 
 | Workflow | Cuándo dispara | Qué hace |
 |---|---|---|
-| `tests.yml` | Cualquier push o PR | Ejecuta los tests |
+| `tests.yml` | Cualquier push o PR | Ejecuta `ruff check .` y los tests |
 | `staging.yml` | PR hacia `main` abierta o actualizada, o manual | Escribe la rama en `deploy-state`. Al cerrar una PR deja `none` solo si staging estaba en esa rama |
+
+Dependabot (`.github/dependabot.yml`) revisa cada semana `pip` y `github-actions`.
+Sus PR pasan los tests, no tocan staging y no se fusionan solas.
 
 ### Elegir la rama de staging
 

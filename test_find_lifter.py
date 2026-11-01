@@ -10,9 +10,10 @@ so these tests exercise the pure detection/grouping logic only.
 """
 
 import subprocess
-import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 import find_lifter as fl
 

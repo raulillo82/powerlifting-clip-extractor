@@ -24,7 +24,19 @@ Instalación en OpenSUSE Tumbleweed:
         python3-pytesseract python3-Pillow python3-numpy
 """
 
-import os, sys, argparse, subprocess, time, difflib, re, json, unicodedata, threading
+import argparse
+import difflib
+import json
+import os
+import re
+import subprocess
+import sys
+import threading
+import time
+import unicodedata
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from pathlib import Path
 
 # Tesseract lanza hilos OpenMP internos. Con varios procesos OCR concurrentes
 # (ver SCAN_WORKERS) eso sobre-suscribe la CPU y dispara el tiempo por frame
@@ -32,6 +44,11 @@ import os, sys, argparse, subprocess, time, difflib, re, json, unicodedata, thre
 # crops minúsculos OMP no aporta nada, y además hace el OCR más reproducible.
 # setdefault para respetar un valor externo si se fija a propósito.
 os.environ.setdefault("OMP_THREAD_LIMIT", "1")
+
+import numpy as np
+import pytesseract
+from PIL import Image
+
 
 # Read-write lock: múltiples ffmpeg OK (lectura), OCR exclusivo (escritura).
 # El engine LSTM bajo carga CPU concurrente (varios ffmpeg simultáneos) produce
@@ -66,12 +83,6 @@ class _FfmpegOcrLock:
             self._cond.notify_all()
 
 _scan_rw = _FfmpegOcrLock()
-
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
-from pathlib import Path
-from PIL import Image
-import numpy as np, pytesseract
 
 # ── Configuración por federación ──────────────────────────────────────────────
 
@@ -491,8 +502,10 @@ def scan_movement(url, work_dir, start_s, max_window_s, token, label, prefix, fm
                     consecutive_errors += 1
                     if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
                         err(f"  [{label}] bail-out: {consecutive_errors} errores consecutivos (URL expirada?)")
-                        stop = True; break
-                    err(f"  [{label} {i:3d}] {ts}  ERROR"); continue
+                        stop = True
+                        break
+                    err(f"  [{label} {i:3d}] {ts}  ERROR")
+                    continue
                 consecutive_errors = 0
                 excerpt = (text[:50] + "…") if len(text) > 50 else text
                 mark = "✓ HIT" if found else "·"
@@ -544,7 +557,8 @@ def detect_break_timer(url, work_dir, search_from_s, label, prefix, fmt, video_e
             if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
                 err(f"  [{label}] bail-out: {consecutive_errors} errores consecutivos (URL expirada?)")
                 break
-            err(f"  [{label}] {ts}  ERROR"); continue
+            err(f"  [{label}] {ts}  ERROR")
+            continue
         consecutive_errors = 0
         t = read_timer(out, fmt)
         err(f"  [{label}] {ts}  timer={t!r}")
@@ -574,7 +588,9 @@ def refine_group_bounds(url, work_dir, groups, token, label, prefix, fmt, video_
             pre = f"{prefix}_rb{gi}"
             for secs, ok, _t, found, ff_ms, ocr_ms in ex.map(
                     lambda s, p=pre: _scan_one(url, work_dir, s, token, p, fmt), before):
-                n_frames += 1; tot_ff += ff_ms; tot_ocr += ocr_ms
+                n_frames += 1
+                tot_ff += ff_ms
+                tot_ocr += ocr_ms
                 if ok and found:
                     err(f"  [{label}] refine intento {gi+1} inicio ✓ {secs}s ({_hms(secs)}) (era {g_min}s / {_hms(g_min)})")
                     new_min = min(new_min, secs)
@@ -589,7 +605,9 @@ def refine_group_bounds(url, work_dir, groups, token, label, prefix, fmt, video_
             pst = f"{prefix}_re{gi}"
             for secs, ok, _t, found, ff_ms, ocr_ms in ex.map(
                     lambda s, p=pst: _scan_one(url, work_dir, s, token, p, fmt), after):
-                n_frames += 1; tot_ff += ff_ms; tot_ocr += ocr_ms
+                n_frames += 1
+                tot_ff += ff_ms
+                tot_ocr += ocr_ms
                 if ok and found:
                     err(f"  [{label}] refine intento {gi+1} fin ✓ {secs}s ({_hms(secs)}) (era {g_max}s / {_hms(g_max)})")
                     new_max = max(new_max, secs)
@@ -692,7 +710,8 @@ def main():
     result["comp_start"] = comp_start
 
     # ── 2. Sentadilla ────────────────────────────────────────────────────────
-    err(""); err("=== Fase 2: sentadilla ===")
+    err("")
+    err("=== Fase 2: sentadilla ===")
     squat_groups = scan_movement(
         url, work_dir,
         start_s=comp_start,
@@ -722,7 +741,8 @@ def main():
     err(f"  [grupo] sq_offset={sq_offset}s ({_hms(sq_offset)}) → {'G2' if is_g2 else 'G1'}")
 
     # ── 3. Inicio de banca (timer de descanso) ────────────────────────────────
-    err(""); err("=== Fase 3: buscando inicio de banca ===")
+    err("")
+    err("=== Fase 3: buscando inicio de banca ===")
     if len(squat_ts) >= 2:
         avg_gap_sq = (squat_ts[1] - squat_ts[0] + squat_ts[-1] - squat_ts[-2]) / 2
         search_from = int(comp_start + avg_gap_sq * 6)
@@ -738,16 +758,18 @@ def main():
             bench_start = max(squat_ts) + group_dur + 600
             err(f"  Fallback bench_start estimado: {bench_start}s ({_hms(bench_start)})")
         else:
-            err("  ERROR: no se puede estimar bench_start"); sys.exit(1)
+            err("  ERROR: no se puede estimar bench_start")
+            sys.exit(1)
 
     # ── 4. Banca ─────────────────────────────────────────────────────────────
-    err(""); err("=== Fase 4: banca ===")
+    err("")
+    err("=== Fase 4: banca ===")
     if is_g2:
         bench_scan_start = max(bench_start, bench_start + sq_offset - GROUP_OFFSET_MARGIN_S)
         err(f"  [G2] sq_offset={sq_offset}s ({_hms(sq_offset)}) → saltando {bench_scan_start - bench_start}s ({_hms(bench_scan_start - bench_start)}) del bloque de banca")
     else:
         bench_scan_start = bench_start
-        err(f"  [G1] escaneando desde el inicio del bloque de banca")
+        err("  [G1] escaneando desde el inicio del bloque de banca")
     bn_window = 90 * 60 - (bench_scan_start - bench_start)
     bench_groups = scan_movement(
         url, work_dir,
@@ -767,7 +789,8 @@ def main():
     err(f"  → banca: {bench_ts}")
 
     # ── 5. Inicio de DL (timer de descanso) ───────────────────────────────────
-    err(""); err("=== Fase 5: buscando inicio de peso muerto ===")
+    err("")
+    err("=== Fase 5: buscando inicio de peso muerto ===")
     if len(bench_ts) >= 2:
         avg_gap_bn = (bench_ts[1] - bench_ts[0] + bench_ts[-1] - bench_ts[-2]) / 2
         search_from_dl = int(bench_start + avg_gap_bn * 6)
@@ -782,10 +805,12 @@ def main():
             dl_start = max(bench_ts) + group_dur + 600
             err(f"  Fallback dl_start estimado: {dl_start}s ({_hms(dl_start)})")
         else:
-            err("  ERROR: no se puede estimar dl_start"); sys.exit(1)
+            err("  ERROR: no se puede estimar dl_start")
+            sys.exit(1)
 
     # ── 6. Peso muerto ───────────────────────────────────────────────────────
-    err(""); err("=== Fase 6: peso muerto ===")
+    err("")
+    err("=== Fase 6: peso muerto ===")
     # Usar el offset de banca si está disponible (más reciente que squat)
     bn_offset = (bench_ts[0] - bench_start) if bench_ts else sq_offset
     is_g2_bn  = bn_offset > G2_THRESHOLD_S
@@ -794,7 +819,7 @@ def main():
         err(f"  [attempt offset] bn_offset={bn_offset}s ({_hms(bn_offset)}) → saltando {dl_scan_start - dl_start}s ({_hms(dl_scan_start - dl_start)}) del bloque de DL")
     else:
         dl_scan_start = dl_start
-        err(f"  [G1] escaneando desde el inicio del bloque de DL")
+        err("  [G1] escaneando desde el inicio del bloque de DL")
     dl_window = 60 * 60 - (dl_scan_start - dl_start)
     dl_groups = scan_movement(
         url, work_dir,
