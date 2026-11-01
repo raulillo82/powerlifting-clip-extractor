@@ -98,9 +98,21 @@
 <p class="text-muted" data-i18n="admin.empty">Aún no hay usuarios registrados. Comparte <a href="{{ url_for('auth.register') }}">/register</a> para que se den de alta.</p>
 {% endif %}
 
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+    <div class="alert alert-{{ 'success' if category == 'success' else 'warning' }} py-2 small">{{ message }}</div>
+  {% endfor %}
+{% endwith %}
+
 <hr>
-<p class="text-muted small">
-  <span data-i18n="admin.register_url">URL de registro:</span>
-  <a href="{{ url_for('auth.register', _external=True) }}">{{ url_for('auth.register', _external=True) }}</a>
-</p>
+<div class="d-flex align-items-center gap-3 flex-wrap mb-3">
+  <form method="post" action="{{ url_for('admin.clear_jobs') }}"
+        onsubmit="return confirm(T('admin.confirm_clear_jobs'))">
+    <button class="btn btn-sm btn-outline-danger" data-i18n="admin.btn.clear_jobs">Borrar mis jobs</button>
+  </form>
+  <p class="text-muted small mb-0">
+    <span data-i18n="admin.register_url">URL de registro:</span>
+    <a href="{{ url_for('auth.register', _external=True) }}">{{ url_for('auth.register', _external=True) }}</a>
+  </p>
+</div>
 {% endblock %}
