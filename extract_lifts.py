@@ -12,6 +12,7 @@ Requirements: yt-dlp, ffmpeg
 """
 
 import argparse
+import contextvars
 import json
 import os
 import pty
@@ -653,7 +654,9 @@ def run(
                     attempt = (idx % 3) + 1
                     duration = clip_durations[idx] if clip_durations else durations[movement]
                     lbl = f"lift {idx + 1:02d} — {movement} attempt {attempt}"
+                    # The copied context keeps this job's log in the worker thread
                     fs[ex.submit(
+                        contextvars.copy_context().run,
                         download_clip, url, timestamps[idx], duration,
                         clip_paths[idx], lbl, parallel=True,
                     )] = idx
@@ -669,7 +672,8 @@ def run(
                         with _print_lock:
                             print(f"{_ts()} [combinado] iniciando encode (deps listas)...")
                         combined_thread = threading.Thread(
-                            target=_make_combined_bg, daemon=True)
+                            target=contextvars.copy_context().run,
+                            args=(_make_combined_bg,), daemon=True)
                         combined_thread.start()
 
             if combined_thread is not None:
