@@ -1,4 +1,9 @@
 version: 2
+# Dependabot only reaches registries listed here, even public ones
+registries:
+  opensuse:
+    type: docker-registry
+    url: https://registry.opensuse.org
 updates:
   - package-ecosystem: pip
     directory: /
@@ -6,6 +11,8 @@ updates:
       interval: monthly
   - package-ecosystem: docker
     directory: /
+    registries:
+      - opensuse
     schedule:
       interval: monthly
   - package-ecosystem: github-actions
