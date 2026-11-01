@@ -45,7 +45,7 @@ needs_deploy() {
 
 build_and_restart() {
     local dir=$1 image=$2 service=$3
-    (cd "$dir" && podman build --pull=newer -t "$image" .) &&
+    (cd "$dir" && podman build -t "$image" .) &&
         systemctl --user restart "$service" &&
         systemctl --user is-active "$service"
 }

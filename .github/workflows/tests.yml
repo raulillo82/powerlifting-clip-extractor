@@ -17,7 +17,8 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # arm64, like the server: the job also builds the image that gets deployed
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v7
 
@@ -30,3 +31,29 @@ jobs:
       - run: ruff check .
 
       - run: pytest test_extract_lifts.py test_app.py test_deploy.py -v
+
+      - name: Build the image
+        run: podman build -t powerlifting-ci .
+
+      - name: Check the tools inside the image
+        run: podman run --rm powerlifting-ci sh -c 'ffmpeg -version && yt-dlp --version'
+
+      - name: Start the image the way the server does
+        run: |
+          mkdir ci-lifts
+          podman run -d --name powerlifting-ci \
+            --userns keep-id:uid=1000,gid=1000 \
+            --cap-drop all \
+            --security-opt no-new-privileges \
+            -e HOME=/tmp \
+            -p 127.0.0.1:5000:5000 \
+            -v "$PWD/ci-lifts:/app/lifts" \
+            powerlifting-ci
+          for _ in $(seq 1 30); do
+            if curl -fsS -o /dev/null http://127.0.0.1:5000/login; then
+              exit 0
+            fi
+            sleep 1
+          done
+          podman logs powerlifting-ci
+          exit 1
