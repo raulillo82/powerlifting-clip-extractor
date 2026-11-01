@@ -20,8 +20,20 @@ Workflows en `.github/workflows/`:
 | `tests.yml` | Cualquier push o PR | Ejecuta `ruff check .` y los tests |
 | `staging.yml` | PR hacia `main` abierta o actualizada, o manual | Escribe la rama en `deploy-state`. Al cerrar una PR deja `none` solo si staging estaba en esa rama |
 
-Dependabot (`.github/dependabot.yml`) revisa cada semana `pip` y `github-actions`.
-Sus PR pasan los tests, no tocan staging y no se fusionan solas.
+Dependabot (`.github/dependabot.yml`) revisa cada mes `pip`, `docker` y `github-actions`.
+Sus PR pasan los tests, no tocan staging y no se fusionan solas. Las alertas de
+seguridad van aparte y abren PR en cuanto aparecen.
+
+### Imagen base
+
+El `FROM` va fijado con `tumbleweed:latest@sha256:…`, el digest del índice
+multiarquitectura. No uses una etiqueta con fecha: cada una lleva solo algunas
+arquitecturas y puede faltar arm64. `tests.yml` compila la imagen en arm64 y la arranca.
+
+El digest no fija los paquetes: `zypper dup` los toma de los repositorios al compilar
+y esa capa queda en caché hasta que cambie el digest o ese paso. Producción recompila
+al fusionar, así que su imagen no es la misma que la de staging. Actualizar el digest
+es lo que trae un `yt-dlp` nuevo: si YouTube empieza a dar 403, adelanta esa PR.
 
 ### Elegir la rama de staging
 

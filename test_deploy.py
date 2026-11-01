@@ -3,6 +3,7 @@
 podman and systemctl are replaced by stubs that log their calls.
 """
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -14,6 +15,11 @@ GIT_ENV = {
     "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.test",
     "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
 }
+
+
+def test_base_image_is_fixed_by_digest():
+    text = (SCRIPT.parents[2] / "Containerfile").read_text()
+    assert re.search(r"(?m)^FROM \S+:\S+@sha256:[0-9a-f]{64}$", text)
 
 
 def git(cwd, *args):
@@ -218,5 +224,5 @@ def test_host_without_staging_deploys_production(host):
 
 
 def test_dependabot_pull_requests_do_not_select_staging():
-    workflow = (SCRIPT.parent.parent.parent / ".github" / "workflows" / "staging.yml").read_text()
+    workflow = (SCRIPT.parents[2] / ".github" / "workflows" / "staging.yml").read_text()
     assert "github.event.pull_request.user.login != 'dependabot[bot]'" in workflow
