@@ -90,6 +90,8 @@ de un cambio de unidad, decide antes el orden para no dejar producción caída.
 - **Directorio staging**: `~/powerlifting-clip-extractor-staging/`
 - **Lifts (staging)**: `~/powerlifting-clip-extractor-staging/lifts/`
 - **Entrar al contenedor**: `ssh raspberrypi5` → `podman exec -it powerlifting-staging bash`
+- **URL de staging**: `https://raulillo82.duckdns.org/powerlifting-staging/`
+- **Registro en staging**: hay que entrar antes como admin. Sin sesión, `_staging_gate` bloquea `/static/`, el captcha no carga y sale "Verification failed". Es a propósito: no es un fallo de `altcha`.
 
 ## Ramas
 
