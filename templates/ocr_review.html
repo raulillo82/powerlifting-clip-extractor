@@ -1,0 +1,314 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2 class="mb-1" data-i18n="ocr.review.title">Revisar timestamps detectados</h2>
+<p class="text-muted mb-4" data-i18n="ocr.review.hint">
+  Ajusta los timestamps detectados. Los 9 campos son obligatorios.
+</p>
+
+{% set squat_ts       = ocr_result.squat         or [] %}
+{% set bench_ts       = ocr_result.bench         or [] %}
+{% set deadlift_ts    = ocr_result.deadlift      or [] %}
+{% set squat_ends     = ocr_result.squat_ends    or [] %}
+{% set bench_ends     = ocr_result.bench_ends    or [] %}
+{% set deadlift_ends  = ocr_result.deadlift_ends or [] %}
+
+{% if squat_ts|length < 3 or bench_ts|length < 3 or deadlift_ts|length < 3 %}
+<div class="alert alert-warning mb-4" data-i18n="ocr.warn.incomplete">
+  Algunos movimientos tienen menos de 3 timestamps detectados. Rellena los campos vacíos antes de continuar.
+</div>
+{% endif %}
+
+<form method="post" action="{{ url_for('start_job') }}" id="review-form">
+  <input type="hidden" name="ocr_job_id"      value="{{ job_id }}">
+  <input type="hidden" name="url"             value="{{ job.submitted_url }}">
+  <input type="hidden" name="source"          value="{{ job.source or '' }}">
+  <input type="hidden" name="session_label"   value="{{ job.session_label or '' }}">
+  <input type="hidden" name="timestamps_mode" value="paste">
+  <input type="hidden" name="timestamps_text" id="timestamps_text_hidden" value="">
+  <input type="hidden" name="squat_attempt"   value="3">
+  <input type="hidden" name="bench_attempt"   value="3">
+  <input type="hidden" name="deadlift_attempt" value="3">
+  <input type="hidden" name="audio_mode"      value="{{ job.audio_mode or 'original' }}">
+  <input type="hidden" name="music"           value="{{ job.music or '' }}">
+  <input type="hidden" name="music_start"     value="{{ job.music_start or '' }}">
+  <input type="hidden" name="music_pct"       value="{{ job.music_pct or '50' }}">
+  {% if job.skip_combined %}<input type="hidden" name="skip_combined" value="1">{% endif %}
+
+  <div class="row g-4 mb-4">
+    {% for mov, label_key, ts_list, end_list in [
+        ('squat',    'ocr.squat',    squat_ts,    squat_ends),
+        ('bench',    'ocr.bench',    bench_ts,    bench_ends),
+        ('deadlift', 'ocr.deadlift', deadlift_ts, deadlift_ends),
+    ] %}
+    {% set mov_idx = loop.index0 %}
+    {# Compute average diff of attempts with valid end timestamps for this movement #}
+    {% set ns = namespace(diff_sum=0, diff_count=0) %}
+    {% for j in range(3) %}
+      {% set s = ts_list[j] if j < ts_list|length else none %}
+      {% set e = end_list[j] if j < end_list|length else none %}
+      {% if s is not none and e is not none and e > s %}
+        {% set ns.diff_sum = ns.diff_sum + (e - s) %}
+        {% set ns.diff_count = ns.diff_count + 1 %}
+      {% endif %}
+    {% endfor %}
+    {% set avg_diff = (ns.diff_sum // ns.diff_count) if ns.diff_count > 0 else 52 %}
+    <div class="col-md-4">
+      <div class="card h-100">
+        <div class="card-header fw-semibold" data-i18n="{{ label_key }}">{{ label_key }}</div>
+        <div class="card-body">
+          {% for i in range(3) %}
+          {% set secs = ts_list[i] if i < ts_list|length else none %}
+          {% set end_secs = end_list[i] if i < end_list|length else none %}
+          {% if secs is not none and end_secs is not none %}
+            {% if end_secs > secs %}
+              {# diff > 0: trust the formula (refinement scan improved precision); 20s floor #}
+              {% set clip_dur = [[(end_secs - secs + 2) | int, 300] | min, 20] | max %}
+            {% else %}
+              {# diff = 0: use movement average as estimate #}
+              {% set clip_dur = [[45, (avg_diff + 2) | int] | max, 300] | min %}
+            {% endif %}
+          {% else %}
+            {% set clip_dur = [[45, (avg_diff + 2) | int] | max, 300] | min %}
+          {% endif %}
+          <input type="hidden" id="dur_{{ mov }}_{{ i }}" name="clip_duration_{{ mov_idx * 3 + i }}" value="{{ clip_dur }}">
+          <span class="d-none" id="end_{{ mov }}_{{ i }}"
+                data-end-secs="{{ end_secs | int if end_secs is not none else '' }}"
+                data-orig-end-secs="{{ end_secs | int if end_secs is not none else '' }}"></span>
+          <div class="mb-3">
+            <div class="d-flex justify-content-between align-items-baseline">
+              <label class="form-label small text-muted mb-0"><span data-i18n="label.attempt">Intento</span> {{ i + 1 }}</label>
+              <span class="badge bg-secondary" id="badge_{{ mov }}_{{ i }}">~{{ clip_dur }}s</span>
+            </div>
+            <input type="text"
+                   class="form-control font-monospace text-center mt-1{% if secs is none %} is-invalid{% endif %}"
+                   id="ts_{{ mov }}_{{ i }}"
+                   {% if secs is not none %}
+                   data-secs="{{ secs | int }}"
+                   data-orig-secs="{{ secs | int }}"
+                   value="{{ '%d:%02d:%02d' | format(secs | int // 3600, (secs | int % 3600) // 60, secs | int % 60) }}"
+                   {% else %}
+                   data-secs=""
+                   value=""
+                   {% endif %}
+                   placeholder="H:MM:SS"
+                   oninput="syncTs(this)">
+            <div class="mt-1" style="display:grid;grid-template-columns:auto 1fr auto;gap:.25rem">
+              <button type="button" class="btn btn-outline-secondary btn-sm"
+                      onclick="adjustTsById('ts_{{ mov }}_{{ i }}',-5)">−5s</button>
+              <button type="button" class="btn btn-outline-info btn-sm"
+                      data-frame-url="{{ url_for('ocr_frame', job_id=job_id, mov=mov, attempt=i, ftype='start') }}"
+                      data-mov="{{ mov }}" data-attempt="{{ i }}" data-ftype="start"
+                      onclick="previewFrame(this)">🔍 <span data-i18n="ocr.frame.start">Frame inicial</span></button>
+              <button type="button" class="btn btn-outline-secondary btn-sm"
+                      onclick="adjustTsById('ts_{{ mov }}_{{ i }}',+5)">+5s</button>
+              <button type="button" class="btn btn-outline-secondary btn-sm"
+                      onclick="adjustEnd('{{ mov }}',{{ i }},-5)">−5s</button>
+              <button type="button" class="btn btn-outline-info btn-sm"
+                      data-frame-url="{{ url_for('ocr_frame', job_id=job_id, mov=mov, attempt=i, ftype='end') }}"
+                      data-mov="{{ mov }}" data-attempt="{{ i }}" data-ftype="end"
+                      onclick="previewFrame(this)">🔍 <span data-i18n="ocr.frame.end">Frame final</span></button>
+              <button type="button" class="btn btn-outline-secondary btn-sm"
+                      onclick="adjustEnd('{{ mov }}',{{ i }},+5)">+5s</button>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="d-flex gap-3 align-items-center flex-wrap">
+    <a href="{{ url_for('index') }}" class="btn btn-outline-secondary"
+       data-i18n="ocr.review.retry">Detectar de nuevo</a>
+    <button type="submit" class="btn btn-primary btn-lg px-5"
+            data-i18n="ocr.review.continue"
+            onclick="return buildTimestamps()">Continuar →</button>
+  </div>
+</form>
+
+<!-- Frame preview modal -->
+<div class="modal fade" id="frame-modal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <span class="modal-title small fw-semibold" id="frame-modal-title"></span>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-1 text-center bg-dark position-relative">
+        <img id="frame-modal-img" src="" class="img-fluid d-none" alt="">
+        <span id="frame-approx-badge" class="d-none position-absolute top-0 end-0 m-2 badge bg-warning text-dark" style="font-size:.65rem">~aprox</span>
+        <p id="frame-modal-err" class="text-secondary my-3 d-none small" data-i18n="ocr.frame.unavailable">Frame no disponible</p>
+        <div id="frame-modal-loading" class="text-secondary my-3 small">Cargando…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const TS_ORDER = [
+  ['squat', 0], ['squat', 1], ['squat', 2],
+  ['bench', 0], ['bench', 1], ['bench', 2],
+  ['deadlift', 0], ['deadlift', 1], ['deadlift', 2],
+];
+
+function secsToHms(s) {
+  s = Math.max(0, Math.round(s));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+}
+
+function hmsToSecs(str) {
+  if (!str) return NaN;
+  const parts = str.trim().split(':').map(Number);
+  if (parts.some(isNaN)) return NaN;
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return NaN;
+}
+
+function adjustTs(btn, delta) {
+  const input = btn.parentElement.querySelector('input[type="text"]');
+  adjustTsById(input.id, delta);
+}
+
+function adjustTsById(id, delta) {
+  const input = document.getElementById(id);
+  const cur = parseFloat(input.dataset.secs);
+  const base = isNaN(cur) ? 0 : cur;
+  const newVal = Math.max(0, base + delta);
+  input.dataset.secs = newVal;
+  input.value = secsToHms(newVal);
+  input.classList.remove('is-invalid');
+}
+
+function syncTs(input) {
+  const s = hmsToSecs(input.value);
+  if (!isNaN(s)) {
+    input.dataset.secs = s;
+    input.classList.remove('is-invalid');
+  }
+}
+
+const _MOV_LABELS = {squat: 'Sentadilla', bench: 'Banca', deadlift: 'Peso muerto'};
+let _frameModal = null;
+
+function adjustEnd(mov, attempt, delta) {
+  const endEl   = document.getElementById(`end_${mov}_${attempt}`);
+  const startEl = document.getElementById(`ts_${mov}_${attempt}`);
+  const durEl   = document.getElementById(`dur_${mov}_${attempt}`);
+  const badge   = document.getElementById(`badge_${mov}_${attempt}`);
+  if (!endEl || !startEl) return;
+  const startSecs = parseFloat(startEl.dataset.secs);
+  const newEnd    = parseFloat(endEl.dataset.endSecs) + delta;
+  if (newEnd <= startSecs) return;
+  endEl.dataset.endSecs = newEnd;
+  const dur = Math.max(20, Math.min(300, Math.round(newEnd - startSecs + 2)));
+  if (durEl)  durEl.value       = dur;
+  if (badge)  badge.textContent = `~${dur}s`;
+}
+
+function previewFrame(btn) {
+  const frameUrl = btn.dataset.frameUrl;
+  const mov      = btn.dataset.mov;
+  const attempt  = parseInt(btn.dataset.attempt);
+  const ftype    = btn.dataset.ftype;
+
+  const img          = document.getElementById('frame-modal-img');
+  const errEl        = document.getElementById('frame-modal-err');
+  const loading      = document.getElementById('frame-modal-loading');
+  const title        = document.getElementById('frame-modal-title');
+  const approxBadge  = document.getElementById('frame-approx-badge');
+
+  title.textContent = `${_MOV_LABELS[mov]} ${attempt + 1} — ${T(ftype === 'start' ? 'ocr.frame.start' : 'ocr.frame.end')}`;
+  img.classList.add('d-none');
+  img.src = '';
+  errEl.classList.add('d-none');
+  loading.classList.remove('d-none');
+  loading.textContent = 'Cargando…';
+  approxBadge.classList.add('d-none');
+
+  if (!_frameModal) _frameModal = new bootstrap.Modal(document.getElementById('frame-modal'));
+  _frameModal.show();
+
+  let currentSecs;
+  if (ftype === 'start') {
+    const el = document.getElementById(`ts_${mov}_${attempt}`);
+    currentSecs = el ? Math.round(hmsToSecs(el.value.trim())) : NaN;
+  } else {
+    const el = document.getElementById(`end_${mov}_${attempt}`);
+    currentSecs = el ? Math.round(parseFloat(el.dataset.endSecs)) : NaN;
+  }
+  if (isNaN(currentSecs)) {
+    loading.classList.add('d-none'); errEl.classList.remove('d-none'); return;
+  }
+
+  const approxUrl = `${frameUrl}?t=${currentSecs}`;
+  const exactUrl  = `${frameUrl}?t=${currentSecs}&exact=1`;
+
+  let phase1Shown = false;
+  let phase2Done  = false;
+
+  // After 1.5 s with nothing yet, update message so user knows it's working
+  const slowTimer = setTimeout(() => {
+    if (!phase1Shown && !phase2Done)
+      loading.textContent = 'Extrayendo frame del v\xeddeo…';
+  }, 1500);
+
+  const finish = () => clearTimeout(slowTimer);
+
+  // Phase 1 — nearest cached frame (fast, may be ±2 s off)
+  const approxImg = new Image();
+  approxImg.onload = () => {
+    if (phase2Done) return;
+    phase1Shown = true;
+    loading.classList.add('d-none');
+    img.src = approxImg.src;
+    img.classList.remove('d-none');
+    approxBadge.classList.remove('d-none');
+  };
+  approxImg.src = approxUrl;
+
+  // Phase 2 — exact on-demand frame (3-5 s, replaces phase 1)
+  const exactImg = new Image();
+  exactImg.onload = () => {
+    phase2Done = true;
+    finish();
+    loading.classList.add('d-none');
+    img.src = exactImg.src;
+    img.classList.remove('d-none');
+    approxBadge.classList.add('d-none');
+    errEl.classList.add('d-none');
+  };
+  exactImg.onerror = () => {
+    phase2Done = true;
+    finish();
+    if (!phase1Shown) {
+      loading.classList.add('d-none');
+      errEl.classList.remove('d-none');
+    }
+    approxBadge.classList.add('d-none');
+  };
+  exactImg.src = exactUrl;
+}
+
+function buildTimestamps() {
+  const lines = TS_ORDER.map(([mov, i]) => {
+    const el = document.getElementById(`ts_${mov}_${i}`);
+    return el ? el.value.trim() : '';
+  });
+  if (lines.some(l => !l)) {
+    alert('Todos los timestamps son obligatorios. Rellena los campos vacíos.');
+    return false;
+  }
+  document.getElementById('timestamps_text_hidden').value = lines.join('\n');
+  return true;
+}
+</script>
+{% endblock %}

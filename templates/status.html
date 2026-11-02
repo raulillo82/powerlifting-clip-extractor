@@ -46,8 +46,25 @@
   </p>
 </div>
 
+{# ── OCR review ── #}
+{% if ocr_mode %}
+<div id="ocr-running-notice" class="alert alert-info py-2 small mb-3">
+  <span data-i18n="ocr.nav.away">El escaneo OCR puede tardar varios minutos. Puedes cerrar esta pestaña y volver más tarde — el job seguirá corriendo en el servidor.</span>
+</div>
+<div id="ocr-review-section" class="d-none">
+  <a href="{{ url_for('ocr_review', job_id=job_id) }}"
+     class="btn btn-primary btn-lg px-5" data-i18n="ocr.review.btn">Revisar timestamps</a>
+  <p id="ocr-expiry-notice" class="text-muted small mt-2 mb-0"></p>
+</div>
+{% endif %}
+
 <div id="error-section" class="d-none">
   <div class="alert alert-danger" data-i18n="err.failed">Extraction failed — see the log for details.</div>
+  {% if ocr_mode %}
+  <form method="post" action="{{ url_for('relaunch_ocr_job', job_id=job_id) }}" class="mt-2">
+    <button type="submit" class="btn btn-warning" data-i18n="btn.relaunch">Relanzar</button>
+  </form>
+  {% endif %}
 </div>
 
 <a href="{{ url_for('index') }}" class="btn btn-outline-secondary mt-3" data-i18n="btn.new">New extraction</a>
@@ -68,7 +85,20 @@ const errSection = document.getElementById('error-section');
 const expiryEl   = document.getElementById('expiry-notice');
 
 const TOTAL_CLIPS = {{ 1 if single_mode else 9 }};
+const OCR_MODE = {{ ocr_mode | tojson }};
+const OCR_ESTIMATE_MIN = {{ ocr_estimate_min | tojson }};  // null si no se conoce la duración
+const ocrReviewSection = document.getElementById('ocr-review-section');
 let lastData = null;   // saved so language changes can re-render
+
+// Muestra la estimación de tiempo (si se conoce la duración del vídeo) en el
+// aviso de "puedes cerrar la pestaña". Se re-aplica al cambiar idioma.
+function updateOcrNavAway() {
+  const el = document.querySelector('#ocr-running-notice [data-i18n="ocr.nav.away"]');
+  if (!el) return;
+  if (OCR_ESTIMATE_MIN) {
+    el.textContent = T('ocr.nav.away.est').replace('{min}', OCR_ESTIMATE_MIN);
+  }  // si no, queda el texto genérico de data-i18n
+}
 
 
 function movementKey(clips) {
@@ -103,6 +133,23 @@ function updateProgress(log) {
   }
 }
 
+// Las 6 fases reales del OCR. 'Terminado en' NO va aquí: es el marcador de
+// finalización, no una 7ª fase (si se cuela, el contador muestra "7 / 6").
+const OCR_PHASES = ['Fase 1:', 'Fase 2:', 'Fase 3:', 'Fase 4:', 'Fase 5:', 'Fase 6:'];
+const OCR_PHASE_KEYS = ['', 'ocr.phase1', 'ocr.phase2', 'ocr.phase3', 'ocr.phase4', 'ocr.phase5', 'ocr.phase6'];
+const OCR_DONE_MARKER = 'Terminado en';
+
+function updateOcrProgress(log) {
+  let phase = 0;
+  OCR_PHASES.forEach((marker, i) => { if (log.includes(marker)) phase = i + 1; });
+  const done = log.includes(OCR_DONE_MARKER);
+  const shown = done ? OCR_PHASES.length : phase;  // al terminar: 6 / 6, no 7 / 6
+  progressEl.style.width = Math.round(shown / OCR_PHASES.length * 100) + '%';
+  stepEl.textContent = done ? T('step.done')
+                            : (OCR_PHASE_KEYS[phase] ? T(OCR_PHASE_KEYS[phase]) : T('step.init'));
+  counterEl.textContent = shown > 0 ? `${shown} / ${OCR_PHASES.length}` : '';
+}
+
 function formatExpiry(ts) {
   const d = new Date(ts * 1000);
   const pad = n => String(n).padStart(2, '0');
@@ -120,7 +167,24 @@ function renderDone(data) {
   }
 }
 
+function renderOcrDone(data) {
+  badgeEl.textContent = T('badge.ocr_done');
+  badgeEl.className = 'badge bg-success fs-6';
+  if (data.log) updateOcrProgress(data.log);
+  progressEl.classList.remove('progress-bar-animated', 'progress-bar-striped');
+  document.getElementById('ocr-running-notice')?.classList.add('d-none');
+  if (ocrReviewSection) {
+    ocrReviewSection.classList.remove('d-none');
+    const expiryEl2 = document.getElementById('ocr-expiry-notice');
+    if (expiryEl2 && data.expires_at) {
+      expiryEl2.textContent =
+        `${T('expiry.until')} ${formatExpiry(data.expires_at)}. ${T('expiry.after')}`;
+    }
+  }
+}
+
 function renderError() {
+  document.getElementById('ocr-running-notice')?.classList.add('d-none');
   badgeEl.textContent = T('badge.error');
   badgeEl.className = 'badge bg-danger fs-6';
   progressEl.classList.add('bg-danger');
@@ -139,11 +203,15 @@ function renderQueued(data) {
 
 // Called by base.html when the user switches language
 function onLangChange() {
+  updateOcrNavAway();  // antes del guard: debe aplicarse aunque no haya datos aún
   if (!lastData) return;
-  if (lastData.status === 'done')   renderDone(lastData);
-  if (lastData.status === 'error')  renderError();
-  if (lastData.status === 'queued') renderQueued(lastData);
-  if (lastData.status === 'running' && lastData.log) updateProgress(lastData.log);
+  if (lastData.status === 'done')      renderDone(lastData);
+  if (lastData.status === 'ocr_done')  renderOcrDone(lastData);
+  if (lastData.status === 'error')     renderError();
+  if (lastData.status === 'queued')    renderQueued(lastData);
+  if (lastData.status === 'running' && lastData.log) {
+    OCR_MODE ? updateOcrProgress(lastData.log) : updateProgress(lastData.log);
+  }
 }
 
 function poll() {
@@ -152,13 +220,17 @@ function poll() {
     .then(data => {
       lastData = data;
       if (data.log) {
+        const atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 80;
         logEl.textContent = data.log;
-        logEl.scrollTop = logEl.scrollHeight;
+        if (atBottom) logEl.scrollTop = logEl.scrollHeight;
       }
       if (data.status === 'done') {
         progressEl.classList.remove('progress-bar-animated', 'progress-bar-striped');
         clearInterval(timer);
         renderDone(data);
+      } else if (data.status === 'ocr_done') {
+        clearInterval(timer);
+        renderOcrDone(data);
       } else if (data.status === 'error') {
         clearInterval(timer);
         renderError();
@@ -167,7 +239,7 @@ function poll() {
       } else {
         badgeEl.textContent = T('badge.running');
         badgeEl.className = 'badge bg-warning text-dark fs-6';
-        if (data.log) updateProgress(data.log);
+        if (data.log) OCR_MODE ? updateOcrProgress(data.log) : updateProgress(data.log);
       }
     });
 }
@@ -179,5 +251,6 @@ stepEl.textContent  = T('step.starting');
 
 const timer = setInterval(poll, 2000);
 poll();
+updateOcrNavAway();  // estimación en el aviso ya en la carga inicial
 </script>
 {% endblock %}

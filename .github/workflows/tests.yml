@@ -30,7 +30,7 @@ jobs:
 
       - run: ruff check .
 
-      - run: pytest test_extract_lifts.py test_app.py test_deploy.py -v
+      - run: pytest test_app.py test_deploy.py test_extract_lifts.py test_find_lifter.py -v
 
       - name: Build the image
         run: podman build -t powerlifting-ci .

@@ -6,3 +6,6 @@ geoip2==5.3.0
 gunicorn==26.2.0
 requests==2.34.2
 werkzeug==3.1.9
+Pillow>=10.0
+numpy>=1.24
+pytesseract>=0.3.10
