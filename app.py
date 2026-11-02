@@ -1067,6 +1067,23 @@ def status_json(job_id: str):
     return jsonify(resp)
 
 
+def _build_zip(out_dir: Path, zip_path: Path) -> None:
+    """Group the clips in a ZIP on disk, so a download does not hold them in memory.
+
+    They are stored, not compressed: mp4 barely shrinks and it would only cost CPU.
+    Built under a temporary name, since another download may ask for it meanwhile.
+    The job directory is deleted when the job expires, and the ZIP with it.
+    """
+    tmp_path = zip_path.with_name(f"{zip_path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_STORED) as zf:
+            for f in sorted(out_dir.rglob("*.mp4")):
+                zf.write(f, f.relative_to(out_dir))
+        tmp_path.replace(zip_path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
 @app.route("/download/<job_id>/zip")
 @login_required
 def download_zip(job_id: str):
@@ -1079,21 +1096,12 @@ def download_zip(job_id: str):
         return render_template("expired.html"), 410
 
     out_dir = Path(job["output_dir"])
-    safe_name = current_user.display_name.replace(" ", "_")
-
-    # Serve pre-built ZIP if present (e.g. contains extra debug frames)
-    prebuilt = out_dir / "descarga_con_frames.zip"
-    if prebuilt.exists():
-        return send_file(prebuilt.resolve(), mimetype="application/zip",
-                         as_attachment=True, download_name=f"{safe_name}.zip")
-
     zip_path = out_dir / "clips.zip"
     if not zip_path.exists():
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
-            for f in sorted(out_dir.rglob("*.mp4")):
-                zf.write(f, f.relative_to(out_dir))
-    return send_file(zip_path.resolve(), mimetype="application/zip",
-                     as_attachment=True, download_name=f"{safe_name}.zip")
+        _build_zip(out_dir, zip_path)
+    safe_name = current_user.display_name.replace(" ", "_")
+    return send_file(zip_path.resolve(), mimetype="application/zip", as_attachment=True,
+                     download_name=f"{safe_name}.zip")
 
 
 def _make_issue_title(subject: str, body: str) -> str:
