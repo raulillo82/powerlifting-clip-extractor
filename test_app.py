@@ -4,6 +4,7 @@ import json
 import shutil
 import threading
 import time
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -226,6 +227,48 @@ class TestStatusJson:
             r = client.get("/status/abc12345/json")
         assert r.status_code == 200
         assert json.loads(r.data)["status"] == "done"
+
+
+class TestDownloadZipFile:
+    @pytest.fixture
+    def done_job(self, tmp_path):
+        out_dir = tmp_path / "job"
+        out_dir.mkdir()
+        (out_dir / "squat.mp4").write_bytes(b"video" * 1000)
+        job_id = "zipjob"
+        flask_app.jobs[job_id] = {"status": "done", "log": "", "output_dir": str(out_dir),
+                                  "expires_at": time.time() + 3600}
+        yield job_id, out_dir
+        flask_app.jobs.pop(job_id, None)
+
+    def test_clips_are_stored_without_compression(self, client, done_job):
+        job_id, _ = done_job
+
+        response = client.get(f"/download/{job_id}/zip")
+
+        with zipfile.ZipFile(io.BytesIO(response.data)) as zf:
+            info = zf.getinfo("squat.mp4")
+            assert info.compress_type == zipfile.ZIP_STORED
+            assert zf.read(info) == b"video" * 1000
+
+    def test_the_zip_is_built_once_and_stays_in_the_job_directory(self, client, done_job):
+        job_id, out_dir = done_job
+
+        with patch("app._build_zip", wraps=flask_app._build_zip) as build:
+            client.get(f"/download/{job_id}/zip").close()
+            client.get(f"/download/{job_id}/zip").close()
+
+        assert build.call_count == 1
+        assert sorted(p.name for p in out_dir.iterdir()) == ["clips.zip", "squat.mp4"]
+
+    def test_a_failed_build_leaves_nothing_behind(self, tmp_path):
+        (tmp_path / "squat.mp4").write_bytes(b"video")
+
+        with patch("zipfile.ZipFile.write", side_effect=OSError("disk full")), \
+             pytest.raises(OSError):
+            flask_app._build_zip(tmp_path, tmp_path / "clips.zip")
+
+        assert [p.name for p in tmp_path.iterdir()] == ["squat.mp4"]
 
 
 # ── /download/<id>/zip ────────────────────────────────────────────────────────
