@@ -154,6 +154,7 @@ YOUTUBE_CHANNEL_WHITELIST: list[str] = [
     "@usapowerlifting1",         # USA Powerlifting (USAPL)
     "@canadapowerlifting",       # Canadian Powerlifting Union (CPU)
     "@powerliftingamerica",      # Powerlifting America (IPF affiliate, USA)
+    "@goodlift-tv",              # thegoodlifttv (EPF Masters championships)
 ]
 
 
@@ -200,6 +201,26 @@ _EXTRA_PLAYLISTS: dict[str, list[dict]] = {
     "ipf": [
         {"title": "IPF World Masters Powerlifting 2026 · Powerlifting America",
          "url": "https://www.youtube.com/playlist?list=PLcCFHlHUogXw"},
+    ],
+    # EPF Masters championships are streamed by thegoodlifttv, not by the
+    # EPF channel.
+    "epf": [
+        {"title": "2026 European Masters Classic Powerlifting Championships · thegoodlifttv",
+         "url": "https://www.youtube.com/playlist?list=PLmoJpVW7duNoqZsWjx0gvdqRVBOTwzWq7"},
+        {"title": "2026 European Masters Equipped Powerlifting Championships · thegoodlifttv",
+         "url": "https://www.youtube.com/playlist?list=PLmoJpVW7duNrAqIUsMhrcnokpDvgU5JDt"},
+        {"title": "2025 European Masters Classic Powerlifting Championships · thegoodlifttv",
+         "url": "https://www.youtube.com/playlist?list=PLmoJpVW7duNqCQKK_A8Qm_liHq1aNsX8d"},
+        {"title": "2025 European Masters Equipped Powerlifting Championships · thegoodlifttv",
+         "url": "https://www.youtube.com/playlist?list=PLmoJpVW7duNoA4e2dgbKsEAAemkZiq_bN"},
+        {"title": "2024 European Masters Classic Powerlifting Championships · thegoodlifttv",
+         "url": "https://www.youtube.com/playlist?list=PLmoJpVW7duNrXvoVFlMCCbh-dfK_oxrqT"},
+        {"title": "2024 European Masters Equipped Powerlifting Championships · thegoodlifttv",
+         "url": "https://www.youtube.com/playlist?list=PLmoJpVW7duNoeo63NoJGOMky76bHePWF3"},
+        {"title": "2023 European Masters Classic Powerlifting Championships · thegoodlifttv",
+         "url": "https://www.youtube.com/playlist?list=PLmoJpVW7duNq_GJn79iBrgaYeiUysrBKg"},
+        {"title": "2023 European Masters Equipped Powerlifting Championships · thegoodlifttv",
+         "url": "https://www.youtube.com/playlist?list=PLmoJpVW7duNopdr_AW5XVObhNgpVf0-ag"},
     ],
 }
 
