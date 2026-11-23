@@ -1016,7 +1016,8 @@ class TestExtraPlaylists:
         stdout = "\n".join(entries) + "\n"
         mock_result = type("R", (), {"stdout": stdout, "returncode": 0})()
         with patch("subprocess.run", return_value=mock_result), \
-             patch.dict(flask_app._EXTRA_PLAYLISTS, extras, clear=True):
+             patch.dict(flask_app._EXTRA_PLAYLISTS, extras, clear=True), \
+             patch.object(flask_app, "_SHARED_CHANNELS", []):
             return flask_app._fetch_channel_playlists(source)
 
     def test_extras_go_first_in_their_year(self):
@@ -1051,16 +1052,103 @@ class TestExtraPlaylists:
         urls = [e["url"] for extras in flask_app._EXTRA_PLAYLISTS.values() for e in extras]
         assert len(urls) == len(set(urls))
 
-    def test_epf_masters_are_listed_by_year(self):
-        data = self._fetch("epf", [
-            self._playlist("2026 European Open Classic Powerlifting Championships", "A"),
-        ], {"epf": flask_app._EXTRA_PLAYLISTS["epf"]})
-        for year in ("2026", "2025", "2024", "2023"):
-            titles = [e["title"] for e in data[year]]
-            assert any("Masters Classic" in t for t in titles), year
-            assert any("Masters Equipped" in t for t in titles), year
-        assert data["2026"][-1]["url"] == "https://www.youtube.com/playlist?list=A"
 
+
+class TestSharedChannels:
+    OFFICIAL = "https://www.youtube.com/@official/playlists"
+    SHARED = "https://www.youtube.com/@shared/playlists"
+
+    @staticmethod
+    def _playlist(title, list_id):
+        url = f"https://www.youtube.com/playlist?list={list_id}"
+        return json.dumps({"title": title, "url": url, "webpage_url": url})
+
+    def _fetch(self, source, official, shared, shared_fails=False):
+        def run(cmd, **kwargs):
+            if cmd[-1] == self.SHARED:
+                if shared_fails:
+                    return type("R", (), {"stdout": "", "stderr": "boom", "returncode": 1})()
+                lines = shared
+            else:
+                lines = official
+            return type("R", (), {"stdout": "\n".join(lines) + "\n", "returncode": 0})()
+
+        channels = [{"name": "shared", "url": self.SHARED,
+                     "filters": flask_app._SHARED_CHANNELS[0]["filters"]}]
+        with patch("subprocess.run", side_effect=run), \
+             patch.dict(flask_app._SOURCES, {source: self.OFFICIAL}), \
+             patch.dict(flask_app._EXTRA_PLAYLISTS, {}, clear=True), \
+             patch.object(flask_app, "_SHARED_CHANNELS", channels):
+            return flask_app._fetch_channel_playlists(source)
+
+    SHARED_TITLES = [
+        ("2026 European Masters Classic Powerlifting Championships", "M"),
+        ("2025 EUROPEAN MASTER CLASSIC POWERLIFTING CHAMPIONSHIP", "M25"),
+        ("2026 Western European Championships", "W"),
+        ("2026 European Bench Press Championship 2026", "B"),
+        ("2024 European University Cup Classic Powerlifting", "U"),
+        ("2018 Arnold Classic Europe", "A"),
+        ("2011 EPF Western European Men's Championships", "E"),
+        ("2023 World Bench Press Championships", "WB"),
+        ("2025 IPF University Cup Powerlifting", "IU"),
+        ("2012 IPF World Open - The Lifters -", "IW"),
+        ("2026 Deepfake Highlights", "X"),
+    ]
+
+    def _ids(self, data):
+        return {e["url"].rsplit("=", 1)[1] for year in data.values() for e in year}
+
+    def _shared(self):
+        return [self._playlist(t, i) for t, i in self.SHARED_TITLES]
+
+    def test_epf_takes_european_and_epf_titles(self):
+        data = self._fetch("epf", [], self._shared())
+        assert self._ids(data) == {"M", "M25", "W", "B", "U", "A", "E"}
+
+    def test_ipf_takes_world_and_ipf_titles(self):
+        data = self._fetch("ipf", [], self._shared())
+        assert self._ids(data) == {"WB", "IU", "IW"}
+
+    def test_filters_ignore_case_and_whole_word(self):
+        pattern = flask_app._SHARED_CHANNELS[0]["filters"]
+        assert pattern["epf"].search("2027 epf cup")
+        assert pattern["ipf"].search("2027 WORLDS")
+        assert not pattern["epf"].search("2026 Deepfake Highlights")
+        assert not pattern["ipf"].search("2026 Tipfest")
+
+    def test_title_matching_both_sources_is_in_both(self):
+        shared = [self._playlist("2027 IPF/EPF Cup", "BOTH")]
+        assert self._ids(self._fetch("epf", [], shared)) == {"BOTH"}
+        assert self._ids(self._fetch("ipf", [], shared)) == {"BOTH"}
+
+    def test_sources_without_filter_ignore_shared_channel(self):
+        data = self._fetch("aep", [self._playlist("Nacional 2026", "N")], self._shared())
+        assert self._ids(data) == {"N"}
+
+    def test_official_channel_goes_before_shared_in_year(self):
+        data = self._fetch("epf", [self._playlist("2026 European Open Classic", "O")],
+                           [self._playlist("2026 Western European Championships", "W")])
+        assert [e["url"][-1] for e in data["2026"]] == ["O", "W"]
+
+    def test_shared_channel_failure_keeps_official_playlists(self):
+        data = self._fetch("epf", [self._playlist("2026 European Open Classic", "O")],
+                           [], shared_fails=True)
+        assert self._ids(data) == {"O"}
+
+    def test_official_channel_failure_still_raises(self):
+        def run(cmd, **kwargs):
+            return type("R", (), {"stdout": "", "stderr": "boom", "returncode": 1})()
+        with patch("subprocess.run", side_effect=run), pytest.raises(RuntimeError):
+            flask_app._fetch_channel_playlists("epf")
+
+    def test_entries_only_expose_title_and_url(self):
+        data = self._fetch("epf", [], self._shared())
+        assert all(set(e) == {"title", "url"} for year in data.values() for e in year)
+
+    def test_shared_channels_are_whitelisted(self):
+        for channel in flask_app._SHARED_CHANNELS:
+            assert flask_app._channel_whitelisted(channel["url"])
+            assert set(channel["filters"]) <= set(flask_app._SOURCES)
 
 class TestHistory:
     def test_history_returns_200(self, client):
