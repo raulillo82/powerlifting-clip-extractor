@@ -154,7 +154,7 @@ YOUTUBE_CHANNEL_WHITELIST: list[str] = [
     "@usapowerlifting1",         # USA Powerlifting (USAPL)
     "@canadapowerlifting",       # Canadian Powerlifting Union (CPU)
     "@powerliftingamerica",      # Powerlifting America (IPF affiliate, USA)
-    "@goodlift-tv",              # thegoodlifttv (EPF Masters championships)
+    "@goodlift-tv",              # thegoodlifttv (EPF and IPF championships)
 ]
 
 
@@ -202,27 +202,21 @@ _EXTRA_PLAYLISTS: dict[str, list[dict]] = {
         {"title": "IPF World Masters Powerlifting 2026 · Powerlifting America",
          "url": "https://www.youtube.com/playlist?list=PLcCFHlHUogXw"},
     ],
-    # EPF Masters championships are streamed by thegoodlifttv, not by the
-    # EPF channel.
-    "epf": [
-        {"title": "2026 European Masters Classic Powerlifting Championships · thegoodlifttv",
-         "url": "https://www.youtube.com/playlist?list=PLmoJpVW7duNoqZsWjx0gvdqRVBOTwzWq7"},
-        {"title": "2026 European Masters Equipped Powerlifting Championships · thegoodlifttv",
-         "url": "https://www.youtube.com/playlist?list=PLmoJpVW7duNrAqIUsMhrcnokpDvgU5JDt"},
-        {"title": "2025 European Masters Classic Powerlifting Championships · thegoodlifttv",
-         "url": "https://www.youtube.com/playlist?list=PLmoJpVW7duNqCQKK_A8Qm_liHq1aNsX8d"},
-        {"title": "2025 European Masters Equipped Powerlifting Championships · thegoodlifttv",
-         "url": "https://www.youtube.com/playlist?list=PLmoJpVW7duNoA4e2dgbKsEAAemkZiq_bN"},
-        {"title": "2024 European Masters Classic Powerlifting Championships · thegoodlifttv",
-         "url": "https://www.youtube.com/playlist?list=PLmoJpVW7duNrXvoVFlMCCbh-dfK_oxrqT"},
-        {"title": "2024 European Masters Equipped Powerlifting Championships · thegoodlifttv",
-         "url": "https://www.youtube.com/playlist?list=PLmoJpVW7duNoeo63NoJGOMky76bHePWF3"},
-        {"title": "2023 European Masters Classic Powerlifting Championships · thegoodlifttv",
-         "url": "https://www.youtube.com/playlist?list=PLmoJpVW7duNq_GJn79iBrgaYeiUysrBKg"},
-        {"title": "2023 European Masters Equipped Powerlifting Championships · thegoodlifttv",
-         "url": "https://www.youtube.com/playlist?list=PLmoJpVW7duNopdr_AW5XVObhNgpVf0-ag"},
-    ],
 }
+
+# Channels that stream competitions of several sources. Their playlists are
+# assigned to a source by title (case-insensitive); a title that matches more
+# than one source is shown in all of them.
+_SHARED_CHANNELS: list[dict] = [
+    {
+        "name": "thegoodlifttv",
+        "url": "https://www.youtube.com/@goodlift-tv/playlists",
+        "filters": {
+            "epf": _re.compile(r"europ|\bepf\b", _re.IGNORECASE),
+            "ipf": _re.compile(r"world|\bipf\b", _re.IGNORECASE),
+        },
+    },
+]
 
 # (timestamp, grouped_data)
 _channel_cache: dict[str, tuple[float, dict]] = {}
@@ -242,14 +236,12 @@ def _clean_title(raw: str) -> str:
     return title[:95] + "…" if len(title) > 95 else title
 
 
-def _fetch_channel_playlists(source: str) -> dict:
-    """Fetch channel /playlists page and return competitions grouped by year.
+def _list_channel_playlists(channel_url: str) -> list[tuple[str, dict]]:
+    """Return [(year, {title, url}), ...] for the playlists of a channel.
 
-    Each entry is a playlist (one competition). Year is extracted from the
-    title since /playlists metadata never includes upload_date/timestamp.
-    Returns {year: [{title, url}, ...]} sorted newest-first.
+    Year is extracted from the title since /playlists metadata never
+    includes upload_date/timestamp. The raw title is kept for filtering.
     """
-    channel_url = _SOURCES[source]
     result = subprocess.run(
         ["yt-dlp", "--flat-playlist", "-j", "--quiet",
          "--playlist-end", "200", channel_url],
@@ -258,7 +250,7 @@ def _fetch_channel_playlists(source: str) -> dict:
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "yt-dlp failed")
 
-    by_year: dict[str, list[dict]] = {}
+    playlists = []
     for line in result.stdout.splitlines():
         if not line.strip():
             continue
@@ -276,10 +268,42 @@ def _fetch_channel_playlists(source: str) -> dict:
         if "playlist?list=" not in url and "/playlist/" not in url:
             continue
 
-        title = _clean_title(raw_title)
         m = _re.search(r"\b(20\d{2})\b", raw_title)
         year = m.group(1) if m else "?"
-        by_year.setdefault(year, []).append({"title": title, "url": url})
+        playlists.append((year, {"title": _clean_title(raw_title), "url": url,
+                                 "raw_title": raw_title}))
+    return playlists
+
+
+def _fetch_channel_playlists(source: str) -> dict:
+    """Return the competitions of a source grouped by year, newest first.
+
+    Each entry is a playlist (one competition): {title, url}. Within a year,
+    hand-listed extras come first, then the source's own channel, then
+    shared channels. A shared channel that fails is skipped so the source
+    still works.
+    """
+    by_year: dict[str, list[dict]] = {}
+
+    def add(year: str, entry: dict) -> None:
+        by_year.setdefault(year, []).append(
+            {"title": entry["title"], "url": entry["url"]})
+
+    for year, entry in _list_channel_playlists(_SOURCES[source]):
+        add(year, entry)
+
+    for channel in _SHARED_CHANNELS:
+        pattern = channel["filters"].get(source)
+        if pattern is None:
+            continue
+        try:
+            playlists = _list_channel_playlists(channel["url"])
+        except Exception as e:
+            print(f"[channel] {channel['name']} unavailable: {e}", file=sys.stderr)
+            continue
+        for year, entry in playlists:
+            if pattern.search(entry["raw_title"]):
+                add(year, entry)
 
     for extra in reversed(_EXTRA_PLAYLISTS.get(source, [])):
         m = _re.search(r"\b(20\d{2})\b", extra["title"])
