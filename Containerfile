@@ -3,7 +3,7 @@
 # index of "latest", not the one of a single architecture, and "latest" has to stay:
 # the dated tags of this registry only carry some architectures each, so one of
 # them can lack arm64.
-FROM registry.opensuse.org/opensuse/tumbleweed:latest@sha256:6fd5004406983816029c5cb235d10ebc15925cbd3288d795c3726257772d5ad4
+FROM registry.opensuse.org/opensuse/tumbleweed:latest@sha256:8d75d2997058df2cd0821d07e17a285b4548e77781a88c0dae8d1b17dbca3c1b
 
 # Tumbleweed is a rolling release: installing today's packages on top of an
 # older base image leaves mismatched libraries (ffmpeg fails to start), so
