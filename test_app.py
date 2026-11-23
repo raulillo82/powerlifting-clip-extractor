@@ -929,6 +929,9 @@ class TestChannelWhitelisted:
         assert flask_app._channel_whitelisted(
             "https://www.youtube.com/@powerliftingamerica"
         )
+        assert flask_app._channel_whitelisted(
+            "https://www.youtube.com/@goodlift-tv"
+        )
 
 class TestChannelSearch:
     YT_RESULT = json.dumps({
@@ -1043,6 +1046,20 @@ class TestExtraPlaylists:
             assert source in flask_app._SOURCES
             for extra in extras:
                 assert "youtube.com/playlist?list=" in extra["url"]
+
+    def test_configured_extras_have_unique_urls(self):
+        urls = [e["url"] for extras in flask_app._EXTRA_PLAYLISTS.values() for e in extras]
+        assert len(urls) == len(set(urls))
+
+    def test_epf_masters_are_listed_by_year(self):
+        data = self._fetch("epf", [
+            self._playlist("2026 European Open Classic Powerlifting Championships", "A"),
+        ], {"epf": flask_app._EXTRA_PLAYLISTS["epf"]})
+        for year in ("2026", "2025", "2024", "2023"):
+            titles = [e["title"] for e in data[year]]
+            assert any("Masters Classic" in t for t in titles), year
+            assert any("Masters Equipped" in t for t in titles), year
+        assert data["2026"][-1]["url"] == "https://www.youtube.com/playlist?list=A"
 
 
 class TestHistory:
