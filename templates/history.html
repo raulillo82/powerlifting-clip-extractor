@@ -3,69 +3,162 @@
 
 <h2 class="mb-4" data-i18n="hist.title">Mis extracciones</h2>
 
-{% if not jobs %}
+{% if not sessions %}
   <p class="text-muted" data-i18n="hist.empty">Aún no tienes extracciones.</p>
 {% else %}
 <div class="list-group">
-  {% for job in jobs %}
-  {% set is_done     = job.status == 'done' %}
-  {% set is_expired  = job.expired %}
-  {% set is_error    = job.status == 'error' %}
-  {% set is_active   = job.status in ('queued', 'running') %}
+  {% for session in sessions %}
+  {% set ocr = session.ocr_job %}
+  {% set dls = session.downloads %}
+  {% set latest_dl = dls[-1] if dls else none %}
+  {% set ls = session.label_src %}
+
   <div class="list-group-item px-3 py-2">
+
+    {# ── Header row ── #}
     <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
 
-      {# Left: time + mode + description #}
-      <div>
+      {# Left: timestamp + mode + label #}
+      <div style="min-width:0">
         <small class="text-muted">
-          {% if job.queued_at %}{{ (job.queued_at | int) | datetimeformat }} · {% endif %}<span data-i18n="hist.mode.{{ job.mode or 'full' }}">{{ job.mode or 'full' }}</span>
+          {% if ls and ls.queued_at %}{{ (ls.queued_at | int) | datetimeformat }} · {% endif %}
+          {% if session.ocr_active or session.ocr_pending %}
+            <span data-i18n="hist.mode.ocr">Escaneo OCR</span>
+          {% elif ls %}
+            <span data-i18n="hist.mode.{{ ls.mode or 'full' }}">{{ ls.mode or 'full' }}</span>
+          {% endif %}
+          {% if session.n_downloads > 1 %}
+            · {{ session.n_downloads }} <span data-i18n="hist.versions">versiones</span>
+          {% endif %}
         </small>
         <div class="mt-1">
-          {% if job.session_label %}
+          {% if ls and ls.session_label %}
             <span class="small fw-semibold">
-              {% if job.source and job.source != 'custom' %}
-                <span data-i18n="source.{{ job.source }}">{{ job.source | upper }}</span> ·
+              {% if ls.source and ls.source != 'custom' %}
+                <span data-i18n="source.{{ ls.source }}">{{ ls.source | upper }}</span> ·
               {% endif %}
-              {{ job.session_label }}
+              {{ ls.session_label }}
             </span>
-          {% elif job.source == 'custom' or not job.source %}
+          {% elif not ls or ls.source == 'custom' or not ls.source %}
             <span class="small text-muted" data-i18n="hist.custom_url">URL personalizada</span>
-            {% if job.submitted_url %}
-            <a href="{{ job.submitted_url }}" target="_blank" rel="noopener"
-               class="text-decoration-none text-muted small ms-1 text-truncate d-inline-block"
-               style="max-width:300px;vertical-align:bottom">{{ job.submitted_url }}</a>
+            {% if ls and ls.submitted_url %}
+              <a href="{{ ls.submitted_url }}" target="_blank" rel="noopener"
+                 class="text-decoration-none text-muted small ms-1 text-truncate d-inline-block"
+                 style="max-width:280px;vertical-align:bottom">{{ ls.submitted_url }}</a>
             {% endif %}
           {% else %}
             <span class="small text-muted">
-              <span data-i18n="source.{{ job.source }}">{{ job.source | upper }}</span>
+              <span data-i18n="source.{{ ls.source }}">{{ ls.source | upper }}</span>
             </span>
           {% endif %}
         </div>
       </div>
 
-      {# Right: badge + actions #}
+      {# Right: status badge + actions + toggle #}
       <div class="d-flex align-items-center gap-2 flex-wrap">
-        {% if is_expired %}
-          <span class="badge bg-secondary" data-i18n="hist.expired">Expirado</span>
-        {% elif is_done %}
+
+        {# Status badge #}
+        {% if session.ocr_active %}
+          <span class="badge bg-warning text-dark" data-i18n="hist.status.ocr_running">Escaneando OCR…</span>
+        {% elif session.ocr_pending %}
+          <span class="badge bg-info text-dark" data-i18n="hist.status.pending_review">Pendiente de revisión</span>
+        {% elif session.dl_active %}
+          <span class="badge bg-warning text-dark" data-i18n="hist.status.downloading">Generando vídeos…</span>
+        {% elif session.has_done_dl %}
           <span class="badge bg-success" data-i18n="hist.status.done">Listo</span>
-          {% if job.job_id %}
-          <a href="{{ url_for('download_zip', job_id=job.job_id) }}"
-             class="btn btn-sm btn-success" data-i18n="hist.download">Descargar</a>
-          {% endif %}
-        {% elif is_error %}
+        {% elif latest_dl and latest_dl.expired %}
+          <span class="badge bg-secondary" data-i18n="hist.expired">Expirado</span>
+        {% elif latest_dl and latest_dl.status == 'error' %}
           <span class="badge bg-danger" data-i18n="hist.status.error">Error</span>
-        {% elif is_active %}
-          <span class="badge bg-warning text-dark"
-                data-i18n="hist.status.{{ job.status }}">{{ job.status }}</span>
+        {% elif ocr and ocr.status == 'error' %}
+          <span class="badge bg-danger" data-i18n="hist.status.error">Error</span>
         {% endif %}
-        {% if job.job_id and not is_expired %}
-        <a href="{{ url_for('status', job_id=job.job_id) }}"
-           class="btn btn-sm btn-outline-secondary" data-i18n="hist.view">Ver estado</a>
+
+        {# Primary action buttons #}
+        {% if session.ocr_active %}
+          <a href="{{ url_for('status', job_id=ocr.job_id) }}"
+             class="btn btn-sm btn-outline-secondary" data-i18n="hist.view_progress">Ver progreso</a>
+        {% elif session.ocr_pending %}
+          <a href="{{ url_for('ocr_review', job_id=ocr.job_id) }}"
+             class="btn btn-sm btn-info" data-i18n="ocr.review.btn">Revisar</a>
+        {% elif session.dl_active %}
+          <a href="{{ url_for('status', job_id=latest_dl.job_id) }}"
+             class="btn btn-sm btn-outline-secondary" data-i18n="hist.view_progress">Ver progreso</a>
+        {% elif session.has_done_dl and not session.show_toggle %}
+          {# Simple single done download: show Download + Ver estado directly #}
+          <a href="{{ url_for('download_zip', job_id=latest_dl.job_id) }}"
+             class="btn btn-sm btn-success" data-i18n="hist.download">Descargar</a>
+          <a href="{{ url_for('status', job_id=latest_dl.job_id) }}"
+             class="btn btn-sm btn-outline-secondary" data-i18n="hist.view">Ver estado</a>
+        {% elif session.has_done_dl and session.show_toggle %}
+          {# Multi-version or re-edit: Download shortcut in header for latest done version #}
+          <a href="{{ url_for('download_zip', job_id=latest_dl.job_id) }}"
+             class="btn btn-sm btn-success" data-i18n="hist.download">Descargar</a>
+        {% elif latest_dl and not latest_dl.expired and latest_dl.status not in ['queued', 'running', 'done'] %}
+          <a href="{{ url_for('status', job_id=latest_dl.job_id) }}"
+             class="btn btn-sm btn-outline-secondary" data-i18n="hist.view">Ver estado</a>
+        {% elif ocr and ocr.status == 'error' %}
+          <form method="post" action="{{ url_for('relaunch_ocr_job', job_id=ocr.job_id) }}" class="d-inline">
+            <button type="submit" class="btn btn-sm btn-warning" data-i18n="btn.relaunch">Relanzar</button>
+          </form>
+          <a href="{{ url_for('status', job_id=ocr.job_id) }}"
+             class="btn btn-sm btn-outline-secondary" data-i18n="hist.ocr_log">Ver log OCR</a>
+        {% endif %}
+
+        {# Toggle button #}
+        {% if session.show_toggle %}
+          <button class="btn btn-sm btn-outline-secondary py-0 px-2"
+                  data-bs-toggle="collapse"
+                  data-bs-target="#sess-{{ loop.index }}"
+                  aria-expanded="false">▼</button>
         {% endif %}
       </div>
-
     </div>
+
+    {# ── Expandable detail ── #}
+    {% if session.show_toggle %}
+    <div class="collapse" id="sess-{{ loop.index }}">
+      <div class="mt-2 pt-2 border-top">
+        {% for dl in dls %}
+          <div class="d-flex justify-content-between align-items-center py-1 gap-2 flex-wrap">
+            <span class="small text-muted">
+              <span data-i18n="hist.version">Versión</span> {{ loop.index }}
+              {% if dl.queued_at %} · {{ (dl.queued_at | int) | datetimeformat }}{% endif %}
+            </span>
+            <div class="d-flex gap-2 flex-wrap">
+              {% if dl.status == 'done' and not dl.expired %}
+                <a href="{{ url_for('download_zip', job_id=dl.job_id) }}"
+                   class="btn btn-sm btn-success" data-i18n="hist.download">Descargar</a>
+              {% elif dl.status in ['queued', 'running'] %}
+                <a href="{{ url_for('status', job_id=dl.job_id) }}"
+                   class="btn btn-sm btn-outline-secondary" data-i18n="hist.view_progress">Ver progreso</a>
+              {% elif dl.expired %}
+                <span class="badge bg-secondary" data-i18n="hist.expired">Expirado</span>
+              {% elif dl.status == 'error' %}
+                <span class="badge bg-danger" data-i18n="hist.status.error">Error</span>
+              {% endif %}
+              {% if not dl.expired and dl.status not in ['queued', 'running'] %}
+                <a href="{{ url_for('status', job_id=dl.job_id) }}"
+                   class="btn btn-sm btn-outline-secondary" data-i18n="hist.view">Ver estado</a>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+
+        <div class="mt-2 pt-1 d-flex gap-2 flex-wrap">
+          {% if session.can_reedit %}
+            <a href="{{ url_for('ocr_review', job_id=ocr.job_id) }}"
+               class="btn btn-sm btn-outline-info" data-i18n="hist.reedit">Re-editar timestamps</a>
+          {% endif %}
+          {% if ocr %}
+            <a href="{{ url_for('status', job_id=ocr.job_id) }}"
+               class="btn btn-sm btn-outline-secondary" data-i18n="hist.ocr_log">Ver log OCR</a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
   </div>
   {% endfor %}
 </div>
